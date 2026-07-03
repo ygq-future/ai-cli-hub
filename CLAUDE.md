@@ -89,7 +89,8 @@ src/
 8. **异步不阻塞主链路**：记忆嵌入、摘要等后台任务失败重试，**绝不阻塞对话收发**。
 9. **命名**：接口 `PascalCase`；事件 `PascalCase`（如 `MessageReceived`）；文件 `kebab-case.ts`；类型集中在 `shared/types`。
 10. **测试**：难测部件（PTY、事件流、审批注入）用 mock Runtime + 事件断言，见 [08-Testing](./docs/08-Testing-Strategy.md)（若存在）。
-11. **维护进度**：每完成一个里程碑或做出关键决策，**更新 [PROGRESS.md](./PROGRESS.md)**（里程碑状态、决策日志、会话 Changelog）。这是跨会话不漂移的关键——下个会话靠它接续。
+11. **维护进度（强制对齐）**：**每完成一个阶段性任务（里程碑/子任务）或做出关键决策，必须立即对齐 [PROGRESS.md](./PROGRESS.md)**（里程碑状态、决策日志、会话 Changelog、下一步）。这是跨会话不漂移的关键——下个会话靠它接续。**未对齐 PROGRESS.md 不算完成本阶段。**
+12. **禁止自动提交 Git**：**每次写完功能/改动后，禁止自动 `git commit` / `git push`，除非用户明确下达提交指令。** 完成后只汇报改了什么，等待用户指令再提交。
 
 ---
 
@@ -121,6 +122,8 @@ bun run lint                # 依赖矩阵 + 风格校验
 - ❌ 把"杀进程"当成"关会话"
 - ❌ 让审批/记忆的后台逻辑阻塞对话主链路
 - ❌ 非白名单用户的请求进入 Core（必须在 Transport 层丢弃）
+- ❌ 未经用户明确指令就 `git commit` / `git push`
+- ❌ 完成阶段性任务后不对齐 PROGRESS.md
 
 ---
 
