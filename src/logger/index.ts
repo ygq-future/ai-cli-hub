@@ -1,11 +1,11 @@
-import pino, { type Logger } from 'pino';
+import pino, { type Logger } from 'pino'
 
-export type { Logger };
+export type { Logger }
 
 export interface LoggerOptions {
-  level?: string;
+  level?: string
   /** 开发环境下用 pino-pretty 美化输出；生产设为 false 输出 JSON。 */
-  pretty?: boolean;
+  pretty?: boolean
 }
 
 /**
@@ -13,7 +13,7 @@ export interface LoggerOptions {
  * 本模块不读 process.env（见 CLAUDE.md：唯一读 env 的地方是 config/）。
  */
 export function createLogger(opts: LoggerOptions = {}): Logger {
-  const { level = 'info', pretty = true } = opts;
+  const { level = 'info', pretty = true } = opts
   return pino(
     pretty
       ? {
@@ -24,5 +24,5 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
           },
         }
       : { level },
-  );
+  )
 }

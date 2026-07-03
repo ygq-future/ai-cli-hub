@@ -24,7 +24,9 @@ module.exports = {
       comment: 'shared/ 是叶子，不依赖任何业务模块',
       severity: 'error',
       from: { path: '^src/shared' },
-      to: { path: '^src/(core|event|config|transport|cli|runtime|approval|repository|storage|memory)' },
+      to: {
+        path: '^src/(core|event|config|transport|cli|runtime|approval|repository|storage|memory)',
+      },
     },
     {
       name: 'config-is-leaf',
@@ -74,4 +76,4 @@ module.exports = {
     tsConfig: { fileName: 'tsconfig.json' },
     doNotFollow: { path: 'node_modules' },
   },
-};
+}

@@ -1,0 +1,11 @@
+node_modules
+dist
+out
+coverage
+drizzle
+bun.lock
+*.tsbuildinfo
+
+# 手写文档（含 Mermaid/表格）暂不交给 Prettier 重排，避免大范围 reflow。
+# 如需格式化文档，删除下面这行即可。
+*.md

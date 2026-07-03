@@ -23,7 +23,7 @@
 
 | # | 里程碑 | 状态 | 备注 |
 |---|---|---|---|
-| M0 | 工程骨架 | ✅ 完成 | Bun+TS / src 骨架 / dependency-cruiser 依赖矩阵 / ESLint 禁 env 越界 / Pino logger / main 启动 |
+| M0 | 工程骨架 | ✅ 完成 | Bun+TS / src 骨架 / dependency-cruiser 依赖矩阵 / ESLint(defineConfig)禁 env 越界 / Prettier 格式化 / Pino logger / main 启动 |
 | M1 | 配置与事件总线 | 🟡 下一个 | config Zod / EventBus + EventMap / logger 订阅全部事件 |
 | M2 | 存储与仓储 | ⬜ | Drizzle 四表 / 迁移 0001 / 四 Repository |
 | M3 | Core 状态机与会话生命周期 | ⬜ | SessionManager / 路由 / MockRuntime 闭环 |
