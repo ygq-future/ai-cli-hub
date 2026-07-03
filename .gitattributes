@@ -1,0 +1,8 @@
+# 统一行尾：仓库内文本一律 LF，避免跨平台 CRLF 噪音
+* text=auto eol=lf
+
+# 二进制文件不做转换
+*.png binary
+*.jpg binary
+*.ico binary
+*.lock binary

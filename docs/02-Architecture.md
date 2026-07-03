@@ -1,0 +1,636 @@
+# 系统架构文档 - AI CLI Remote Control Hub（V1）
+
+> 本文档基于 [01-PRD.md](./01-PRD.md) 编写，将产品需求转化为可落地的技术架构。
+> 阅读对象：核心开发者、Adapter/Transport 插件贡献者、Code Review 人员。
+
+---
+
+## 1. 架构总览
+
+### 1.1 架构目标
+
+| 目标 | 落地手段 |
+|---|---|
+| **低耦合** | Core 只依赖抽象接口（`Transport` / `BaseCLIAdapter` / `Repository`），永不依赖具体实现 |
+| **可扩展** | 新增 CLI / 客户端 / 存储 = 新增一个实现类并注册，Core 零改动 |
+| **事件驱动** | 模块间不直接相互调用，一律通过 Event Bus 发布/订阅 |
+| **安全可控** | 白名单前置拦截 + Human-in-the-loop 审批 + 永久审计 |
+| **资源节约** | PTY 进程按需启停，空闲回收，Session 元数据与运行时解耦 |
+| **智能记忆** | 会话 / 进程双层解耦，记忆分 user-level / conversation-level 两层；事件驱动异步嵌入 + 向量召回，零侵入对话主链路 |
+
+### 1.2 分层视图
+
+系统自上而下分为 **接入层 / 调度层 / 执行层 / 持久层**，Event Bus 与 Config 为横向贯穿的基础设施。
+
+```mermaid
+flowchart TB
+    subgraph Client["客户端"]
+        TG[Telegram]
+        QQ[QQ]
+        WEB[Web / WS]
+    end
+
+    subgraph Transport["接入层 Transport Layer"]
+        TGT[TelegramTransport]
+        QQT[QQTransport]
+        WST[WebSocketTransport]
+    end
+
+    subgraph Core["调度层 Core Hub"]
+        SM[SessionManager<br/>状态机]
+        AUTH[Auth / 白名单]
+        ROUTER[MessageRouter]
+        AGG[MessageAggregator]
+    end
+
+    subgraph Exec["执行层 CLI Adapter & Runtime"]
+        CA[ClaudeCLIAdapter]
+        RT[node-pty Runtime]
+        AD[ApprovalDetector]
+    end
+
+    subgraph Infra["基础设施（横向）"]
+        BUS[[Event Bus]]
+        CFG[Config Module]
+        LOG[Logger]
+    end
+
+    subgraph Persist["持久层 Repository & Storage"]
+        REPO[Repositories]
+        MEM[Memory 模块<br/>嵌入 / 召回]
+        DB[(Postgres + pgvector<br/>via Drizzle)]
+    end
+
+    EMB[[嵌入 API<br/>text-embedding-3-small]]
+
+    Client <--> Transport
+    Transport <--> Core
+    Core <--> Exec
+    Exec <--> Target[Target CLI 进程]
+
+    Core -.发布/订阅.-> BUS
+    Transport -.发布/订阅.-> BUS
+    Exec -.发布/订阅.-> BUS
+    Persist -.订阅.-> BUS
+    LOG -.订阅全部.-> BUS
+    MEM -.订阅 MessageGenerated.-> BUS
+    MEM -->|异步嵌入| EMB
+    REPO --> DB
+    MEM --> REPO
+    CFG -.注入.-> Core & Transport & Exec
+```
+
+> **关键约束**：箭头方向即依赖方向。Core 只向下依赖抽象接口；具体实现（Telegraf、node-pty、Drizzle）永远不出现在 Core 的 import 中。
+
+---
+
+## 2. 依赖规则与模块边界
+
+架构的可维护性由一条铁律保证：**依赖只能指向抽象，不能指向实现**。
+
+```mermaid
+flowchart LR
+    Concrete["具体实现<br/>(telegram/ nodepty/ storage)"] -->|implements| Abstract["抽象接口<br/>(shared/types)"]
+    Core["core/"] -->|depends on| Abstract
+    Core -.->|禁止 ❌| Concrete
+```
+
+### 2.1 模块依赖矩阵
+
+| 模块 | 允许依赖 | 禁止依赖 |
+|---|---|---|
+| `core/` | `event/`, `shared/`, `config/`, 抽象接口 | 任何具体 Transport / Adapter / Storage 实现 |
+| `transport/telegram` | `event/`, `shared/`, `config/`, Telegraf | `core/` 内部实现、`storage/` |
+| `cli/claude` | `event/`, `shared/`, `runtime/`, `approval/` | `transport/`, `storage/` |
+| `repository/` | `storage/`, `shared/` | `core/`, `transport/` |
+| `storage/` | Drizzle, `shared/` | 其它全部业务模块 |
+| `config/` | `process.env`（**全局唯一**）、Zod | 无（叶子模块） |
+| `shared/` | 无（纯类型与工具） | 一切业务模块 |
+
+> **落地验证**：可通过 ESLint `no-restricted-imports` 或 `dependency-cruiser` 在 CI 中强制校验上述矩阵，防止架构腐化。
+
+---
+
+## 3. 核心组件设计
+
+### 3.1 Transport Layer（接入层）
+
+**职责**：屏蔽不同客户端协议差异，向 Core 提供统一的收发消息能力。
+
+```typescript
+interface Transport {
+  readonly platform: Platform;              // 'telegram' | 'qq' | 'websocket'
+  start(): Promise<void>;
+  stop(): Promise<void>;
+
+  sendMessage(chatId: string, content: string): Promise<MessageRef>;
+  editMessage(ref: MessageRef, content: string): Promise<void>;
+  deleteMessage(ref: MessageRef): Promise<void>;
+  sendApproval(chatId: string, card: ApprovalCard): Promise<MessageRef>;
+}
+```
+
+- **入站方向**：收到客户端消息 → 执行白名单校验 → 发布 `MessageReceived` 事件。**非白名单请求在此层静默丢弃，绝不进入 Core。**
+- **出站方向**：订阅 `MessageGenerated` / `ApprovalRequested` 事件 → 调用平台 SDK 发送。
+- `MessageRef` 抽象了 Telegram `message_id`、QQ 消息序号等平台差异，供后续 `editMessage` 定位（流式渲染的关键）。
+
+### 3.2 Core Hub（核心调度）
+
+系统唯一大脑，本身**无状态机业务外的具体逻辑**，只做编排：
+
+- **SessionManager**：维护 Session 生命周期状态机（见 §5）。
+- **Auth**：加载 Config 中的白名单，提供二次鉴权（Transport 已做前置拦截，此处为纵深防御）。
+- **MessageRouter**：将 `MessageReceived` 路由到对应 Session，必要时触发 Adapter 启动。
+- **边界红线**：不写 SQL、不调平台 SDK、不写 PTY 控制字节流，全部下沉到对应层。
+
+### 3.3 Event Bus（事件总线）
+
+模块间通信的**唯一枢纽**。V1 采用进程内类型安全的 EventEmitter 封装。
+
+```typescript
+interface EventBus {
+  emit<E extends keyof EventMap>(type: E, payload: EventMap[E]): void;
+  on<E extends keyof EventMap>(type: E, handler: (p: EventMap[E]) => void): Unsubscribe;
+}
+```
+
+**核心事件目录**：
+
+| 事件 | 发布者 | 主要订阅者 | 语义 |
+|---|---|---|---|
+| `SessionCreated` | Core | Logger / Storage | 会话元数据创建 |
+| `SessionClosed` | Core | Runtime / Storage | 会话终止，触发进程回收 |
+| `MessageReceived` | Transport | Core(Router) | 用户输入到达 |
+| `MessageGenerated` | Aggregator | Transport / Memory | CLI 输出聚合完成，待渲染 |
+| `ApprovalRequested` | Adapter | Core / Transport | 检测到危险操作 |
+| `ApprovalApproved` / `ApprovalRejected` | Transport | Core / Adapter / Audit | 用户决策回调 |
+| `PTYStarted` / `PTYExited` | Runtime | Core / Logger | 进程生命周期 |
+| `MemoryUpdated` | Memory | Logger / Storage | 长期记忆写入（摘要 / 事实 / 向量）完成 |
+| `ErrorOccurred` | 任意 | Logger / Transport | 全局异常上报 |
+
+> **零侵入扩展范例**：接入 RAG 时只需新增 `Memory` 模块订阅 `MessageGenerated`，Core 无感知。
+
+### 3.4 CLI Adapter & Runtime（执行层）
+
+```typescript
+interface BaseCLIAdapter {
+  readonly cliType: CliType;                // 'claude' | 'codex' | ...
+  start(opts: SpawnOptions): Promise<void>;
+  stop(): Promise<void>;
+  sendInput(data: string): void;            // 向 PTY 注入
+  interrupt(): void;                        // Ctrl+C
+  resize(cols: number, rows: number): void;
+  getState(): AdapterState;
+  onData(handler: (chunk: string) => void): Unsubscribe;
+}
+```
+
+- **Adapter** 负责协议语义：拼装启动参数、解析输出、通过 **ApprovalDetector** 识别审批点（正则匹配 `[Y/n]` 或解析 SDK Tool Call），抛出统一 `ApprovalEvent`。
+- **Runtime** 是底层容器（`node-pty` 或官方 SDK），对 Core 完全透明。Adapter 依赖 `Runtime` 接口而非具体实现，未来可无缝替换为 SDK 模式。
+
+```mermaid
+flowchart LR
+    Core -->|abstract| Adapter[BaseCLIAdapter]
+    Adapter -->|abstract| Runtime[Runtime]
+    Runtime --> pty[node-pty]
+    Runtime -.future.-> sdk[Official SDK]
+    Adapter --> Detector[ApprovalDetector]
+```
+
+### 3.5 Message Aggregator（消息聚合器）
+
+位于 **PTY 输出** 与 **Transport 发送** 之间的缓冲过滤层，是流式体验与平台限流之间的缓冲带。
+
+```mermaid
+flowchart LR
+    PTY[PTY onData<br/>高频 chunk] --> BUF[Buffer 累积]
+    BUF --> DEB{Debounce<br/>静默 N ms?}
+    DEB -->|否/持续输出| THR[Throttle<br/>最小 Edit 间隔]
+    DEB -->|是| FLUSH[Flush]
+    THR --> FLUSH
+    FLUSH --> MD[Markdown 合并<br/>+ 超长拆分]
+    MD --> EV[发布 MessageGenerated]
+```
+
+- **Debounce**：输出静默一段时间后触发 flush，避免逐字符刷屏。
+- **Throttle**：控制 `editMessage` 频率，规避 Telegram 的 Edit 限流（约 1 次/秒）。
+- **拆分**：超过平台单条上限（TG 4096 字符）时自动分段。
+
+### 3.6 Repository & Storage（持久层）
+
+```typescript
+interface ConversationRepository {
+  create(c: NewConversation): Promise<Conversation>;
+  updateStatus(id: string, status: SessionStatus): Promise<void>;
+  findById(id: string): Promise<Conversation | null>;
+}
+// MessageRepository / AuditRepository / MemoryRepository 同构
+```
+
+- Repository 层封装全部 Drizzle 查询，Core 与业务模块**永不出现 SQL**。
+- Storage 层负责连接、建表、迁移（Drizzle Kit）。V1 直接采用 **Postgres**；`pgvector` 扩展用于向量列（见 §7），关系数据与向量共库，无需独立向量服务。
+
+### 3.7 Config Module（全局配置）
+
+- **全项目唯一** 读取 `process.env` 的位置，其余模块通过依赖注入获取强类型配置对象。
+- 使用 Zod 在启动时一次性校验，缺失/非法配置直接 fail-fast，杜绝运行期"配置未定义"。
+
+```typescript
+const ConfigSchema = z.object({
+  TELEGRAM_BOT_TOKEN: z.string().min(1),
+  WHITELIST_USER_IDS: z.string().transform(s => s.split(',')),
+
+  // 存储
+  DATABASE_URL: z.string().url(),                    // postgres://user:pass@host:5432/hub
+
+  // 记忆 / 嵌入
+  EMBEDDING_API_KEY: z.string().min(1),
+  EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
+  MEMORY_RECALL_TOP_K: z.coerce.number().default(6), // 召回注入条数
+
+  // 生命周期超时
+  PTY_IDLE_TIMEOUT_MS: z.coerce.number().default(300_000),      // 进程回收（5min）
+  SESSION_ARCHIVE_DAYS: z.coerce.number().default(7),           // 会话自动归档（天）
+});
+export type AppConfig = z.infer<typeof ConfigSchema>;
+```
+
+---
+
+## 4. 端到端数据流
+
+### 4.1 正常对话时序
+
+```mermaid
+sequenceDiagram
+    participant U as 用户(TG)
+    participant T as Transport
+    participant B as EventBus
+    participant C as Core
+    participant M as Memory
+    participant A as Adapter/Runtime
+    participant G as Aggregator
+    participant R as Repository
+
+    U->>T: 发送消息
+    T->>T: 白名单校验
+    T->>B: emit MessageReceived
+    B->>C: 路由到活跃 Session
+    C->>M: 召回相关记忆 Top-K（向量检索）
+    M-->>C: 拼接为上下文前缀
+    C->>C: 状态 idle→Starting（如无 Runtime）
+    C->>A: start() / sendInput(记忆+用户输入)
+    C->>R: 保存 user message
+    A-->>G: onData 流式 chunk
+    G->>B: emit MessageGenerated（聚合后）
+    B->>T: editMessage 流式刷新
+    B->>R: 保存 assistant message
+    B->>M: 异步：抽取事实 / 生成摘要 / 调嵌入 API 写向量
+    A->>B: PTYExited（空闲回收后，Session 转 idle）
+```
+
+> **两个记忆钩子**：① 入站侧「召回注入」——用户消息进 CLI 前先取 Top-K 记忆拼进上下文；② 出站侧「异步写入」——`MessageGenerated` 后台触发嵌入与摘要，**不阻塞**对话主链路。详见 §7。
+
+### 4.2 审批（Human-in-the-loop）时序
+
+```mermaid
+sequenceDiagram
+    participant A as Adapter
+    participant B as EventBus
+    participant C as Core
+    participant T as Transport
+    participant U as 用户
+    participant AU as AuditRepository
+
+    A->>A: ApprovalDetector 命中危险操作
+    A->>B: emit ApprovalRequested
+    B->>C: SessionState → WaitingApproval
+    B->>T: sendApproval（Markdown 卡片 + [Approve]/[Reject]）
+    T->>U: 展示内联按钮
+    U->>T: 点击 Approve
+    T->>B: emit ApprovalApproved
+    B->>AU: 记录审批（时间/操作人/内容/决策）
+    B->>A: 注入 "y\r"
+    B->>C: SessionState → Running
+    Note over T,U: 拒绝 → 注入 "n\r" 或 interrupt()(Ctrl+C)
+```
+
+---
+
+## 5. 会话生命周期与状态机
+
+本系统有**两条独立的生命周期**，PRD 曾将二者混为一谈，此处明确拆分：
+
+| 层 | 存活位置 | 单位 | 回收/结束条件 |
+|---|---|---|---|
+| **会话层 Conversation** | Postgres（长期） | 一次连续工作任务 / 一个项目上下文 | 显式 `/close` 或 `SESSION_ARCHIVE_DAYS` 天无活动 → 归档 |
+| **进程层 PTY Runtime** | 内存（临时） | 一个 node-pty 子进程 | `PTY_IDLE_TIMEOUT_MS` 空闲 → 杀进程省内存 |
+
+> **核心区分**：`进程被回收` ≠ `会话被关闭`。进程回收后会话状态是 **`idle`**（可随时唤醒复用），只有 `/close` 或长期无活动才进入 **`closed`（归档）**。
+
+### 5.1 什么时候新建一个会话（会话边界策略）
+
+采用 **cwd 复用 + 显式命令 + 自动归档** 的混合策略：
+
+```mermaid
+flowchart TD
+    MSG[收到用户消息] --> NEW{显式 /new ?}
+    NEW -->|是| CREATE[新建 conversation<br/>旧活跃会话转 idle]
+    NEW -->|否| FIND{存在<br/>user+cli+cwd<br/>的活跃会话?}
+    FIND -->|是| REUSE[复用该会话]
+    FIND -->|否| CREATE
+    CREATE --> RUN[进入会话]
+    REUSE --> RUN
+```
+
+- **默认复用**：以 `(user_id, cli, cwd)` 三元组定位活跃会话，发消息即接着上次聊。
+- **`/new`**：强制开新会话（切换任务时），旧会话转 `idle` 保留。
+- **`/close`**：显式结束，触发归档并生成 episodic 摘要（见 §7）。
+- **自动归档**：超过 `SESSION_ARCHIVE_DAYS` 无活动的 `idle` 会话自动转 `closed` 并生成摘要。
+- **cwd 隔离**：不同项目目录天然分属不同会话，记忆据此按项目隔离。
+
+### 5.2 会话状态机
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: SessionCreated
+    Idle --> Starting: MessageReceived（无 Runtime）
+    Starting --> Running: PTYStarted
+    Running --> WaitingApproval: ApprovalRequested
+    WaitingApproval --> Running: Approved / Rejected
+    Running --> Idle: PTY 空闲超时（仅杀进程，会话留存）
+    Idle --> Closing: /close 或 归档超时
+    Running --> Closing: /close
+    Closing --> Closed: 生成 episodic 摘要 + 落库
+    Closed --> [*]
+    note right of Idle
+      进程已回收、会话仍在。
+      下次消息 → Starting 唤醒复用
+    end note
+```
+
+### 5.3 进程按需启停（资源回收）
+
+```mermaid
+flowchart TD
+    M[收到消息] --> Q{Runtime 存在?}
+    Q -->|否| S[启动 Runtime<br/>绑定 Adapter↔Session]
+    Q -->|是| I[持续交互]
+    S --> I
+    I --> W{超出 PTY_IDLE_TIMEOUT?}
+    W -->|否| I
+    W -->|是| K[销毁 Runtime 进程<br/>释放内存]
+    K --> P[会话转 idle<br/>元数据保留于 DB]
+    P --> M
+```
+
+> **收益**：内存占用与活跃进程数解耦，会话数量与 DB 容量挂钩而非内存，VPS 上可承载远超同时在线数的历史会话。
+
+---
+
+## 6. 数据模型
+
+对应 PRD §6，由 Drizzle 定义 Schema。
+
+```mermaid
+erDiagram
+    conversations ||--o{ messages : has
+    conversations ||--o{ audit_logs : has
+    conversations ||--o{ memories : "conv-level"
+
+    conversations {
+        string id PK
+        string platform
+        string user_id
+        string cli
+        string cwd "项目目录，会话边界"
+        string status "active|idle|closed"
+        int created_at
+        int updated_at
+    }
+    messages {
+        string id PK
+        string conversation_id FK
+        string role
+        text content
+        int created_at
+    }
+    audit_logs {
+        string id PK
+        string conversation_id FK
+        text command
+        string action
+        string operator
+        int created_at
+    }
+    memories {
+        string id PK
+        string user_id "跨会话，用户级记忆"
+        string conversation_id FK "可空：user-level 记忆无归属会话"
+        string type "episodic|semantic|preference"
+        text content
+        vector embedding "pgvector，V1.5 启用"
+        string source_message_id
+        real importance "重要度，遗忘依据"
+        int access_count "召回频次"
+        int last_accessed_at "遗忘曲线依据"
+        string tag
+        int created_at
+    }
+```
+
+> `memories.conversation_id` 可空：填值即 conversation-level（本项目/任务情节），为空即 user-level（跨会话画像/偏好）。`embedding` 列在 V1 建表即预留（可 NULL），V1.5 启用 `pgvector` 索引后填充。
+
+| 表 | 写入触发 | 说明 |
+|---|---|---|
+| `conversations` | `SessionCreated` / 状态变更 | 会话全局状态与生命周期；`cwd` 决定会话边界 |
+| `messages` | `MessageReceived` / `MessageGenerated` | 完整对话记录，用于恢复上下文 |
+| `audit_logs` | `ApprovalApproved/Rejected` | **强制、永久**，敏感指令审批留痕 |
+| `memories` | `MemoryUpdated`（订阅 `MessageGenerated` 异步生成） | 长期记忆：摘要 / 事实 / 偏好 + 向量，详见 §7 |
+
+---
+
+## 7. 长期记忆子系统
+
+记忆是本系统区别于"无状态 CLI 代理"的核心能力。设计目标：**跨会话记住用户与项目，且零侵入对话主链路**。
+
+### 7.1 两层记忆模型
+
+| 层 | 归属 | 内容 | `conversation_id` |
+|---|---|---|---|
+| **User-level（用户级）** | `user_id` | 稳定画像、跨项目偏好（"偏好 Bun"、"回答用中文"） | NULL |
+| **Conversation-level（会话级）** | `conversation_id` | 本项目/任务的情节摘要、局部上下文 | 填值 |
+
+"跨会话回放" = 取 **user-level 全部** + **当前会话相关 episodic 摘要**，注入新会话上下文。
+
+### 7.2 记忆分型
+
+| type | 生成方式 | 用途 |
+|---|---|---|
+| `episodic`（情节） | 会话归档 / 滚动时 LLM 摘要 | 记住"上次做了什么" |
+| `semantic`（事实） | 从对话抽取结构化事实 | 记住"用户/项目的稳定属性" |
+| `preference`（偏好） | 抽取 + 去重合并 | 记住"用户希望怎样交互" |
+
+### 7.3 写入侧：异步嵌入（订阅 `MessageGenerated`）
+
+```mermaid
+flowchart LR
+    EV[MessageGenerated] --> MEM[Memory 模块]
+    MEM --> EX[① Extract 抽事实/偏好]
+    MEM --> SUM{② 会话满 N 条<br/>或归档?}
+    SUM -->|是| S[LLM 生成 episodic 摘要]
+    EX --> EMB[③ 调嵌入 API 生成向量]
+    S --> EMB
+    EMB --> W[④ 写 MemoryRepository<br/>emit MemoryUpdated]
+```
+
+- 全程**后台异步**，失败重试，**绝不阻塞** §4.1 的对话主链路。
+- 嵌入统一走 API（`EMBEDDING_MODEL`），批量提交降低成本。
+
+### 7.4 召回侧：向量检索注入（RAG）
+
+```mermaid
+flowchart LR
+    IN[用户新消息] --> Q[嵌入为 query 向量]
+    Q --> KNN[pgvector KNN<br/>user_id 过滤 + Top-K]
+    KNN --> RANK[按 相似度 × importance 重排]
+    RANK --> INJ[拼为上下文前缀<br/>注入 sendInput]
+    INJ --> UPD[命中记忆 access_count++<br/>last_accessed_at 更新]
+```
+
+- `MEMORY_RECALL_TOP_K` 控制注入条数，避免上下文膨胀。
+- 命中即更新访问统计，作为**遗忘/衰减**依据（低 importance + 久未访问的记忆可定期清理或降权）。
+
+### 7.5 分阶段落地（V1 → V1.5）
+
+| 阶段 | 存储 | 检索能力 | 说明 |
+|---|---|---|---|
+| **V1** | Postgres（含预留 `embedding` 列，可 NULL） | 关系查询 + FTS（`user_id` 取回、关键词 BM25） | 先跑通会话/记忆机制与摘要回放 |
+| **V1.5** | 同库启用 `pgvector` + HNSW 索引 | 向量语义召回 Top-K | 填充 `embedding`，接入 §7.4 召回钩子 |
+
+> **一次定库、分阶段加能力**：数据库第一版即 Postgres，避免 SQLite→PG 二次迁移；向量作为召回精度增强在 V1.5 平滑接入，Repository 接口不变，Core 零改动。
+
+---
+
+## 8. 安全架构
+
+采用**纵深防御（Defense in Depth）**，三道防线逐层收敛风险。
+
+```mermaid
+flowchart TB
+    R[外部请求] --> D1
+    subgraph D1["① 边界防线 - Transport"]
+        WL{白名单校验}
+    end
+    WL -->|非白名单| DROP[静默丢弃]
+    WL -->|通过| D2
+    subgraph D2["② 执行防线 - Approval"]
+        AP{危险操作检测}
+    end
+    AP -->|需审批| HITL[Human-in-the-loop 卡片]
+    AP -->|安全| RUN[直接执行]
+    HITL --> D3
+    subgraph D3["③ 审计防线 - Audit"]
+        AL[永久审计日志]
+    end
+    RUN --> AL
+```
+
+1. **白名单前置**：硬编码 User ID 白名单，启动时加载；非白名单请求在 Transport 层直接丢弃，**永不进入 Core**。
+2. **交互式审批**：危险操作触发 `WaitingApproval`，用户通过内联按钮决策；同意注入 `y\r`，拒绝注入 `n\r` 或发 `Ctrl+C`。
+3. **永久审计**：每次审批的时间、操作人、内容、决策结果强制落 `audit_logs`，不可删除。
+
+---
+
+## 9. 目录结构与技术选型映射
+
+### 9.1 目录 → 职责 → 选型
+
+| 目录 | 架构角色 | V1 技术选型 |
+|---|---|---|
+| `core/` | 调度层 / 状态机 | 纯 TypeScript |
+| `event/` | Event Bus | 类型安全 EventEmitter |
+| `config/` | 配置中心 | Zod |
+| `transport/` | 接入层 | Telegraf（TG）/ NapCat+Koishi（QQ） |
+| `cli/` | Adapter | 自研（base + claude） |
+| `runtime/` | 执行容器 | node-pty |
+| `approval/` | 审批检测 | 正则 / SDK 解析 |
+| `repository/` | 数据抽象 | Repository 接口 |
+| `storage/` | 持久化实现 | **Postgres + Drizzle ORM**（V1.5 加 `pgvector`） |
+| `memory/` | 长期记忆子系统 | 嵌入 API（`text-embedding-3-small`）+ pgvector |
+| `logger/` | 全局日志 | Pino |
+| `shared/` | 类型与工具 | 纯 TypeScript |
+
+**运行环境**：Bun；**进程守护**：PM2 / systemd。
+
+### 9.2 启动与装配（Composition Root）
+
+依赖注入的组装点集中在入口，遵循"实现向抽象注册"：
+
+```mermaid
+flowchart TD
+    ENTRY[main.ts / 装配根] --> CFG[加载并校验 Config]
+    CFG --> BUS[创建 EventBus]
+    BUS --> DB[初始化 Storage + Repositories]
+    DB --> CORE[创建 Core Hub 注入 Bus/Repo]
+    CORE --> REG[注册 Adapters: ClaudeCLIAdapter]
+    REG --> TP[启动 Transports: TelegramTransport]
+    TP --> READY[系统就绪]
+```
+
+> 装配根是**唯一**知晓所有具体实现的地方；一旦装配完成，运行期各模块只面向接口协作。
+
+---
+
+## 10. 关键横切关注点
+
+| 关注点 | 架构处理 |
+|---|---|
+| **可观测性** | Logger 订阅全部事件，统一结构化日志（Pino）；`ErrorOccurred` 集中上报 |
+| **背压 / 限流** | Aggregator 的 Throttle 保护 Transport；平台限流不反压到 PTY |
+| **故障隔离** | 单个 Runtime 崩溃发 `PTYExited`，Core 将 Session 置回 `Idle`，不影响其它会话 |
+| **幂等与去重** | 审批回调按 `MessageRef` 去重，防止用户重复点击导致重复注入 |
+| **优雅关闭** | 收到 SIGTERM → 停止 Transport 入站 → flush Aggregator → 销毁全部 Runtime → 关闭 DB |
+
+---
+
+## 11. 演进路线的架构支撑
+
+当前解耦设计保证未来扩展**零侵入 Core**：
+
+```mermaid
+flowchart LR
+    subgraph 新增CLI
+        NC[实现 BaseCLIAdapter] --> RC[装配根注册]
+    end
+    subgraph 新增客户端
+        NT[实现 Transport] --> RT2[装配根注册]
+    end
+    subgraph 新增能力RAG
+        NM[MemoryRepository<br/>订阅 MessageGenerated] --> NV[接入 Vector DB]
+    end
+    RC & RT2 & NM -.->|Core 无需改动| CORE[Core Hub]
+```
+
+| 演进项 | 落地方式 | 影响面 |
+|---|---|---|
+| 新增 Codex / Gemini CLI | 新增 `CodexAdapter` 并注册 | 仅 `cli/` |
+| 新增 HTTP / MCP 客户端 | 新增 `HTTPTransport` 并注册 | 仅 `transport/` |
+| V1.5 启用向量语义召回 | 同库开 `pgvector`，填充 `embedding` 列，接入召回钩子 | 仅 `memory/` + `storage/`，Repository 接口不变 |
+| 记忆遗忘 / 压缩策略 | Memory 模块按 `importance × last_accessed` 定期清理 | 仅 `memory/`，对话主流程零改动 |
+
+---
+
+## 附录：架构决策记录（ADR 摘要）
+
+| # | 决策 | 理由 | 权衡 |
+|---|---|---|---|
+| 1 | Event Bus 作为唯一通信枢纽 | 彻底解耦，支持零侵入扩展 | 调试链路需靠日志串联事件 |
+| 2 | 会话层与进程层双层解耦 | 进程回收省内存，会话长存可唤醒 | 需明确区分 `idle`(回收) 与 `closed`(归档) |
+| 3 | Config 独占 `process.env` | 强类型校验、fail-fast、可测试 | 需依赖注入贯穿全局 |
+| 4 | Aggregator 独立成层 | 隔离平台限流与流式渲染 | 增加一次输出延迟（Debounce 窗口） |
+| 5 | V1 直接选 Postgres + Drizzle | 一次定库避免二次迁移；`pgvector` 可同库存向量 | VPS 多一个 DB 服务进程（docker 一把梭，可接受） |
+| 6 | 记忆分 user / conversation 两层 | user-level 实现跨会话回放，conv-level 承载项目情节 | 记忆归属由 `conversation_id` 是否为空区分 |
+| 7 | 嵌入走 API 而非本地模型 | VPS 不跑模型，省内存运维 | 有网络延迟与调用成本 → 强制异步批量 |
+| 8 | 向量召回分阶段（V1.5 上 pgvector） | V1 先跑通会话/记忆机制，不被召回调优拖慢 | V1 仅关系 + FTS 回放，无语义模糊召回 |
+| 9 | 会话边界 = cwd 复用 + `/new` + 归档 | 贴合 CLI 控制语义，记忆按项目天然隔离 | `conversations` 需加 `cwd` 字段 |
