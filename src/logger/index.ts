@@ -1,6 +1,7 @@
 import pino, { type Logger } from 'pino'
 
 export type { Logger }
+export { attachEventLogger } from './event-logger'
 
 export interface LoggerOptions {
   level?: string

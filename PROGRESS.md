@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-03 · 阶段：**M0 完成，进入 M1（配置与事件总线）**
+> 最后更新：2026-07-03 · 阶段：**M1 完成，进入 M2（存储与仓储）**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **M1 - 配置与事件总线**（未开始） |
-| 代码 | ✅ M0 骨架就绪（可编译、可 lint、可启动） |
+| 当前里程碑 | **M2 - 存储与仓储**（未开始） |
+| 代码 | ✅ M1 就绪（config Zod / EventBus / logger 订阅全部事件；17 单测通过） |
 | 文档 | ✅ 齐全（护栏三件套 + 数据/记忆/命令 + PRD/架构） |
 | 阻塞项 | 无 |
-| 下一步 | M1：config（Zod）+ EventBus + logger 订阅事件（见 §4） |
+| 下一步 | M2：Drizzle 四表 + 迁移 0001 + 四 Repository（见 §4） |
 
 ---
 
@@ -24,8 +24,8 @@
 | # | 里程碑 | 状态 | 备注 |
 |---|---|---|---|
 | M0 | 工程骨架 | ✅ 完成 | Bun+TS / src 骨架 / dependency-cruiser 依赖矩阵 / ESLint(defineConfig)禁 env 越界 / Prettier 格式化 / Pino logger / main 启动 |
-| M1 | 配置与事件总线 | 🟡 下一个 | config Zod / EventBus + EventMap / logger 订阅全部事件 |
-| M2 | 存储与仓储 | ⬜ | Drizzle 四表 / 迁移 0001 / 四 Repository |
+| M1 | 配置与事件总线 | ✅ 完成 | config Zod(fail-fast, 唯一 env 入口) / EventBus(emit/on/once, 订阅者抛错隔离转 ErrorOccurred) + EventMap(Record 同步 ALL_EVENT_TYPES) / logger 订阅全部事件桥 / main 装配；17 单测 |
+| M2 | 存储与仓储 | 🟡 下一个 | Drizzle 四表 / 迁移 0001 / 四 Repository |
 | M3 | Core 状态机与会话生命周期 | ⬜ | SessionManager / 路由 / MockRuntime 闭环 |
 | M4 | Runtime 与 Claude Adapter | ⬜ | node-pty / ClaudeAdapter / 审批检测 |
 | M5 | 消息聚合器 | ⬜ | Buffer/Debounce/Throttle/拆分 |
@@ -57,15 +57,16 @@
 
 ## 4. 下一步行动（Next Actions）
 
-**M1 — 配置与事件总线**（当前）：
-1. `config/`：实现 `ConfigSchema` + `loadConfig()`（Zod，fail-fast），契约见 [03 §6](./docs/03-Interface-Contracts.md)。
-2. `event/`：实现 `EventBus` + 完整 `EventMap`（类型安全 emit/on），见 [03 §1](./docs/03-Interface-Contracts.md)。
-3. `logger/`：新增订阅全部事件的桥接（`bus.on` 每个事件 → 结构化日志）。
-4. `main.ts`：装配 `loadConfig() → createLogger(config) → createEventBus() → 挂 logger`。
-5. 单测：非法 env 抛错；emit/on 类型安全且送达；logger 能打出任一事件。
-6. 通过验收 → 更新本文件（M1 → ✅，M2 → 🟡）→ 进入 M2。
+**M2 — 存储与仓储**（当前）：
+1. `storage/`：Drizzle 连接（Postgres）+ schema 四表（conversations / messages / audit_logs / memories），`embedding` 列预留（pgvector，V1 留空），契约见 [04-数据模型](./docs/04-Data-Model.md)。
+2. `storage/`：`drizzle-kit` 生成迁移 `0001`，补 `db:generate` / `db:migrate` 脚本。
+3. `repository/`：实现四个 Repository（Conversation / Message / Audit / Memory）接口，严格按 [03 §5](./docs/03-Interface-Contracts.md)；`New*` / 读取类型由 `$inferInsert` / `$inferSelect` 推导。
+4. 单测：仓储 CRUD（可用测试库或事务回滚），类型契约对齐。
+5. 通过验收 → 更新本文件（M2 → ✅，M3 → 🟡）→ 进入 M3。
 
-**M0 验收留痕**：`bun run typecheck` ✅ · `bun run lint`（eslint + depcruise 0 违规）✅ · `bun run start` 打印启动日志 ✅
+**M1 验收留痕**：`bun test`（17 通过）✅ · `bun run typecheck` ✅ · `bun run lint`（eslint + depcruise 0 违规，24 模块）✅ · `bun run start` 打印「配置就绪，事件总线已挂载」✅ · 缺失 env 时 fail-fast 抛 `Invalid config` ✅
+
+> 备注：本机需要 `.env`（已 gitignore）方能 `bun run start`；从 `.env.example` 复制即可。新增依赖 `zod@4`。
 
 ---
 
@@ -77,6 +78,8 @@
 |---|---|
 | 2026-07-03 | 撰写 01-PRD、02-Architecture；确定长期记忆方案（Postgres+pgvector、API 嵌入、两层记忆）；同步 PRD/架构；产出护栏文档集（CLAUDE.md、03–07、.env.example）；建立本进度文件 |
 | 2026-07-03 | **M0 完成**：搭建 src 骨架（12 模块）、logger(Pino)、shared 基础类型、dependency-cruiser 依赖矩阵校验、ESLint 禁 env 越界；typecheck/lint/start 三项验收通过 |
+| 2026-07-03 | 补 CLAUDE.md 硬规矩：完成阶段性任务必须对齐 PROGRESS.md；未经指令禁止 git commit/push |
+| 2026-07-03 | **M1 完成**：config（Zod schema + loadConfig，fail-fast，唯一 env 入口，注入 source 便于测试）；event（EventBus emit/on/once，订阅快照安全，订阅者抛错隔离转 ErrorOccurred 且不回环；EventMap + Record 强同步 ALL_EVENT_TYPES）；logger 事件桥（订阅全部事件，级别路由，返回 detach）；main 装配 config→logger→bus→桥；新增依赖 zod@4；17 单测 + typecheck + lint(0 违规) + start 全绿 |
 
 ---
 

@@ -91,6 +91,7 @@ src/
 10. **测试**：难测部件（PTY、事件流、审批注入）用 mock Runtime + 事件断言，见 [08-Testing](./docs/08-Testing-Strategy.md)（若存在）。
 11. **维护进度（强制对齐）**：**每完成一个阶段性任务（里程碑/子任务）或做出关键决策，必须立即对齐 [PROGRESS.md](./PROGRESS.md)**（里程碑状态、决策日志、会话 Changelog、下一步）。这是跨会话不漂移的关键——下个会话靠它接续。**未对齐 PROGRESS.md 不算完成本阶段。**
 12. **禁止自动提交 Git**：**每次写完功能/改动后，禁止自动 `git commit` / `git push`，除非用户明确下达提交指令。** 完成后只汇报改了什么，等待用户指令再提交。
+13. **写完必格式化**：**每次写完/改完代码，必须执行 `bun run format`**（Prettier）再进入验收（typecheck/lint/test）。提交前代码须已格式化，`bun run format:check` 应通过。
 
 ---
 
