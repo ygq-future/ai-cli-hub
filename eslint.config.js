@@ -9,6 +9,17 @@ export default defineConfig([
     files: ['**/*.{js,ts}'],
     // prettier 置于最后，关闭与 Prettier 冲突的样式规则（格式化交给 Prettier）
     extends: [js.configs.recommended, tseslint.configs.recommended, prettier],
+    rules: {
+      // 下划线前缀 = 有意未用（接口/桩实现的占位参数），放行
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
   },
   {
     // CLAUDE.md 铁律：只允许在 src/config/ 读取 process.env
