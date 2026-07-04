@@ -122,51 +122,87 @@ export interface ApprovalCard {
 
 ## 3. CLI Adapter & Runtime（`cli/` + `runtime/` + `approval/`）
 
-### 3.1 BaseCLIAdapter（`cli/base.ts`）
+> **接缝在语义化的 `CLIAdapter`，不在 `Runtime`（决策 D11）。** Core / Transport 只依赖 `CLIAdapter`，它说的是**领域语义**（一轮输入 / 流式输出 / 审批请求+决定 / 生命周期），与「字节还是结构化」无关。字节 vs 结构化的差异**封死在 Adapter 内部**。
+>
+> Adapter 分**两个家族**，同实现 `CLIAdapter`、对 Core 完全同形：
+> - **SDK 家族（Claude 等提供 Agent SDK 的 CLI，V1 首选）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄。输出来自结构化 `SDKMessage`，**审批来自 `canUseTool` 回调**（拿到工具名 + 完整参数），无需 scraping、无 `Runtime`、无 `ApprovalDetector`。
+> - **PTY 家族（无 SDK 的 CLI 备用）**：`XxxPtyAdapter` 内部持 `PtyRuntime`（§3.2）+ 一个 per-CLI `ApprovalDetector`（§3.3）。字节流剥 ANSI 得输出，正则 scraping 认出审批点。**这些脏活被关在 Adapter 内部，不外泄。**
+
+### 3.1 CLIAdapter（`cli/base.ts`）—— Core / Transport 唯一依赖的语义抽象
 
 ```typescript
-export interface BaseCLIAdapter {
+export interface CLIAdapter {
   readonly cliType: CliType;
 
   start(opts: SpawnOptions): Promise<void>;
   stop(): Promise<void>;
-  sendInput(data: string): void;             // 向 PTY 注入（含 "y\r" / "n\r"）
-  interrupt(): void;                         // Ctrl+C
-  resize(cols: number, rows: number): void;
+  interrupt(): void;                                  // Ctrl+C / query.interrupt()
+
+  sendUserInput(text: string): void;                  // 一轮用户输入（字符串在两家族天然成立，非 PTY 泄漏）
+
+  onOutput(handler: (delta: OutputDelta) => void): Unsubscribe;         // 流式助手输出（语义，非裸字节）
+  onApprovalRequest(handler: (req: ApprovalRequest) => void): Unsubscribe;
+  resolveApproval(approvalId: string, decision: ApprovalAction): void;  // 'approve' | 'reject'
+  onExit(handler: (info: ExitInfo) => void): Unsubscribe;
+
   getState(): AdapterState;
-  onData(handler: (chunk: string) => void): Unsubscribe;
+}
+
+export interface OutputDelta {
+  text: string;
+  final: boolean;    // false=流式增量，true=一轮结束
+}
+
+export interface ApprovalRequest {
+  approvalId: string;
+  command: string;   // SDK：工具名（如 "Bash"）；PTY：scraping 提取的命令
+  detail: string;    // SDK：JSON.stringify(input)；PTY：上下文
+}
+
+export interface ExitInfo {
+  code: number | null;
+  reason: 'idleTimeout' | 'crash' | 'stop';
 }
 
 export interface SpawnOptions {
   conversationId: ConversationId;
   cwd: string;
-  cols?: number;
-  rows?: number;
+  cols?: number;     // 仅 PTY 家族使用；SDK 家族忽略
+  rows?: number;     // 仅 PTY 家族使用；SDK 家族忽略
   env?: Record<string, string>;
 }
 
 export type AdapterState = 'stopped' | 'starting' | 'ready' | 'busy' | 'waitingApproval';
 ```
 
-### 3.2 Runtime（`runtime/`）—— Adapter 的底层容器，对 Core 透明
+> **事件映射（EventMap 不变）**：Adapter 的 `onApprovalRequest` → `bus.emit('ApprovalRequested', { approvalId, command, detail, conversationId })`；Transport 的 [Approve]/[Reject] → `bus.emit('ApprovalApproved'|'ApprovalRejected')` → Core 调 `adapter.resolveApproval(id, 'approve'|'reject')`。SDK 家族据此 `resolve({ behavior: 'allow'|'deny' })`；PTY 家族据此 `runtime.write("y\r"|"n\r")`。
+
+### 3.2 PtyRuntime（`runtime/`）—— **PTY 家族内部容器**，非跨形态抽象
 
 ```typescript
-export interface Runtime {
+// PTY 家族（无 SDK 的 CLI）的底层字节容器。
+// ⚠️ SDK 家族的 Adapter 既不实现也不使用它——它直接持 query() 句柄。
+export interface PtyRuntime {
   spawn(opts: SpawnOptions): Promise<void>;
-  write(data: string): void;
+  write(data: string): void;                 // 注入字节，含 "y\r" / "n\r"
   kill(signal?: string): void;
   resize(cols: number, rows: number): void;
-  onData(handler: (chunk: string) => void): Unsubscribe;
+  onData(handler: (chunk: string) => void): Unsubscribe;   // 裸字节流（含 ANSI）
   onExit(handler: (code: number | null) => void): Unsubscribe;
 }
-// V1 实现：NodePtyRuntime。未来可替换为 SdkRuntime，Adapter 不感知。
+// V1 实现：NodePtyRuntime。
+// 注：这里刻意 **不** 定义「统一 SdkRuntime 让各家 SDK 继承」——审批形态不对称
+// （PTY 事后 scraping+写字节 vs SDK spawn 时传回调），字节接口无法覆盖 SDK。
+// 跨形态的共性只在 §3.1 语义层，见 D11。
 ```
 
-### 3.3 ApprovalDetector（`approval/`）—— 各 Adapter 自持，抛统一事件
+### 3.3 ApprovalDetector（`approval/`）—— **仅 PTY 家族专属**
 
 ```typescript
+// 仅 PTY 家族使用：从裸字节流中 scraping 出审批点。
+// SDK 家族不需要 detector —— 审批经 canUseTool 结构化直达。
 export interface ApprovalDetector {
-  // 从 PTY 输出流中检测审批点；命中返回结构化事件，否则 null
+  // 从 PTY 输出流中检测审批点；命中返回结构化信号，否则 null
   detect(chunk: string, buffer: string): ApprovalSignal | null;
 }
 
@@ -174,15 +210,17 @@ export interface ApprovalSignal {
   command: string;   // 提取到的待审批命令
   detail: string;    // 上下文
 }
-// 例：ClaudeApprovalDetector 用正则匹配 [Y/n]；SDK 模式解析 Tool Call。
-// Adapter 命中后 → bus.emit('ApprovalRequested', { approvalId, command, detail, ... })
+// 例：某无 SDK 的 CLI 的 ApprovalDetector 用正则匹配 [Y/n]。
+// PtyAdapter 命中后 → onApprovalRequest → bus.emit('ApprovalRequested', ...)
+// ⚠️ scraping 随目标 CLI 的 TUI 版本漂移，脆——故仅在无 SDK 时退而求其次。
 ```
 
 ---
 
 ## 4. Message Aggregator（`core/aggregator.ts` 或独立）
 
-PTY 高频输出 → 缓冲/去抖/限流 → 发 `MessageGenerated`。
+PTY 家族的高频字节输出 → 缓冲/去抖/限流 → 发 `MessageGenerated`。
+> SDK 家族输出本就是**离散的 `SDKMessage`**（非字节洪流），聚合大幅简化——仍走同一 `push/flush` 接口，但 debounce 压力小得多。
 
 ```typescript
 export interface MessageAggregator {
@@ -285,7 +323,7 @@ const db = createDb(config.DATABASE_URL);        // storage/
 const repos = createRepositories(db);            // repository/
 
 const core = createCoreHub({ bus, repos, config });   // 注入抽象
-core.registerAdapter(new ClaudeCLIAdapter(/* runtime */));
+core.registerAdapter(new ClaudeSdkAdapter({ bus, config })); // SDK 家族，内部持 query()，无需 runtime
 createMemoryModule({ bus, repos, config });      // 订阅事件，无需 Core 感知
 
 const telegram = new TelegramTransport({ bus, config });

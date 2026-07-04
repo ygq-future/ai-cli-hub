@@ -76,10 +76,12 @@ Markdown 卡片 + 内联按钮：
 
 ### 4.2 回调处理
 
-| 点击 | 事件 | 注入 | 后续 |
+| 点击 | 事件 | 应答 | 后续 |
 |---|---|---|---|
-| Approve | `ApprovalApproved` | `sendInput("y\r")` | 记审计 → 状态回 `running` |
-| Reject | `ApprovalRejected` | `sendInput("n\r")` 或 `interrupt()` | 记审计 → 状态回 `running` |
+| Approve | `ApprovalApproved` | `resolveApproval(id,'approve')` | 记审计 → 状态回 `running` |
+| Reject | `ApprovalRejected` | `resolveApproval(id,'reject')` | 记审计 → 状态回 `running` |
+
+> **应答语义按家族分派**（对上层透明）：SDK 家族 → `resolve({behavior:'allow'|'deny'})`；PTY 家族 → 注入 `y\r` / `n\r` 或 `interrupt()`（Ctrl+C）。
 
 - **幂等**：同一 `approvalId` 重复点击只生效一次（按 `approvalId` 去重），并把卡片 `editMessage` 为最终结果（禁用按钮）。
 - 每次决策**强制**写 `audit_logs`（时间/操作人/命令/决策）。

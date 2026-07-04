@@ -84,7 +84,7 @@ flowchart LR
     VEC --> RANK[相似度 × importance 重排]
     RANK --> MERGE
     MERGE --> CAP[截断至 MEMORY_RECALL_TOP_K]
-    CAP --> INJ[拼为上下文前缀<br/>注入 sendInput]
+    CAP --> INJ[拼为上下文前缀<br/>注入 sendUserInput]
     INJ --> TOUCH[命中记忆 touch:<br/>access_count++ / last_accessed_at]
 ```
 

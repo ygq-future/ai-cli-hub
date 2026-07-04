@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-04 · 阶段：**M2 完成，进入 M3（Core 状态机与会话生命周期）**
+> 最后更新：2026-07-04 · 阶段：**M2 完成，进入 M3（Core 状态机与会话生命周期）** · 新增架构决策 **D11（执行层走 SDK 家族，接缝在 `CLIAdapter`）**
 
 ---
 
@@ -27,7 +27,7 @@
 | M1 | 配置与事件总线 | ✅ 完成 | config Zod(fail-fast, 唯一 env 入口) / EventBus(emit/on/once, 订阅者抛错隔离转 ErrorOccurred) + EventMap(Record 同步 ALL_EVENT_TYPES) / logger 订阅全部事件桥 / main 装配；17 单测 |
 | M2 | 存储与仓储 | ✅ 完成 | Drizzle 四表(conversations/messages/audit_logs/memories) + enums / 迁移 0000_init(含 CREATE EXTENSION vector, embedding vector(1536), FTS gin, 无 HNSW) / bun-sql 连接 / 四 Repository(唯一 SQL 出口) + createRepositories 工厂 / schema 离线单测 5 + 集成测试 6(TEST_DATABASE_URL 守卫) |
 | M3 | Core 状态机与会话生命周期 | 🟡 下一个 | SessionManager / 路由 / MockRuntime 闭环 |
-| M4 | Runtime 与 Claude Adapter | ⬜ | node-pty / ClaudeAdapter / 审批检测 |
+| M4 | Runtime 与 Claude Adapter | ⬜ | **Claude 走 SDK（`ClaudeSdkAdapter`+`@anthropic-ai/claude-agent-sdk`，canUseTool 审批）为主；`PtyRuntime`+`ApprovalDetector`（node-pty scraping）拆为 M4b，仅无 SDK 的 CLI 备用**（D11） |
 | M5 | 消息聚合器 | ⬜ | Buffer/Debounce/Throttle/拆分 |
 | M6 | Telegram Transport | ⬜ | 首个端到端 |
 | M7 | Audit 落地 | ⬜ | 永久审计 |
@@ -55,6 +55,7 @@
 | D8 | Postgres 驱动用 **drizzle-orm/bun-sql**（Bun 内置 SQL），零额外驱动依赖，遵「用 bun」。迁移应用走 **bun-sql migrator**（`scripts/migrate.ts` ← `db:migrate`），因 `drizzle-kit migrate` 需外部 pg/postgres 驱动；`db:generate` 仍用 drizzle-kit（离线，无需驱动） | 2026-07-04 |
 | D9 | 迁移沿用 drizzle-kit **0 基序号**（首个迁移 = `0000_init`，非 `0001`）——强改为 0001 会与后续自动生成的 `0001_*` 撞号；docs 中「迁移 0001」指此首迁移，内容为准 | 2026-07-04 |
 | D10 | Repository 契约接口置于 **`src/repository/types.ts`**（非 shared/）：实体类型由 Drizzle `$inferSelect/$inferInsert` 推导必居 storage/，shared/ 是叶子不可依赖 storage/；core/ 经 repository/ 取领域类型（依赖矩阵允许 core→repository、repository→storage） | 2026-07-04 |
+| D11 | **执行层接缝在语义化 `CLIAdapter`（非 `Runtime`）；Claude 走 `@anthropic-ai/claude-agent-sdk`（SDK 家族），node-pty 仅作无 SDK 的 CLI 备用（PTY 家族）**。要点：① Core/Transport 只依赖语义 `CLIAdapter`（一轮输入/流式输出/审批请求+决定/生命周期），字节 vs 结构化差异封在 Adapter 内部；② 审批 SDK 侧走 `canUseTool`（拿工具名+参数，结构化）、PTY 侧走 `ApprovalDetector`（正则 scraping，仅 PTY 专属）；③ `Runtime`→`PtyRuntime`，PTY 家族内部件，SDK Adapter 不实现不使用——删原"未来替换 SdkRuntime、Adapter 不感知"假承诺（审批形态不对称使其不成立）；④ 厂商中立靠"每 CLI 一个 Adapter 实现 `CLIAdapter`"，**不**造共享 SDK 基类。已验证：SDK peerDeps `zod ^4.0.0`（与本项目一致，无冲突）、体积 +5.5MB（含原生二进制，依赖树干净）、`canUseTool(toolName,input)→allow/deny`。已同步 CLAUDE.md（§2 技术栈 + §3 依赖矩阵 cli/* 允许依赖 SDK + §4 目录职责 + §8 扩展指引）与 01/02/03/05/06/07 全部文档 | 2026-07-04 |
 
 ---
 
@@ -87,6 +88,7 @@
 | 2026-07-03 | **M1 完成**：config（Zod schema + loadConfig，fail-fast，唯一 env 入口，注入 source 便于测试）；event（EventBus emit/on/once，订阅快照安全，订阅者抛错隔离转 ErrorOccurred 且不回环；EventMap + Record 强同步 ALL_EVENT_TYPES）；logger 事件桥（订阅全部事件，级别路由，返回 detach）；main 装配 config→logger→bus→桥；新增依赖 zod@4；17 单测 + typecheck + lint(0 违规) + start 全绿 |
 | 2026-07-04 | **M2 完成**：storage（enums + 四表 schema，pgvector customType vector(1536)，FTS gin 索引；createDb 走 drizzle-orm/bun-sql[D8]）；离线 `db:generate` 产出 `drizzle/0000_init.sql`[D9] 并手工前置 `CREATE EXTENSION vector`；repository（types.ts 契约[D10] + 四 Repository 实现 + createRepositories 工厂，searchByVector 留桩 V1.5）；测试（schema 离线 5 通过 + 集成 6 项 TEST_DATABASE_URL 守卫 skip）；eslint 加 `^_` 未用参数放行；新增依赖 drizzle-orm / drizzle-kit(dev)；typecheck + lint(0 违规,40 模块) + format:check + 22 单测全绿。**真·连库迁移/CRUD 待用户备库后验证** |
 | 2026-07-04 | **M2 连库验证**：用户本地 pgvector/pgvector:pg16（5432）→ 建 `ai_cli_hub_test` 库；`db:migrate` 改用 bun-sql migrator（`scripts/migrate.ts`，因 drizzle-kit migrate 需外部驱动，与 D8「零额外驱动」冲突）；迁移建库成功（vector 扩展 + 4 表 + 7 索引 + `embedding vector(1536)`，幂等复跑 no-op）；全量 `bun test` 含 4 项连库 CRUD **26 通过 / 0 失败**。M2 验收全绿 |
+| 2026-07-04 | **架构决策 D11（执行层接缝）**：调研+验证 node-pty vs `@anthropic-ai/claude-agent-sdk`（体积 +5.5MB/依赖树干净/peerDeps zod^4 无冲突/`canUseTool` 结构化审批）。拍板：接缝在语义化 `CLIAdapter`（非 `Runtime`），Claude 走 SDK 家族、node-pty 降为 PTY 家族备用；审批 SDK 结构化 / PTY scraping；`Runtime`→`PtyRuntime` 内部件；厂商中立靠每 CLI 一个 Adapter 非共享 SDK 基类。**同步全部文档**：03（§3.1 `CLIAdapter` 语义化 + §3.2 `PtyRuntime` 定界 + §3.3 `ApprovalDetector` 标 PTY 专属 + §4/§7）、02（§1.2 图/§2.1 矩阵/§3.4 重写/§3.5/§4.1-4.2 时序/§8/§9/附录 ADR10）、05（M4 拆 SDK 主+M4b PTY 备/构建拓扑/DoD）、01（§3.4/技术栈/DoD）、07（§4.2 应答语义化）、06（sendUserInput）。**仅改文档，未碰代码、未提交** |
 
 ---
 

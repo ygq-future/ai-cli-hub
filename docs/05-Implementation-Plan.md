@@ -16,12 +16,13 @@ flowchart LR
     B --> C[event/ Bus]
     C --> D[storage/ + repository/]
     D --> E[core/ 状态机+路由]
-    E --> F[runtime/ node-pty]
-    F --> G[cli/ + approval/]
-    G --> H[aggregator]
+    E --> F[cli/ ClaudeSdkAdapter<br/>直接依赖 claude-agent-sdk]
+    F --> H[aggregator]
     H --> I[transport/ telegram]
     I --> J[memory/]
     J --> K[main.ts 装配]
+    E -.备用.-> P[runtime/ node-pty + approval/<br/>PTY 家族·无 SDK 时]
+    P -.-> F
 ```
 
 > 原则：**下游未就绪不动上游**。例如 Transport（I）依赖 Core（E）与 Aggregator（H）已可用。
@@ -58,13 +59,20 @@ flowchart LR
 - 进程占位：先用 **MockRuntime** 打通"收消息→路由→存库→回消息"闭环。
 - **验收**：状态机单测覆盖全部合法/非法迁移；用 Mock 打通端到端（无真实 PTY）；进程回收→会话转 `idle` 而非 `closed`。
 
-### M4 — Runtime 与 Claude Adapter
+### M4 — Claude Adapter（SDK 家族，首选）
 
-- `runtime/`：`NodePtyRuntime` 实现 `Runtime`。
-- `cli/`：`ClaudeCLIAdapter` 实现 `BaseCLIAdapter`（含 `PTYStarted/PTYExited` 事件）。
-- `approval/`：`ClaudeApprovalDetector`（正则 `[Y/n]`）→ 抛 `ApprovalRequested`。
-- 按需启停：无 Runtime 则拉起；`PTY_IDLE_TIMEOUT_MS` 空闲杀进程。
-- **验收**：真实拉起 Claude CLI 完成一轮对话；触发一次审批并检测到；空闲超时进程被回收、会话可唤醒。
+- `cli/`：`ClaudeSdkAdapter` 实现 `CLIAdapter`（§3.1），内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄。
+  - `sendUserInput` → 流式输入（`AsyncIterable<SDKUserMessage>` / `streamInput`）；`onOutput` ← `SDKMessage`（assistant/tool_use/result）。
+  - **审批走 `canUseTool` 回调**：拿到工具名+参数 → `onApprovalRequest` → `bus.emit('ApprovalRequested')`；`resolveApproval(id,'approve'|'reject')` → `resolve({behavior:'allow'|'deny'})`。**无 scraping、无 `Runtime`、无 `ApprovalDetector`。**
+  - 生命周期：子进程起止/崩溃 → `onExit` → `PTYStarted/PTYExited` 事件；`PTY_IDLE_TIMEOUT_MS` 空闲杀进程（`query.interrupt()`/close），会话转 `idle`。
+- **验收**：真实拉起 Claude 完成一轮对话；构造一次工具审批，`canUseTool` 命中 → 收到结构化 `command`+`detail`；点 Approve 继续、Reject 拒绝；空闲超时进程被回收、会话可唤醒。
+
+### M4b — PtyRuntime（PTY 家族，无 SDK 的 CLI 备用，可延后）
+
+- `runtime/`：`NodePtyRuntime` 实现 `PtyRuntime`（§3.2，字节容器）。
+- `approval/`：某无 SDK 的 CLI 的 `ApprovalDetector`（正则 `[Y/n]` scraping）。
+- `cli/`：`XxxPtyAdapter` 实现同一 `CLIAdapter`，内部剥 ANSI 得输出、scraping 认审批、写 `y\r`/`n\r`。
+- **验收**：无 SDK 的目标 CLI 也能经统一 `CLIAdapter` 完成一轮对话与一次审批。**非 V1 关键路径**——V1 只跑 Claude（SDK），本节按需推进。
 
 ### M5 — 消息聚合器
 
@@ -75,7 +83,7 @@ flowchart LR
 
 - `transport/telegram`：Telegraf 封装，实现 `Transport` 全方法。
 - 白名单前置丢弃；流式 `editMessage`；审批 Markdown 卡片 + 回调 → `ApprovalApproved/Rejected`。
-- **验收**：真机 Telegram 端到端——发消息得流式回复；点 Approve 注入 `y\r` 继续；点 Reject 中断；非白名单无响应。
+- **验收**：真机 Telegram 端到端——发消息得流式回复；点 Approve 继续（SDK: `resolveApproval` allow）；点 Reject 中断；非白名单无响应。
 
 ### M7 — Audit 落地
 
@@ -136,7 +144,7 @@ flowchart TD
 对齐 [PRD §8](./01-PRD.md) 交付清单：
 
 - ✅ Bun+TS 架构 / Postgres+Drizzle+Repository / Event Bus / Config
-- ✅ Telegram 接入 / Claude Adapter + node-pty / 状态机会话生命周期
+- ✅ Telegram 接入 / Claude Adapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）/ 状态机会话生命周期
 - ✅ Message Aggregator / Approval Flow / 永久 Audit
 - ✅ 会话边界（cwd 复用 / `/new` / `/close` / 归档）
 - ✅ 记忆基础：跨会话摘要回放（向量列预留待 V1.5）

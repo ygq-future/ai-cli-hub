@@ -11,7 +11,7 @@
 
 | 目标 | 落地手段 |
 |---|---|
-| **低耦合** | Core 只依赖抽象接口（`Transport` / `BaseCLIAdapter` / `Repository`），永不依赖具体实现 |
+| **低耦合** | Core 只依赖抽象接口（`Transport` / `CLIAdapter` / `Repository`），永不依赖具体实现 |
 | **可扩展** | 新增 CLI / 客户端 / 存储 = 新增一个实现类并注册，Core 零改动 |
 | **事件驱动** | 模块间不直接相互调用，一律通过 Event Bus 发布/订阅 |
 | **安全可控** | 白名单前置拦截 + Human-in-the-loop 审批 + 永久审计 |
@@ -43,10 +43,9 @@ flowchart TB
         AGG[MessageAggregator]
     end
 
-    subgraph Exec["执行层 CLI Adapter & Runtime"]
-        CA[ClaudeCLIAdapter]
-        RT[node-pty Runtime]
-        AD[ApprovalDetector]
+    subgraph Exec["执行层 CLI Adapter（语义接缝）"]
+        CA[ClaudeSdkAdapter<br/>SDK 家族·首选]
+        RT[PtyRuntime + ApprovalDetector<br/>PTY 家族·无 SDK 时备用]
     end
 
     subgraph Infra["基础设施（横向）"]
@@ -101,7 +100,7 @@ flowchart LR
 |---|---|---|
 | `core/` | `event/`, `shared/`, `config/`, 抽象接口 | 任何具体 Transport / Adapter / Storage 实现 |
 | `transport/telegram` | `event/`, `shared/`, `config/`, Telegraf | `core/` 内部实现、`storage/` |
-| `cli/claude` | `event/`, `shared/`, `runtime/`, `approval/` | `transport/`, `storage/` |
+| `cli/claude` | `event/`, `shared/`, `config/`, `runtime/`, `approval/`, **该 CLI 的 SDK（如 `@anthropic-ai/claude-agent-sdk`）** | `transport/`, `storage/`, `core/` 内部 |
 | `repository/` | `storage/`, `shared/` | `core/`, `transport/` |
 | `storage/` | Drizzle, `shared/` | 其它全部业务模块 |
 | `config/` | `process.env`（**全局唯一**）、Zod | 无（叶子模块） |
@@ -172,38 +171,51 @@ interface EventBus {
 
 ### 3.4 CLI Adapter & Runtime（执行层）
 
+> **本层的接缝设计（决策 D11）**：Core 只依赖语义化的 `CLIAdapter`，它说领域语义（一轮输入 / 流式输出 / 审批请求+决定 / 生命周期），**与「字节还是结构化」无关**。「字节 vs 结构化」的差异封死在 Adapter 内部。接缝**在 Adapter，不在 Runtime**——因为审批形态不对称（PTY 事后 scraping+写字节 vs SDK spawn 时传回调），字节级 `Runtime` 接口无法覆盖 SDK，硬套就是漏抽象。
+
 ```typescript
-interface BaseCLIAdapter {
+// Core / Transport 唯一依赖的抽象：厂商无关、传输无关。
+interface CLIAdapter {
   readonly cliType: CliType;                // 'claude' | 'codex' | ...
   start(opts: SpawnOptions): Promise<void>;
   stop(): Promise<void>;
-  sendInput(data: string): void;            // 向 PTY 注入
-  interrupt(): void;                        // Ctrl+C
-  resize(cols: number, rows: number): void;
+  interrupt(): void;                        // Ctrl+C / query.interrupt()
+  sendUserInput(text: string): void;        // 一轮用户输入（非 PTY 泄漏）
+  onOutput(cb: (d: { text: string; final: boolean }) => void): Unsubscribe;
+  onApprovalRequest(cb: (req: ApprovalRequest) => void): Unsubscribe;
+  resolveApproval(approvalId: string, decision: 'approve' | 'reject'): void;
+  onExit(cb: (info: { code: number | null; reason: ExitReason }) => void): Unsubscribe;
   getState(): AdapterState;
-  onData(handler: (chunk: string) => void): Unsubscribe;
 }
 ```
 
-- **Adapter** 负责协议语义：拼装启动参数、解析输出、通过 **ApprovalDetector** 识别审批点（正则匹配 `[Y/n]` 或解析 SDK Tool Call），抛出统一 `ApprovalEvent`。
-- **Runtime** 是底层容器（`node-pty` 或官方 SDK），对 Core 完全透明。Adapter 依赖 `Runtime` 接口而非具体实现，未来可无缝替换为 SDK 模式。
+Adapter 分**两个家族**，同实现 `CLIAdapter`、对 Core 完全同形：
+
+- **SDK 家族（V1 首选，Claude 走这条）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄。输出来自结构化 `SDKMessage`；**审批来自 `canUseTool` 回调**——直接拿到工具名 + 完整参数，回 `allow`/`deny`。**无需 scraping、无 `Runtime`、无 `ApprovalDetector`**。那个"上下选、反色高亮"的 TUI 菜单只是渲染，程序接口里根本不存在。
+- **PTY 家族（无 SDK 的 CLI 备用）**：`XxxPtyAdapter` 内部持 `PtyRuntime` + 一个 per-CLI `ApprovalDetector`。字节流剥 ANSI 得输出，正则 scraping 认出审批点，写 `y\r`/`n\r` 应答。scraping 随目标 TUI 版本漂移、脆，故仅在**没有 SDK** 时退而求其次。
+
+- **PtyRuntime** 是 PTY 家族的底层字节容器（`node-pty`），**仅 PTY 家族使用**；SDK 家族的 Adapter 既不实现也不使用它。
+- **厂商中立靠"每 CLI/SDK 一个 Adapter 实现 `CLIAdapter`"**，不靠"共享一个 SDK 基类"——不同厂商 SDK 的 API 表面不同，共性只在语义层。新增有 SDK 的 CLI = 新 Adapter，Core 零改动。
 
 ```mermaid
 flowchart LR
-    Core -->|abstract| Adapter[BaseCLIAdapter]
-    Adapter -->|abstract| Runtime[Runtime]
+    Core -->|abstract| Adapter[CLIAdapter 语义接缝]
+    Adapter -.implements.-> SdkA[ClaudeSdkAdapter<br/>SDK 家族·首选]
+    Adapter -.implements.-> PtyA[XxxPtyAdapter<br/>PTY 家族·备用]
+    SdkA --> SDK[claude-agent-sdk<br/>query + canUseTool]
+    PtyA --> Runtime[PtyRuntime]
+    PtyA --> Detector[ApprovalDetector<br/>正则 scraping]
     Runtime --> pty[node-pty]
-    Runtime -.future.-> sdk[Official SDK]
-    Adapter --> Detector[ApprovalDetector]
 ```
 
 ### 3.5 Message Aggregator（消息聚合器）
 
-位于 **PTY 输出** 与 **Transport 发送** 之间的缓冲过滤层，是流式体验与平台限流之间的缓冲带。
+位于 **Adapter 输出** 与 **Transport 发送** 之间的缓冲过滤层，是流式体验与平台限流之间的缓冲带。
+> 下图以 PTY 家族的高频字节为例；SDK 家族输出已是离散 `SDKMessage`，走同一管线但 debounce 压力小得多。
 
 ```mermaid
 flowchart LR
-    PTY[PTY onData<br/>高频 chunk] --> BUF[Buffer 累积]
+    PTY[Adapter onOutput<br/>高频增量] --> BUF[Buffer 累积]
     BUF --> DEB{Debounce<br/>静默 N ms?}
     DEB -->|否/持续输出| THR[Throttle<br/>最小 Edit 间隔]
     DEB -->|是| FLUSH[Flush]
@@ -279,9 +291,9 @@ sequenceDiagram
     C->>M: 召回相关记忆 Top-K（向量检索）
     M-->>C: 拼接为上下文前缀
     C->>C: 状态 idle→Starting（如无 Runtime）
-    C->>A: start() / sendInput(记忆+用户输入)
+    C->>A: start() / sendUserInput(记忆+用户输入)
     C->>R: 保存 user message
-    A-->>G: onData 流式 chunk
+    A-->>G: onOutput 流式增量（SDK：SDKMessage / PTY：字节 chunk）
     G->>B: emit MessageGenerated（聚合后）
     B->>T: editMessage 流式刷新
     B->>R: 保存 assistant message
@@ -302,7 +314,7 @@ sequenceDiagram
     participant U as 用户
     participant AU as AuditRepository
 
-    A->>A: ApprovalDetector 命中危险操作
+    A->>A: 审批点命中（SDK：canUseTool 回调 / PTY：ApprovalDetector scraping）
     A->>B: emit ApprovalRequested
     B->>C: SessionState → WaitingApproval
     B->>T: sendApproval（Markdown 卡片 + [Approve]/[Reject]）
@@ -310,9 +322,10 @@ sequenceDiagram
     U->>T: 点击 Approve
     T->>B: emit ApprovalApproved
     B->>AU: 记录审批（时间/操作人/内容/决策）
-    B->>A: 注入 "y\r"
+    B->>A: resolveApproval(id, 'approve')
     B->>C: SessionState → Running
-    Note over T,U: 拒绝 → 注入 "n\r" 或 interrupt()(Ctrl+C)
+    Note over A: SDK 家族→resolve({behavior:'allow'})；PTY 家族→write("y\r")
+    Note over T,U: 拒绝 → resolveApproval(id,'reject')（SDK: deny / PTY: "n\r" 或 Ctrl+C）
 ```
 
 ---
@@ -494,7 +507,7 @@ flowchart LR
     IN[用户新消息] --> Q[嵌入为 query 向量]
     Q --> KNN[pgvector KNN<br/>user_id 过滤 + Top-K]
     KNN --> RANK[按 相似度 × importance 重排]
-    RANK --> INJ[拼为上下文前缀<br/>注入 sendInput]
+    RANK --> INJ[拼为上下文前缀<br/>注入 sendUserInput]
     INJ --> UPD[命中记忆 access_count++<br/>last_accessed_at 更新]
 ```
 
@@ -537,7 +550,7 @@ flowchart TB
 ```
 
 1. **白名单前置**：硬编码 User ID 白名单，启动时加载；非白名单请求在 Transport 层直接丢弃，**永不进入 Core**。
-2. **交互式审批**：危险操作触发 `WaitingApproval`，用户通过内联按钮决策；同意注入 `y\r`，拒绝注入 `n\r` 或发 `Ctrl+C`。
+2. **交互式审批**：危险操作触发 `WaitingApproval`，用户通过内联按钮决策 → Core 调 `adapter.resolveApproval(id, 'approve'|'reject')`；SDK 家族据此 `resolve({behavior:'allow'|'deny'})`，PTY 家族据此注入 `y\r`/`n\r` 或 `Ctrl+C`。
 3. **永久审计**：每次审批的时间、操作人、内容、决策结果强制落 `audit_logs`，不可删除。
 
 ---
@@ -552,9 +565,9 @@ flowchart TB
 | `event/` | Event Bus | 类型安全 EventEmitter |
 | `config/` | 配置中心 | Zod |
 | `transport/` | 接入层 | Telegraf（TG）/ NapCat+Koishi（QQ） |
-| `cli/` | Adapter | 自研（base + claude） |
-| `runtime/` | 执行容器 | node-pty |
-| `approval/` | 审批检测 | 正则 / SDK 解析 |
+| `cli/` | Adapter（语义接缝） | 自研（base + `ClaudeSdkAdapter` 走 `@anthropic-ai/claude-agent-sdk`） |
+| `runtime/` | PTY 家族字节容器（仅无 SDK 的 CLI 用） | node-pty |
+| `approval/` | PTY 家族审批 scraping（SDK 家族无需） | 正则匹配 |
 | `repository/` | 数据抽象 | Repository 接口 |
 | `storage/` | 持久化实现 | **Postgres + Drizzle ORM**（V1.5 加 `pgvector`） |
 | `memory/` | 长期记忆子系统 | 嵌入 API（`text-embedding-3-small`）+ pgvector |
@@ -573,7 +586,7 @@ flowchart TD
     CFG --> BUS[创建 EventBus]
     BUS --> DB[初始化 Storage + Repositories]
     DB --> CORE[创建 Core Hub 注入 Bus/Repo]
-    CORE --> REG[注册 Adapters: ClaudeCLIAdapter]
+    CORE --> REG[注册 Adapters: ClaudeSdkAdapter]
     REG --> TP[启动 Transports: TelegramTransport]
     TP --> READY[系统就绪]
 ```
@@ -601,7 +614,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph 新增CLI
-        NC[实现 BaseCLIAdapter] --> RC[装配根注册]
+        NC[实现 CLIAdapter] --> RC[装配根注册]
     end
     subgraph 新增客户端
         NT[实现 Transport] --> RT2[装配根注册]
@@ -634,3 +647,4 @@ flowchart LR
 | 7 | 嵌入走 API 而非本地模型 | VPS 不跑模型，省内存运维 | 有网络延迟与调用成本 → 强制异步批量 |
 | 8 | 向量召回分阶段（V1.5 上 pgvector） | V1 先跑通会话/记忆机制，不被召回调优拖慢 | V1 仅关系 + FTS 回放，无语义模糊召回 |
 | 9 | 会话边界 = cwd 复用 + `/new` + 归档 | 贴合 CLI 控制语义，记忆按项目天然隔离 | `conversations` 需加 `cwd` 字段 |
+| 10 | **执行层接缝在语义化 `CLIAdapter`，非 `Runtime`；Claude 走 Agent SDK，PTY 家族仅作无 SDK 备用**（详见 D11） | 审批/输出结构化（`canUseTool`+`SDKMessage`）根治"解析 TUI 菜单"的脆性；接缝在 Adapter 才能同时容纳字节与结构化两形态；厂商中立靠"每 CLI 一个 Adapter"而非共享 SDK 基类 | SDK 依赖 +5.5MB（含原生二进制，依赖树干净、peerDeps zod^4 与本项目一致）；`Runtime`/`ApprovalDetector` 降级为 PTY 家族专属 |

@@ -14,7 +14,7 @@
 整个系统严格遵循**“高内聚、低耦合、插件化、事件驱动”**的设计哲学：
 
 * **全栈运行**：基于 Bun + TypeScript。
-* **Core 无平台依赖**：核心调度层（Core）永远不感知具体的 Transport（如 Telegram/QQ）、具体的 CLI 工具（如 Claude/node-pty）以及具体的底层数据库（如 Postgres）。
+* **Core 无平台依赖**：核心调度层（Core）永远不感知具体的 Transport（如 Telegram/QQ）、具体的 CLI 适配实现（如 claude-agent-sdk / node-pty）以及具体的底层数据库（如 Postgres）。
 * **四大隔离模式**：
   * `Adapter 模式`：隔离底层 CLI 工具差异。
   * `Transport 模式`：隔离不同客户端接入协议差异。
@@ -46,9 +46,9 @@
 * **应用示例**：Logger 监听全部事件；Storage 监听 `Message*` 事件进行落盘，均无需修改 Core。
 
 ### 3.4 CLI Adapter & Runtime (命令行适配与运行层)
-* **CLI Adapter**：所有 CLI 工具必须实现统一的 `BaseCLIAdapter` 接口（包含 `start`, `stop`, `sendInput`, `interrupt`, `resize`, `getState`, `onData` 等）。V1 提供 `ClaudeCLIAdapter`。
-* **CLI Runtime**：Adapter 的底层运行容器（如 `node-pty` 或官方 SDK）。对 Core 完全透明，未来可无缝替换。
-* **Approval Detector**：审批检测逻辑由各 Adapter 自行实现（如正则提取 `[Y/n]` 或解析 SDK Tool Call），最终对外抛出统一的 `ApprovalEvent`。
+* **CLI Adapter（语义接缝）**：所有 CLI 工具实现统一的语义化 `CLIAdapter` 接口（`start` / `stop` / `interrupt` / `sendUserInput` / `onOutput` / `onApprovalRequest` / `resolveApproval` / `onExit` / `getState`）。它说领域语义（一轮输入 / 流式输出 / 审批请求+决定 / 生命周期），与「字节还是结构化」无关。V1 提供 **`ClaudeSdkAdapter`（走 `@anthropic-ai/claude-agent-sdk`）**。
+* **两个家族**：**SDK 家族（首选）** 内部持 `query()` 句柄，输出/审批结构化（`SDKMessage` + `canUseTool`），无需 scraping；**PTY 家族（无 SDK 的 CLI 备用）** 内部持 `PtyRuntime`（node-pty 字节容器）+ `ApprovalDetector`（正则 scraping）。接缝在 Adapter、不在 Runtime——两形态的差异封在 Adapter 内部（详见 [02 §3.4](./02-Architecture.md) 与决策 D11）。
+* **Approval**：SDK 家族经 `canUseTool` 结构化直达（拿到工具名+参数）；PTY 家族由 per-CLI `ApprovalDetector` 从字节流 scraping。两者最终统一发 `ApprovalRequested`。
 
 ### 3.5 Message Aggregator (消息聚合器)
 在 PTY 输出与 Transport 发送之间增加的缓冲过滤层。
@@ -108,9 +108,9 @@ src/
 ├── event/        # Event Bus 与事件类型定义
 ├── config/       # 统一环境变量配置解析 (Zod)
 ├── transport/    # 客户端接入层 (telegram, qq, websocket)
-├── cli/          # 命令行适配器 (base, claude, codex)
-├── runtime/      # 进程运行容器 (nodepty, sdk)
-├── approval/     # 各类 CLI 的审批正则与拦截逻辑
+├── cli/          # 命令行适配器 (base, claude=SDK 家族, codex)
+├── runtime/      # PTY 家族字节容器 (nodepty)；SDK 家族不经此层
+├── approval/     # PTY 家族审批 scraping（SDK 家族经 canUseTool，无需）
 ├── repository/   # 数据库抽象操作接口
 ├── storage/      # Postgres/Drizzle 具体连接与建表逻辑 (pgvector)
 ├── memory/       # 长期记忆与向量化存储 (预留)
@@ -125,7 +125,7 @@ src/
 **最终确定的技术栈：**
 * **运行环境**：Bun
 * **开发语言**：TypeScript
-* **终端劫持**：node-pty
+* **CLI 接入**：Agent SDK 优先（`@anthropic-ai/claude-agent-sdk`）；node-pty 仅用于无 SDK 的 CLI（PTY 家族）
 * **数据库/ORM**：Postgres + Drizzle ORM（V1.5 启用 pgvector 向量能力）
 * **长期记忆**：API 嵌入模型（`text-embedding-3-small`）+ pgvector 语义召回
 * **消息框架**：Telegraf (Telegram) / NapCat+Koishi (QQ)
@@ -138,7 +138,7 @@ src/
 ✅ Event Bus 模块间通信机制
 ✅ Config Module 统一配置中心
 ✅ Telegram Bot Transport 接入
-✅ Claude CLI Adapter + node-pty Runtime 劫持
+✅ Claude Adapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）
 ✅ 基于状态机的 Session 生命周期管理
 ✅ Message Aggregator 流式聚合渲染
 ✅ Approval Flow (Markdown卡片与回调拦截)
