@@ -18,7 +18,7 @@ logger.info(
 )
 
 // TODO(M2): const db = createDb(config.DATABASE_URL); const repos = createRepositories(db)
-// TODO(M3): const core = createCoreHub({ bus, repos, config })
+// M3: const coreHub = createCoreHub({ bus, repos: repos!, config, mockHandler })
 // TODO(M4): core.registerAdapter(new ClaudeCLIAdapter(...))
 // TODO(M6): await new TelegramTransport({ bus, config }).start()
 // 详见 docs/05-Implementation-Plan.md

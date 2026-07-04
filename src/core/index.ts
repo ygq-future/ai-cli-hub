@@ -1,4 +1,16 @@
-// core —— 核心调度：SessionManager 状态机、Auth、MessageRouter、Aggregator 编排。
-// 禁止依赖任何具体实现（见 CLAUDE.md 依赖矩阵）。
-// TODO(M3): Session 状态机与会话生命周期。见 docs/02-Architecture.md §5。
-export {}
+/**
+ * core —— 核心调度：SessionManager 状态机、Auth、MessageRouter、CoreHub。
+ *
+ * 禁止依赖任何具体实现（见 CLAUDE.md 依赖矩阵）。
+ * 依赖注入由 Composition Root (src/main.ts) 完成。
+ */
+export { transition, getValidTransitions, getValidTransitionKeys } from './session-machine'
+export type { SessionEvent } from './session-machine'
+export { createAuth } from './auth'
+export type { Auth, AuthResult } from './auth'
+export { createSessionManager } from './session-manager'
+export type { SessionManager } from './session-manager'
+export { createMessageRouter } from './message-router'
+export type { MessageRouter, MockHandler } from './message-router'
+export { createCoreHub } from './core-hub'
+export type { CoreHub, CoreHubOptions } from './core-hub'

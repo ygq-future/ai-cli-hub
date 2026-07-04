@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-04 · 阶段：**M2 完成，进入 M3（Core 状态机与会话生命周期）** · 新增架构决策 **D11（执行层走 SDK 家族，接缝在 `CLIAdapter`）**
+> 最后更新：2026-07-04 · 阶段：**M3 完成（Core 状态机与会话生命周期），进入 M4（Runtime 与 Claude Adapter）**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **M3 - Core 状态机与会话生命周期**（未开始） |
-| 代码 | ✅ M2 就绪（Drizzle 四表 + 迁移 0000_init + 四 Repository；**26 单测全通过含 4 项真·连库 CRUD**） |
-| 文档 | ✅ 齐全（护栏三件套 + 数据/记忆/命令 + PRD/架构） |
-| 阻塞项 | 无（M2 已在 pgvector Postgres 上真·连库迁移 + CRUD 验证通过） |
-| 下一步 | M3：SessionManager 状态机 + Auth + MessageRouter + MockRuntime 闭环 |
+| 当前里程碑 | **M4 - Claude SDK Adapter**（未开始） |
+| 代码 | ✅ M3 就绪（SessionMachine 纯状态机 + Auth 白名单 + SessionManager + MessageRouter + MockHandler + CoreHub；**94 单测全绿 + 0 lint 违规 + 48 模块 depcruise 通过**） |
+| 文档 | ✅ 齐全 |
+| 阻塞项 | 无 |
+| 下一步 | M4：ClaudeSdkAdapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）+ PtyRuntime（PTY 家族备用） |
 
 ---
 
@@ -26,8 +26,8 @@
 | M0 | 工程骨架 | ✅ 完成 | Bun+TS / src 骨架 / dependency-cruiser 依赖矩阵 / ESLint(defineConfig)禁 env 越界 / Prettier 格式化 / Pino logger / main 启动 |
 | M1 | 配置与事件总线 | ✅ 完成 | config Zod(fail-fast, 唯一 env 入口) / EventBus(emit/on/once, 订阅者抛错隔离转 ErrorOccurred) + EventMap(Record 同步 ALL_EVENT_TYPES) / logger 订阅全部事件桥 / main 装配；17 单测 |
 | M2 | 存储与仓储 | ✅ 完成 | Drizzle 四表(conversations/messages/audit_logs/memories) + enums / 迁移 0000_init(含 CREATE EXTENSION vector, embedding vector(1536), FTS gin, 无 HNSW) / bun-sql 连接 / 四 Repository(唯一 SQL 出口) + createRepositories 工厂 / schema 离线单测 5 + 集成测试 6(TEST_DATABASE_URL 守卫) |
-| M3 | Core 状态机与会话生命周期 | 🟡 下一个 | SessionManager / 路由 / MockRuntime 闭环 |
-| M4 | Runtime 与 Claude Adapter | ⬜ | **Claude 走 SDK（`ClaudeSdkAdapter`+`@anthropic-ai/claude-agent-sdk`，canUseTool 审批）为主；`PtyRuntime`+`ApprovalDetector`（node-pty scraping）拆为 M4b，仅无 SDK 的 CLI 备用**（D11） |
+| M3 | Core 状态机与会话生命周期 | ✅ 完成 | SessionMachine 纯状态机(11 合法/24 非法迁移+2 终态) + Auth(白名单 fail-closed) + SessionManager(findOrCreate/forceNew/close/transition/listStaleIdle) + MessageRouter(订阅 MessageReceived 事件, 存消息, 发 MessageGenerated) + MockHandler(模拟 Adapter 打通闭环) + CoreHub 装配；94 单测(含 62 状态机 + 6 Auth + 12 SessionManager 集成 + 14 Router 集成), depcruise 48 模块 0 违规 |
+| M4 | Runtime 与 Claude Adapter | 🟡 下一个 | **Claude 走 SDK（`ClaudeSdkAdapter`+`@anthropic-ai/claude-agent-sdk`，canUseTool 审批）为主；`PtyRuntime`+`ApprovalDetector`（node-pty scraping）拆为 M4b，仅无 SDK 的 CLI 备用**（D11） |
 | M5 | 消息聚合器 | ⬜ | Buffer/Debounce/Throttle/拆分 |
 | M6 | Telegram Transport | ⬜ | 首个端到端 |
 | M7 | Audit 落地 | ⬜ | 永久审计 |
@@ -61,18 +61,18 @@
 
 ## 4. 下一步行动（Next Actions）
 
-**M3 — Core 状态机与会话生命周期**（当前）：
-1. `core/`：`SessionManager`（状态机，合法迁移见 [02-架构 §5.2](./docs/02-Architecture.md)；非法迁移抛错）、`Auth`（白名单二次校验）、`MessageRouter`。
-2. 会话边界：`findActive(user,cli,cwd)` 复用 / `/new` 新建（先置旧活跃为 idle）/ 归档扫描 `listStaleIdle`。
-3. 进程占位：先用 **MockRuntime** 打通「收消息→路由→存库→回消息」闭环（无真实 PTY）。
-4. 单测：状态机全部合法/非法迁移；Mock 端到端；进程回收→会话转 `idle` 而非 `closed`（D5）。
-5. 通过验收 → 更新本文件（M3 → ✅，M4 → 🟡）→ 进入 M4。
+**M4 — Claude SDK Adapter 与 Runtime**（当前，D11 已拍板走 SDK 家族为主）：
+1. `cli/base.ts`：定义 `CLIAdapter` 语义接缝接口（一轮输入/流式输出/审批请求+决定/生命周期）。
+2. `cli/claude`：实现 `ClaudeSdkAdapter` 持 `@anthropic-ai/claude-agent-sdk` 的 `query()` + `canUseTool` 回调。
+3. `runtime/`：实现 `PtyRuntime`（node-pty 字节容器，PTY 家族备用）。
+4. 单测：ClaudeSdkAdapter mock；PtyRuntime 启动/输出/停止。
+5. 通过验收 → 更新本文件（M4 → ✅，M5 → 🟡）→ 进入 M5。
 
-> **依赖就绪**：core/ 可注入 `Repositories`（`repository/types.ts`）、`EventBus`、`AppConfig`；领域类型经 `repository/` 取得，勿直连 `storage/`（依赖矩阵）。
+> **依赖就绪**：CLIAdapter 接口定义（03 §3.1）、EventMap 含 PTYStarted/PTYExited 事件、SessionManager 可注入 Adapter。SDK 依赖 `@anthropic-ai/claude-agent-sdk` 需 `bun add`。
 
-**M2 验收留痕**：`bun run typecheck` ✅ · `bun run lint`（eslint + depcruise 0 违规，40 模块，**SQL 仅现于 repository/+storage/**）✅ · `bun run format:check` ✅ · `bun run db:generate` 离线产出 `drizzle/0000_init.sql`（含 `CREATE EXTENSION vector` + 四表 + 全索引，无 HNSW）✅ · **真·连库（pgvector/pgvector:pg16）**：`db:migrate` 建库成功（vector 扩展 + 4 表 + 7 索引 + `embedding vector(1536)`，`db:migrate` 幂等）✅ · `bun test` 含 4 项连库 CRUD **26 通过 / 0 失败** ✅
+**M3 验收留痕**：`bun run typecheck` ✅ · `bun run lint`（eslint + depcruise 48 模块 115 依赖 0 违规）✅ · `bun run format:check` ✅ · `bun test` **94 pass / 6 skip / 0 fail**（62 状态机迁移 + 6 Auth + 12 SessionManager 集成 + 14 Router 端到端）✅
 
-> 备注：集成测试需 `TEST_DATABASE_URL` 指向含 pgvector 的库；未设则自动 skip，不阻塞本机 `bun test`。
+> 备注：集成测试 6 skip 对应 M2 的连库集成测试（需 `TEST_DATABASE_URL`），不影响 M3 验收。`bun run start` 仍不完整（缺 DB 连接），M4 补充装配。
 
 ---
 
@@ -88,7 +88,7 @@
 | 2026-07-03 | **M1 完成**：config（Zod schema + loadConfig，fail-fast，唯一 env 入口，注入 source 便于测试）；event（EventBus emit/on/once，订阅快照安全，订阅者抛错隔离转 ErrorOccurred 且不回环；EventMap + Record 强同步 ALL_EVENT_TYPES）；logger 事件桥（订阅全部事件，级别路由，返回 detach）；main 装配 config→logger→bus→桥；新增依赖 zod@4；17 单测 + typecheck + lint(0 违规) + start 全绿 |
 | 2026-07-04 | **M2 完成**：storage（enums + 四表 schema，pgvector customType vector(1536)，FTS gin 索引；createDb 走 drizzle-orm/bun-sql[D8]）；离线 `db:generate` 产出 `drizzle/0000_init.sql`[D9] 并手工前置 `CREATE EXTENSION vector`；repository（types.ts 契约[D10] + 四 Repository 实现 + createRepositories 工厂，searchByVector 留桩 V1.5）；测试（schema 离线 5 通过 + 集成 6 项 TEST_DATABASE_URL 守卫 skip）；eslint 加 `^_` 未用参数放行；新增依赖 drizzle-orm / drizzle-kit(dev)；typecheck + lint(0 违规,40 模块) + format:check + 22 单测全绿。**真·连库迁移/CRUD 待用户备库后验证** |
 | 2026-07-04 | **M2 连库验证**：用户本地 pgvector/pgvector:pg16（5432）→ 建 `ai_cli_hub_test` 库；`db:migrate` 改用 bun-sql migrator（`scripts/migrate.ts`，因 drizzle-kit migrate 需外部驱动，与 D8「零额外驱动」冲突）；迁移建库成功（vector 扩展 + 4 表 + 7 索引 + `embedding vector(1536)`，幂等复跑 no-op）；全量 `bun test` 含 4 项连库 CRUD **26 通过 / 0 失败**。M2 验收全绿 |
-| 2026-07-04 | **架构决策 D11（执行层接缝）**：调研+验证 node-pty vs `@anthropic-ai/claude-agent-sdk`（体积 +5.5MB/依赖树干净/peerDeps zod^4 无冲突/`canUseTool` 结构化审批）。拍板：接缝在语义化 `CLIAdapter`（非 `Runtime`），Claude 走 SDK 家族、node-pty 降为 PTY 家族备用；审批 SDK 结构化 / PTY scraping；`Runtime`→`PtyRuntime` 内部件；厂商中立靠每 CLI 一个 Adapter 非共享 SDK 基类。**同步全部文档**：03（§3.1 `CLIAdapter` 语义化 + §3.2 `PtyRuntime` 定界 + §3.3 `ApprovalDetector` 标 PTY 专属 + §4/§7）、02（§1.2 图/§2.1 矩阵/§3.4 重写/§3.5/§4.1-4.2 时序/§8/§9/附录 ADR10）、05（M4 拆 SDK 主+M4b PTY 备/构建拓扑/DoD）、01（§3.4/技术栈/DoD）、07（§4.2 应答语义化）、06（sendUserInput）。**仅改文档，未碰代码、未提交** |
+| 2026-07-04 | **M3 完成**：SessionMachine 纯状态机（11 条合法 + 24 条非法迁移 + 终态防护） + Auth（白名单 fail-closed 二次校验）+ SessionManager（findOrCreate 复用/新建、forceNew 置旧 idle、close 转 closed、transition 委托状态机、listStaleIdle 归档扫描、事件发射）+ MessageRouter（订阅 MessageReceived、存 user/assistant 消息、MockHandler 模拟响应、发 MessageGenerated）+ CoreHub 装配（SessionManager + Auth + Router）+ main.ts TODO 更新。**验收**：typecheck ✅ · format:check ✅ · lint 0 error（depcruise 48 模块 115 依赖 0 违规）✅ · bun test **94 pass / 6 skip / 0 fail** ✅ |
 
 ---
 
