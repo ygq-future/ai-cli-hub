@@ -149,8 +149,12 @@ export interface CLIAdapter {
 }
 
 export interface OutputDelta {
-  text: string;
-  final: boolean;    // false=流式增量，true=一轮结束
+  /** 输出类型：text=纯文本, tool_use=工具调用, tool_result=工具执行结果, thinking=推理过程 */
+  kind: 'text' | 'tool_use' | 'tool_result' | 'thinking';
+  text: string;               // kind=text/tool_result/thinking 时填充；tool_use 时为空
+  final: boolean;              // false=增量，true=本轮结束
+  toolName?: string;           // kind=tool_use 时填充（如 "Bash" "Write"）
+  toolInput?: Record<string, unknown>;  // kind=tool_use 时填充
 }
 
 export interface ApprovalRequest {

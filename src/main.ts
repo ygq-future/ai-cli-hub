@@ -19,6 +19,8 @@ logger.info(
 
 // TODO(M2): const db = createDb(config.DATABASE_URL); const repos = createRepositories(db)
 // M3: const coreHub = createCoreHub({ bus, repos: repos!, config, mockHandler })
-// TODO(M4): core.registerAdapter(new ClaudeCLIAdapter(...))
+// M4 就绪: import { createClaudeSdkAdapter } from './cli'  // SDK 家族，审批经 canUseTool
+//          import { createPtyRuntime } from './runtime'    // PTY 家族备用
+//          adapter 接入完整消息流待 M5 聚合器 + M6 Transport 装配
 // TODO(M6): await new TelegramTransport({ bus, config }).start()
 // 详见 docs/05-Implementation-Plan.md

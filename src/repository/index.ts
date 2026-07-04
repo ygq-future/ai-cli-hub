@@ -21,6 +21,10 @@ export type {
   NewAuditLog,
   Memory,
   NewMemory,
+  CliType,
+  SessionStatus,
+  ConversationId,
+  MessageId,
 } from './types'
 
 /** 装配根据注入 db 组装全部仓储（docs/03 §7）。 */
