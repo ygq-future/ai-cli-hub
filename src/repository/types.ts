@@ -5,7 +5,7 @@
  * 实体类型（Conversation/Message/...）源自 storage/ 的 $inferSelect/$inferInsert（docs/04），
  * 在此再导出，令 core/ 经 repository/ 获取领域类型而无需直连 storage/（遵依赖矩阵）。
  */
-import type { CliType, SessionStatus, ConversationId, MessageId } from '../shared/types/common'
+import type { CliType, SessionStatus, ConversationId, MessageId } from '../shared'
 import type {
   Conversation,
   NewConversation,

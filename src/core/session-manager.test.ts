@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { Conversation, NewConversation, ConversationId } from '../repository/types'
+import type { Conversation, NewConversation, ConversationId } from '../repository'
 import type { EventBus } from '../event'
 import { createSessionManager } from './session-manager'
 import { createMessageRouter, type MockHandler } from './message-router'

@@ -12,7 +12,7 @@
  */
 import type { ConversationId, Unsubscribe } from '../shared'
 import type { EventBus } from '../event'
-import type { Repositories } from '../repository/types'
+import type { Repositories } from '../repository'
 import type { SessionManager } from './session-manager'
 
 /**

@@ -12,7 +12,7 @@
  */
 import type { CliType, ConversationId, Platform, SessionStatus, Unsubscribe } from '../shared'
 import type { EventBus } from '../event'
-import type { Repositories } from '../repository/types'
+import type { Repositories } from '../repository'
 import { transition, type SessionEvent } from './session-machine'
 
 export interface SessionManager {

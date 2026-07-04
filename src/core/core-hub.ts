@@ -6,7 +6,7 @@
  */
 import type { AppConfig } from '../config'
 import type { EventBus } from '../event'
-import type { Repositories } from '../repository/types'
+import type { Repositories } from '../repository'
 import { createAuth, type Auth } from './auth'
 import { createSessionManager, type SessionManager } from './session-manager'
 import { createMessageRouter, type MessageRouter, type MockHandler } from './message-router'
