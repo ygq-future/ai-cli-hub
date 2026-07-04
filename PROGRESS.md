@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-04 · 阶段：**M4 完成（Runtime 与 Claude Adapter），进入 M5（消息聚合器）**
+> 最后更新：2026-07-04 · 阶段：**M5 完成（消息聚合器），进入 M6（Telegram Transport）**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **M5 - 消息聚合器**（未开始） |
-| 代码 | ✅ M4 就绪（CLIAdapter 语义接缝 + ClaudeSdkAdapter[SDK 家族,canUseTool 审批] + PtyRuntime[node-pty,PTY 家族备用]；**113 单测全绿 + 0 lint 违规 + 57 模块 depcruise 通过**） |
+| 当前里程碑 | **M6 - Telegram Transport**（未开始） |
+| 代码 | ✅ M5 就绪（MessageAggregator[push/flush/destroy，Buffer+Debounce+Throttle+超长拆分] + formatOutputDelta[OutputDelta→字符串] + main.ts bindAdapterOutput 接线；**126 单测全绿 + 0 lint 违规 + 61 模块 depcruise 通过**） |
 | 文档 | ✅ 齐全 |
 | 阻塞项 | 无 |
-| 下一步 | M5：MessageAggregator（Buffer/Debounce/Throttle/拆分），把 adapter 输出流聚合为 MessageGenerated |
+| 下一步 | M6：TelegramTransport（Telegraf）——首个端到端；入站白名单→MessageReceived，出站订阅 MessageGenerated 流式 editMessage + ApprovalRequested 审批卡 |
 
 ---
 
@@ -28,8 +28,8 @@
 | M2 | 存储与仓储 | ✅ 完成 | Drizzle 四表(conversations/messages/audit_logs/memories) + enums / 迁移 0000_init(含 CREATE EXTENSION vector, embedding vector(1536), FTS gin, 无 HNSW) / bun-sql 连接 / 四 Repository(唯一 SQL 出口) + createRepositories 工厂 / schema 离线单测 5 + 集成测试 6(TEST_DATABASE_URL 守卫) |
 | M3 | Core 状态机与会话生命周期 | ✅ 完成 | SessionMachine 纯状态机(11 合法/24 非法迁移+2 终态) + Auth(白名单 fail-closed) + SessionManager(findOrCreate/forceNew/close/transition/listStaleIdle) + MessageRouter(订阅 MessageReceived 事件, 存消息, 发 MessageGenerated) + MockHandler(模拟 Adapter 打通闭环) + CoreHub 装配；94 单测(含 62 状态机 + 6 Auth + 12 SessionManager 集成 + 14 Router 集成), depcruise 48 模块 0 违规 |
 | M4 | Runtime 与 Claude Adapter | ✅ 完成 | CLIAdapter 语义接缝(cli/base) + ClaudeSdkAdapter(SDK 家族,持 query() 流式输入 + canUseTool 审批,queryFn 可注入测试) + PtyRuntime/NodePtyRuntime(node-pty,PTY 家族备用,spawnFn 可注入 + 空闲超时自杀) + 各家族 barrel 导出;main.ts TODO 更新;新增 19 单测(6 SDK 同步契约 + 6 SDK 假 query 驱动 + 7 PtyRuntime);113 单测全绿, depcruise 57 模块 0 违规(D11)。**ApprovalDetector(PTY scraping)未做——无 SDK 的 CLI 接入时再补(M4b)** |
-| M5 | 消息聚合器 | 🟡 下一个 | Buffer/Debounce/Throttle/拆分 |
-| M6 | Telegram Transport | ⬜ | 首个端到端 |
+| M5 | 消息聚合器 | ✅ 完成 | MessageAggregator(core/aggregator，push/flush/destroy；累计文本 Buffer + Debounce[debounceMs] + Throttle[minEditIntervalMs trailing 补发] + 超长拆分[maxChunkChars，优先换行处切]，发 MessageGenerated) + formatOutputDelta(cli/format-output，OutputDelta→展示串，tool_use 合成工具行) + main.ts bindAdapterOutput 接线(onOutput→format→push；final→flush，M6 每会话调用)。**content 语义定为累计全文(D12)**；新增 20 单测(13 aggregator + 7 format-output)；126 单测全绿，depcruise 61 模块 0 违规。AggregatorConfig 暂用默认常量(DEFAULT_AGGREGATOR_CONFIG 400/1000/4096)，未 env 化 |
+| M6 | Telegram Transport | 🟡 下一个 | 首个端到端 |
 | M7 | Audit 落地 | ⬜ | 永久审计 |
 | M8 | 记忆基础（V1：关系+FTS） | ⬜ | 跨会话摘要回放 |
 | M9 | 加固与交付 | ⬜ | 优雅关闭 / 故障隔离 / 部署 |
@@ -56,23 +56,24 @@
 | D9 | 迁移沿用 drizzle-kit **0 基序号**（首个迁移 = `0000_init`，非 `0001`）——强改为 0001 会与后续自动生成的 `0001_*` 撞号；docs 中「迁移 0001」指此首迁移，内容为准 | 2026-07-04 |
 | D10 | Repository 契约接口置于 **`src/repository/types.ts`**（非 shared/）：实体类型由 Drizzle `$inferSelect/$inferInsert` 推导必居 storage/，shared/ 是叶子不可依赖 storage/；core/ 经 repository/ 取领域类型（依赖矩阵允许 core→repository、repository→storage） | 2026-07-04 |
 | D11 | **执行层接缝在语义化 `CLIAdapter`（非 `Runtime`）；Claude 走 `@anthropic-ai/claude-agent-sdk`（SDK 家族），node-pty 仅作无 SDK 的 CLI 备用（PTY 家族）**。要点：① Core/Transport 只依赖语义 `CLIAdapter`（一轮输入/流式输出/审批请求+决定/生命周期），字节 vs 结构化差异封在 Adapter 内部；② 审批 SDK 侧走 `canUseTool`（拿工具名+参数，结构化）、PTY 侧走 `ApprovalDetector`（正则 scraping，仅 PTY 专属）；③ `Runtime`→`PtyRuntime`，PTY 家族内部件，SDK Adapter 不实现不使用——删原"未来替换 SdkRuntime、Adapter 不感知"假承诺（审批形态不对称使其不成立）；④ 厂商中立靠"每 CLI 一个 Adapter 实现 `CLIAdapter`"，**不**造共享 SDK 基类。已验证：SDK peerDeps `zod ^4.0.0`（与本项目一致，无冲突）、体积 +5.5MB（含原生二进制，依赖树干净）、`canUseTool(toolName,input)→allow/deny`。已同步 CLAUDE.md（§2 技术栈 + §3 依赖矩阵 cli/* 允许依赖 SDK + §4 目录职责 + §8 扩展指引）与 01/02/03/05/06/07 全部文档 | 2026-07-04 |
+| D12 | **`MessageGenerated.content` = 当前消息的累计全文（非增量 delta）**：契约 §1.1 只注"final=false 为流式增量"，语义留白。因 Transport 出站以 `editMessage`（整条替换）消费流式更新，content 必须是全文而非 delta，否则 Transport 需自行重组。据此：聚合器流式 emit 发累计 buffer(final=false)；`flush`/拆分发 final=true 定稿；拆分=定稿当前条(final=true)并开启下一条。M6 TelegramTransport 据此按会话维护「当前草稿 MessageRef」：final=false 首次 sendMessage 存 ref、后续 editMessage(ref)，final=true 定稿并清 ref | 2026-07-04 |
 
 ---
 
 ## 4. 下一步行动（Next Actions）
 
-**M5 — 消息聚合器**（当前）：
-1. `core/aggregator.ts`（或独立模块）：实现 `MessageAggregator`（`push`/`flush`），Buffer + Debounce + Throttle + 超长拆分（TG 4096）。
-2. 把 CLIAdapter 的 `onOutput` 流接入聚合器 → 聚合后发 `MessageGenerated`。
-3. SDK 家族输出本就离散（SDKMessage），debounce 压力小；PTY 家族高频字节需重点去抖。
-4. 单测：push/flush/debounce/拆分边界。
-5. 通过验收 → 更新本文件（M5 → ✅，M6 → 🟡）→ 进入 M6。
+**M6 — Telegram Transport**（当前）：
+1. `transport/telegram/`：实现 `Transport`（Telegraf）。入站：收消息 → **白名单校验（非白名单静默丢弃，不进 Core）** → `bus.emit('MessageReceived', ...)`。
+2. 出站：订阅 `MessageGenerated` → 按会话维护「当前草稿 MessageRef」，final=false 首发 `sendMessage` 存 ref / 后续 `editMessage(ref)`；final=true 定稿清 ref（依 D12 累计全文语义）。
+3. 订阅 `ApprovalRequested` → `sendApproval` 发审批卡（内联 [Approve]/[Reject]）；按钮回调 → `bus.emit('ApprovalApproved'|'ApprovalRejected', ...)`。
+4. `main.ts` 装配：config → repos(M2) → coreHub(M3) → adapter(M4) → aggregator(M5) → 每会话 `bindAdapterOutput` → TelegramTransport.start()，打通首个端到端。
+5. 通过验收 → 更新本文件（M6 → ✅，M7 → 🟡）→ 进入 M7。
 
-> **依赖就绪**：CLIAdapter.onOutput（03 §3.1）、AggregatorConfig（03 §4）、MessageGenerated 事件（EventMap）。
+> **依赖就绪**：Transport 契约（03 §2）、MessageRef（03 §0）、MessageGenerated/ApprovalRequested 事件（EventMap）、聚合器（M5）。新增依赖：`telegraf`。
 
-**M4 验收留痕**：`bun run typecheck` ✅ · `bun run lint`（eslint + depcruise **57 模块 136 依赖 0 违规**）✅ · `bun run format:check` ✅ · `bun test` **113 pass / 6 skip / 0 fail**（+19：6 SDK 同步契约 + 6 SDK 假 query 驱动[输出映射/审批 allow-deny/重复 start] + 7 PtyRuntime[data/exit/write/resize/超时自杀/退订]）✅
+**M5 验收留痕**：`bun run typecheck` ✅ · `bun run lint`（eslint + depcruise **61 模块 154 依赖 0 违规**）✅ · `bun run format:check` ✅ · `bun test` **126 pass / 6 skip / 0 fail**（+20：13 aggregator[默认配置/空chunk/debounce/合并/flush清空/流式+flush收尾/flush无状态/throttle trailing/超长拆分/换行切/余量续+flush/多会话隔离/destroy] + 7 format-output[text/tool_result/thinking/tool_use带参/无参/无名回退/final空串]）✅
 
-> 备注：SDK 依赖 `@anthropic-ai/claude-agent-sdk@0.3.201`、`node-pty@1.1.0` 已装。adapter/runtime 均用「可注入 fn」接缝（queryFn / spawnFn）单测，不真起子进程。`bun run start` 仍不完整（缺 DB + adapter 接入完整消息流，待 M5/M6）。
+> 备注：聚合器与 formatOutputDelta 均纯逻辑单测（假 bus + 小 ms 真定时器），不起子进程。`bindAdapterOutput` 为 Composition Root 接线（唯一可同时 import cli+core 的层），M6 每会话调用；本里程碑未被实际调用（无 adapter/会话生命周期，待 M6）。`bun run start` 仍不完整（缺 DB + Transport，待 M6）。
 
 ---
 
@@ -92,6 +93,7 @@
 | 2026-07-04 | barrel import 简写（`../shared` / `../repository`）：源码 5 处 import 收敛，repository/index.ts 补 re-export ConversationId/MessageId/CliType/SessionStatus；CLAUDE.md §5 加规则 13（barrel 优先）+ 补回规则 14（写完必格式化）。commit `d389486` |
 | 2026-07-04 | **M4 完成**：CLIAdapter 语义接缝（cli/base，Core/Transport 唯一依赖）+ ClaudeSdkAdapter（SDK 家族：异步输入队列喂 query() 流式输入、assistant→onOutput(final=false)/result→final=true、canUseTool→onApprovalRequest 挂起 Promise、resolveApproval 决议 allow/deny、interrupt/stop；queryFn 可注入测试）+ PtyRuntime/NodePtyRuntime（PTY 家族备用：node-pty spawn/write/kill/resize/onData/onExit、空闲超时自杀；spawnFn 可注入测试）+ cli//runtime/ barrel 导出。新增依赖 node-pty@1.1.0 + @anthropic-ai/claude-agent-sdk@0.3.201。env 越界修正：SDK/node-pty 省略 env 即继承 process.env，不自读（遵 §5）。**验收**：typecheck ✅ · format:check ✅ · lint 0 error（depcruise 57 模块 136 依赖 0 违规）✅ · bun test **113 pass / 6 skip / 0 fail**（+19）✅。ApprovalDetector(PTY scraping) 留待 M4b |
 | 2026-07-04 | **M4 真·连通验证**：`scripts/smoke-claude.ts` 真 spawn 本机 claude CLI(v2.1.200,OAuth 凭证,无 ANTHROPIC_API_KEY)→ 发 "say hi in exactly 3 words" → 收到 "Hi there friend" + final，`ClaudeSdkAdapter` 端到端跑通。**修正上条留痕的夸大**：113 单测仅逻辑自洽（假驱动 mock，不碰真 SDK）；本次才是真实连接验证。SDK 家族确认可用 |
+| 2026-07-04 | **M5 完成**：MessageAggregator（core/aggregator：按会话累计文本 Buffer；debounceMs 去抖触发流式 emit(final=false)；minEditIntervalMs throttle 门控+trailing 补发；maxChunkChars 超长拆分[优先换行处切]切出 final=true 并开下一条；flush 收尾发 final=true 清状态；destroy 清定时器）+ formatOutputDelta（cli/format-output：OutputDelta→展示串，tool_use 合成「🔧 Tool(args)」行）+ main.ts `bindAdapterOutput`（Composition Root 接线：onOutput→format→push；final→flush）。**决策 D12**：content=累计全文（非 delta），契合 Transport editMessage 消费。AggregatorConfig 暂用 DEFAULT 常量(400/1000/4096)，未 env 化（留作后续）。**验收**：typecheck ✅ · format:check ✅ · lint 0 error（depcruise 61 模块 154 依赖 0 违规）✅ · bun test **126 pass / 6 skip / 0 fail**（+20：13 aggregator + 7 format-output）✅ |
 
 ---
 

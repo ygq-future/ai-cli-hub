@@ -10,3 +10,4 @@ export type {
   AdapterState,
 } from './base'
 export { createClaudeSdkAdapter } from './claude/claude-sdk-adapter'
+export { formatOutputDelta } from './format-output'
