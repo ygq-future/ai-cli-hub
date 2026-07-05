@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Conversation, NewConversation, ConversationId } from '../repository'
 import type { EventBus } from '../event'
 import { createSessionManager } from './session-manager'
-import { createMessageRouter, type MockHandler } from './message-router'
+import { createMessageRouter, type MessageHandler } from './message-router'
 
 // ---- In-memory mock repositories ----
 function createMockRepos() {
@@ -284,7 +284,7 @@ describe('MessageRouter with MockHandler', () => {
       text: 'hello',
     })
 
-    const handler: MockHandler = {
+    const handler: MessageHandler = {
       async onMessage(text: string) {
         return `Echo: ${text}`
       },
@@ -295,10 +295,13 @@ describe('MessageRouter with MockHandler', () => {
     const generated: unknown[] = []
     bus.on('MessageGenerated', p => generated.push(p))
 
+    // D13：MessageReceived 不含 conversationId；router 经 findOrCreate 解析同一会话
+    // （mock findActive 返回上面预建的 (u1,claude,/project) 会话）。
     bus.emit('MessageReceived', {
-      conversationId: cid,
       userId: 'u1',
       platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
       text: 'Hello from test',
       ref: { platform: 'telegram' as const, chatId: 'c', nativeId: '1' },
     })
@@ -331,8 +334,9 @@ describe('MessageRouter with MockHandler', () => {
       cwd: '/project',
       text: 'hi',
     })
+    void cid
 
-    const failingHandler: MockHandler = {
+    const failingHandler: MessageHandler = {
       async onMessage() {
         throw new Error('Mock failure')
       },
@@ -344,9 +348,10 @@ describe('MessageRouter with MockHandler', () => {
     bus.on('ErrorOccurred', p => errors.push(p))
 
     bus.emit('MessageReceived', {
-      conversationId: cid,
       userId: 'u1',
       platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
       text: 'trigger error',
       ref: { platform: 'telegram' as const, chatId: 'c', nativeId: '1' },
     })

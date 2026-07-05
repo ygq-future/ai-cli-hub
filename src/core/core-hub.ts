@@ -9,7 +9,7 @@ import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
 import { createAuth, type Auth } from './auth'
 import { createSessionManager, type SessionManager } from './session-manager'
-import { createMessageRouter, type MessageRouter, type MockHandler } from './message-router'
+import { createMessageRouter, type MessageRouter, type MessageHandler } from './message-router'
 
 export interface CoreHub {
   auth: Auth
@@ -22,7 +22,7 @@ export interface CoreHubOptions {
   bus: EventBus
   repos: Repositories
   config: AppConfig
-  mockHandler?: MockHandler
+  handler?: MessageHandler
 }
 
 export function createCoreHub(opts: CoreHubOptions): CoreHub {
@@ -34,8 +34,8 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
   // SessionManager：会话生命周期
   const sessionManager = createSessionManager(bus, repos, config.SESSION_ARCHIVE_DAYS)
 
-  // MessageRouter：消息路由 + MockHandler 处理
-  const messageRouter = createMessageRouter(bus, repos, sessionManager, opts.mockHandler)
+  // MessageRouter：消息路由 + handler 处理（M6 由 orchestrator 注入真实 adapter 驱动）
+  const messageRouter = createMessageRouter(bus, repos, sessionManager, opts.handler)
 
   return {
     auth,

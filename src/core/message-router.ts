@@ -2,13 +2,14 @@
  * MessageRouter —— 消息路由（docs/02-Architecture.md §3.2 / §4.1）。
  *
  * 职责：
- *  - 订阅 MessageReceived 事件
- *  - 定位/创建会话
+ *  - 订阅 MessageReceived 事件（决策 D13：不含 conversationId）
+ *  - 经 sessionManager.findOrCreate 解析/新建会话（会话边界 = userId+cli+cwd）
  *  - 保存用户消息到 DB
- *  - 触发 Adapter 处理（M3 用 MockHandler 模拟；M4 接入真实 CLIAdapter）
- *  - 发射 MessageGenerated 事件
+ *  - 交由注入的 MessageHandler 处理（M3 用 mock 回显；M6 = Composition Root 注入的
+ *    真实 adapter 编排器，输出走聚合器流，handler 返回空串不自发 MessageGenerated）
  *
- * MockHandler 是 M3 的进程占位，打通「收消息→路由→存库→回消息」闭环。
+ * 依赖矩阵：core/ 禁依赖 cli/，故 handler 是语义接缝——具体 adapter 驱动由 Composition
+ * Root（orchestrator）实现并注入。
  */
 import type { ConversationId, Unsubscribe } from '../shared'
 import type { EventBus } from '../event'
@@ -16,12 +17,11 @@ import type { Repositories } from '../repository'
 import type { SessionManager } from './session-manager'
 
 /**
- * M3 的模拟 Adapter 处理句柄。
- * 真实场景（M4+）由 CLIAdapter 替代。
- *
- * onMessage 接收 (text, conversationId)，返回响应文本（或空字符串表示无响应）。
+ * 用户输入处理接缝。
+ *  - onMessage 接收 (text, conversationId)，返回响应文本（空串表示无同步响应——
+ *    真实 adapter 场景下输出经聚合器异步流出，此处返回空串）。
  */
-export interface MockHandler {
+export interface MessageHandler {
   onMessage(text: string, conversationId: ConversationId): Promise<string>
 }
 
@@ -33,15 +33,19 @@ export function createMessageRouter(
   bus: EventBus,
   repos: Repositories,
   sessionManager: SessionManager,
-  handler?: MockHandler,
+  handler?: MessageHandler,
 ): MessageRouter {
   const unsubs: Unsubscribe[] = []
 
   // 订阅 MessageReceived
   const unsub = bus.on('MessageReceived', async payload => {
-    const { conversationId, text } = payload
+    const { userId, platform, cli, cwd, text } = payload
+    let conversationId: ConversationId | undefined
 
     try {
+      // 解析/新建会话（新建时同步发 SessionCreated）
+      conversationId = await sessionManager.findOrCreate({ userId, platform, cli, cwd, text })
+
       // 保存用户消息（角色=user）
       const msgId = crypto.randomUUID()
       await repos.messages.append({
@@ -52,7 +56,7 @@ export function createMessageRouter(
         createdAt: Date.now(),
       })
 
-      // 使用 MockHandler 生成响应
+      // 交由 handler 处理
       if (handler) {
         const response = await handler.onMessage(text, conversationId)
         if (response) {
@@ -78,7 +82,7 @@ export function createMessageRouter(
       bus.emit('ErrorOccurred', {
         scope: 'router:MessageReceived',
         message: err instanceof Error ? err.message : String(err),
-        conversationId,
+        ...(conversationId ? { conversationId } : {}),
       })
     }
   })

@@ -10,9 +10,10 @@ describe('createEventBus', () => {
     const seen: string[] = []
     bus.on('MessageReceived', p => seen.push(p.text))
     bus.emit('MessageReceived', {
-      conversationId: CID,
       userId: 'u1',
       platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
       text: 'hello',
       ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
     })

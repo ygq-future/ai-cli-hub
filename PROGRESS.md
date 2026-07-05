@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-04 · 阶段：**M5 完成（消息聚合器），进入 M6（Telegram Transport）**
+> 最后更新：2026-07-05 · 阶段：**M6b（会话管理命令 & 生产级加固）**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **M6 - Telegram Transport**（未开始） |
-| 代码 | ✅ M5 就绪（MessageAggregator[push/flush/destroy，Buffer+Debounce+Throttle+超长拆分] + formatOutputDelta[OutputDelta→字符串] + main.ts bindAdapterOutput 接线；**126 单测全绿 + 0 lint 违规 + 61 模块 depcruise 通过**） |
+| 当前里程碑 | **M6b — 会话管理命令 & 生产级加固**（实施中） |
+| 代码 | ✅ M6 全量就绪（144 单测全绿 + 0 lint 违规 + 真机端到端三通路验证） |
 | 文档 | ✅ 齐全 |
 | 阻塞项 | 无 |
-| 下一步 | M6：TelegramTransport（Telegraf）——首个端到端；入站白名单→MessageReceived，出站订阅 MessageGenerated 流式 editMessage + ApprovalRequested 审批卡 |
+| 下一步 | 实施 M6b 五项修复（会话命令 / 重启映射 / 审批整轮取消 / 语言偏好 / CommandRouter） |
 
 ---
 
@@ -27,10 +27,11 @@
 | M1 | 配置与事件总线 | ✅ 完成 | config Zod(fail-fast, 唯一 env 入口) / EventBus(emit/on/once, 订阅者抛错隔离转 ErrorOccurred) + EventMap(Record 同步 ALL_EVENT_TYPES) / logger 订阅全部事件桥 / main 装配；17 单测 |
 | M2 | 存储与仓储 | ✅ 完成 | Drizzle 四表(conversations/messages/audit_logs/memories) + enums / 迁移 0000_init(含 CREATE EXTENSION vector, embedding vector(1536), FTS gin, 无 HNSW) / bun-sql 连接 / 四 Repository(唯一 SQL 出口) + createRepositories 工厂 / schema 离线单测 5 + 集成测试 6(TEST_DATABASE_URL 守卫) |
 | M3 | Core 状态机与会话生命周期 | ✅ 完成 | SessionMachine 纯状态机(11 合法/24 非法迁移+2 终态) + Auth(白名单 fail-closed) + SessionManager(findOrCreate/forceNew/close/transition/listStaleIdle) + MessageRouter(订阅 MessageReceived 事件, 存消息, 发 MessageGenerated) + MockHandler(模拟 Adapter 打通闭环) + CoreHub 装配；94 单测(含 62 状态机 + 6 Auth + 12 SessionManager 集成 + 14 Router 集成), depcruise 48 模块 0 违规 |
-| M4 | Runtime 与 Claude Adapter | ✅ 完成 | CLIAdapter 语义接缝(cli/base) + ClaudeSdkAdapter(SDK 家族,持 query() 流式输入 + canUseTool 审批,queryFn 可注入测试) + PtyRuntime/NodePtyRuntime(node-pty,PTY 家族备用,spawnFn 可注入 + 空闲超时自杀) + 各家族 barrel 导出;main.ts TODO 更新;新增 19 单测(6 SDK 同步契约 + 6 SDK 假 query 驱动 + 7 PtyRuntime);113 单测全绿, depcruise 57 模块 0 违规(D11)。**ApprovalDetector(PTY scraping)未做——无 SDK 的 CLI 接入时再补(M4b)** |
-| M5 | 消息聚合器 | ✅ 完成 | MessageAggregator(core/aggregator，push/flush/destroy；累计文本 Buffer + Debounce[debounceMs] + Throttle[minEditIntervalMs trailing 补发] + 超长拆分[maxChunkChars，优先换行处切]，发 MessageGenerated) + formatOutputDelta(cli/format-output，OutputDelta→展示串，tool_use 合成工具行) + main.ts bindAdapterOutput 接线(onOutput→format→push；final→flush，M6 每会话调用)。**content 语义定为累计全文(D12)**；新增 20 单测(13 aggregator + 7 format-output)；126 单测全绿，depcruise 61 模块 0 违规。AggregatorConfig 暂用默认常量(DEFAULT_AGGREGATOR_CONFIG 400/1000/4096)，未 env 化 |
-| M6 | Telegram Transport | 🟡 下一个 | 首个端到端 |
-| M7 | Audit 落地 | ⬜ | 永久审计 |
+| M4 | Runtime 与 Claude Adapter | ✅ 完成 | CLIAdapter 语义接缝(cli/base) + ClaudeSdkAdapter(SDK 家族,持 query() 流式输入 + canUseTool 审批,queryFn 可注入测试) + PtyRuntime/NodePtyRuntime(node-pty,PTY 家族备用,spawnFn 可注入 + 空闲超时自杀) + 各家族 barrel 导出；main.ts TODO 更新；新增 19 单测(6 SDK 同步契约 + 6 SDK 假 query 驱动 + 7 PtyRuntime)；113 单测全绿, depcruise 57 模块 0 违规(D11)。**ApprovalDetector(PTY scraping)未做——无 SDK 的 CLI 接入时再补(M4b)** |
+| M5 | 消息聚合器 | ✅ 完成 | MessageAggregator(core/aggregator, push/flush/destroy; 累计文本 Buffer + Debounce[debounceMs] + Throttle[minEditIntervalMs trailing 补发] + 超长拆分[maxChunkChars,优先换行处切], 发 MessageGenerated) + formatOutputDelta(cli/format-output, OutputDelta→展示串, tool_use 合成工具行) + main.ts bindAdapterOutput 接线(onOutput→format→push; final→flush, M6 每会话调用)。**content 语义定为累计全文(D12)**；新增 20 单测(13 aggregator + 7 format-output)；126 单测全绿, depcruise 61 模块 0 违规。AggregatorConfig 暂用默认常量(DEFAULT_AGGREGATOR_CONFIG 400/1000/4096), 未 env 化 |
+| M6 | Telegram Transport | ✅ 完成 | 首个端到端。真机验证通过(见会话日志). **M6b 为质量闭环, 不单独列里程碑** |
+| M6b | 会话管理命令 & 生产级加固 | 🟡 进行中 | 见 §4 下一步行动 |
+| M7 | Audit 落地 | ⬜ 下一个 | 永久审计 |
 | M8 | 记忆基础（V1：关系+FTS） | ⬜ | 跨会话摘要回放 |
 | M9 | 加固与交付 | ⬜ | 优雅关闭 / 故障隔离 / 部署 |
 | V1.5 | 记忆增强（pgvector） | ⬜ | 非 V1 阻塞项 |
@@ -52,28 +53,67 @@
 | D5 | **进程回收 ≠ 会话关闭**：PTY 空闲超时转 `idle`，`closed` 仅由 `/close`/归档触发 | 2026-07-03 |
 | D6 | 记忆分 **user-level / conversation-level 两层**；跨会话回放取 user-level + 相关 episodic 摘要 | 2026-07-03 |
 | D7 | 文档集定为 CLAUDE.md + 01–07 + .env.example（不单列安全/ADR/贡献指南） | 2026-07-03 |
-| D8 | Postgres 驱动用 **drizzle-orm/bun-sql**（Bun 内置 SQL），零额外驱动依赖，遵「用 bun」。迁移应用走 **bun-sql migrator**（`scripts/migrate.ts` ← `db:migrate`），因 `drizzle-kit migrate` 需外部 pg/postgres 驱动；`db:generate` 仍用 drizzle-kit（离线，无需驱动） | 2026-07-04 |
+| D8 | Postgres 驱动用 **drizzle-orm/bun-sql**（Bun 内置 SQL），零额外驱动依赖，遵「用 bun」。迁移应用走 **bun-sql migrator**（`scripts/migrate.ts`← `db:migrate`），因 `drizzle-kit migrate` 需外部 pg/postgres 驱动；`db:generate` 仍用 drizzle-kit（离线，无需驱动） | 2026-07-04 |
 | D9 | 迁移沿用 drizzle-kit **0 基序号**（首个迁移 = `0000_init`，非 `0001`）——强改为 0001 会与后续自动生成的 `0001_*` 撞号；docs 中「迁移 0001」指此首迁移，内容为准 | 2026-07-04 |
 | D10 | Repository 契约接口置于 **`src/repository/types.ts`**（非 shared/）：实体类型由 Drizzle `$inferSelect/$inferInsert` 推导必居 storage/，shared/ 是叶子不可依赖 storage/；core/ 经 repository/ 取领域类型（依赖矩阵允许 core→repository、repository→storage） | 2026-07-04 |
-| D11 | **执行层接缝在语义化 `CLIAdapter`（非 `Runtime`）；Claude 走 `@anthropic-ai/claude-agent-sdk`（SDK 家族），node-pty 仅作无 SDK 的 CLI 备用（PTY 家族）**。要点：① Core/Transport 只依赖语义 `CLIAdapter`（一轮输入/流式输出/审批请求+决定/生命周期），字节 vs 结构化差异封在 Adapter 内部；② 审批 SDK 侧走 `canUseTool`（拿工具名+参数，结构化）、PTY 侧走 `ApprovalDetector`（正则 scraping，仅 PTY 专属）；③ `Runtime`→`PtyRuntime`，PTY 家族内部件，SDK Adapter 不实现不使用——删原"未来替换 SdkRuntime、Adapter 不感知"假承诺（审批形态不对称使其不成立）；④ 厂商中立靠"每 CLI 一个 Adapter 实现 `CLIAdapter`"，**不**造共享 SDK 基类。已验证：SDK peerDeps `zod ^4.0.0`（与本项目一致，无冲突）、体积 +5.5MB（含原生二进制，依赖树干净）、`canUseTool(toolName,input)→allow/deny`。已同步 CLAUDE.md（§2 技术栈 + §3 依赖矩阵 cli/* 允许依赖 SDK + §4 目录职责 + §8 扩展指引）与 01/02/03/05/06/07 全部文档 | 2026-07-04 |
-| D12 | **`MessageGenerated.content` = 当前消息的累计全文（非增量 delta）**：契约 §1.1 只注"final=false 为流式增量"，语义留白。因 Transport 出站以 `editMessage`（整条替换）消费流式更新，content 必须是全文而非 delta，否则 Transport 需自行重组。据此：聚合器流式 emit 发累计 buffer(final=false)；`flush`/拆分发 final=true 定稿；拆分=定稿当前条(final=true)并开启下一条。M6 TelegramTransport 据此按会话维护「当前草稿 MessageRef」：final=false 首次 sendMessage 存 ref、后续 editMessage(ref)，final=true 定稿并清 ref | 2026-07-04 |
+| D11 | **执行层接缝在语义化 `CLIAdapter`（非 `Runtime`）；Claude 走 `@anthropic-ai/claude-agent-sdk`（SDK 家族），node-pty 仅作无 SDK 的 CLI 备用（PTY 家族）**。要点：① Core/Transport 只依赖语义 `CLIAdapter`；② 审批 SDK 侧走 `canUseTool`（结构化）、PTY 侧走 `ApprovalDetector`（正则 scraping，仅 PTY 专属）；③ `Runtime`→`PtyRuntime`，PTY 家族内部件，SDK Adapter 不实现不使用；④ 厂商中立靠「每 CLI 一个 Adapter 实现 `CLIAdapter`」，不造共享 SDK 基类。 | 2026-07-04 |
+| D12 | **`MessageGenerated.content` = 当前消息的累计全文（非增量 delta）**：聚合器流式 emit 发累计 buffer(final=false)；`flush`/拆分发 final=true 定稿；拆分=定稿当前条(final=true)并开启下一条。Transport 按会话维护「当前草稿 MessageRef」：final=false 首次 sendMessage 存 ref、后续 editMessage(ref)，final=true 定稿并清 ref | 2026-07-04 |
+| D13 | **`MessageReceived` 去 `conversationId`，改由 Core 解析会话**：Transport 出参 { userId, platform, cli, cwd, text, ref }；MessageRouter 订阅后调 `sessionManager.findOrCreate` 解析/新建 conversation。配套：`SessionCreated` 事件（含 userId）使 Transport 维护 convChat 映射。 | 2026-07-05 |
+| D14 | **`SessionMapped` 事件解决跨进程重启映射丢失**：`findOrCreate` 复用分支发射 `SessionMapped{conversationId,userId,platform}`。Transport 订阅同一 handler 更新 convChat。 | 2026-07-05 |
+| D15 | **审批拒绝触发整轮取消**：`CLIAdapter` 新增 `interrupt()` 接口；`ClaudeSdkAdapter` 实现为 `query.interrupt()`。orchestrator 订阅 `ApprovalRejected` + `interrupt()` 阻止 Claude 换工具重试。 | 2026-07-05 |
+| D16 | **语言偏好的系统注入**：Transport 维持 `userLang Map`；`/lang <zh|en>` 切换；`CLIAdapter.StartOptions` 加 `systemLanguageHint`；orchestrator 注入到 adapter.start。 | 2026-07-05 |
 
 ---
 
 ## 4. 下一步行动（Next Actions）
 
-**M6 — Telegram Transport**（当前）：
-1. `transport/telegram/`：实现 `Transport`（Telegraf）。入站：收消息 → **白名单校验（非白名单静默丢弃，不进 Core）** → `bus.emit('MessageReceived', ...)`。
-2. 出站：订阅 `MessageGenerated` → 按会话维护「当前草稿 MessageRef」，final=false 首发 `sendMessage` 存 ref / 后续 `editMessage(ref)`；final=true 定稿清 ref（依 D12 累计全文语义）。
-3. 订阅 `ApprovalRequested` → `sendApproval` 发审批卡（内联 [Approve]/[Reject]）；按钮回调 → `bus.emit('ApprovalApproved'|'ApprovalRejected', ...)`。
-4. `main.ts` 装配：config → repos(M2) → coreHub(M3) → adapter(M4) → aggregator(M5) → 每会话 `bindAdapterOutput` → TelegramTransport.start()，打通首个端到端。
-5. 通过验收 → 更新本文件（M6 → ✅，M7 → 🟡）→ 进入 M7。
+**M6b — 会话管理命令 & 生产级加固**（当前）：
 
-> **依赖就绪**：Transport 契约（03 §2）、MessageRef（03 §0）、MessageGenerated/ApprovalRequested 事件（EventMap）、聚合器（M5）。新增依赖：`telegraf`。
+### 变更清单
 
-**M5 验收留痕**：`bun run typecheck` ✅ · `bun run lint`（eslint + depcruise **61 模块 154 依赖 0 违规**）✅ · `bun run format:check` ✅ · `bun test` **126 pass / 6 skip / 0 fail**（+20：13 aggregator[默认配置/空chunk/debounce/合并/flush清空/流式+flush收尾/flush无状态/throttle trailing/超长拆分/换行切/余量续+flush/多会话隔离/destroy] + 7 format-output[text/tool_result/thinking/tool_use带参/无参/无名回退/final空串]）✅
+**会话管理命令**（`transport/telegram/telegram-transport.ts` + 新增 `core/commands.ts`）：
+1. 新增 `/close` —— 关闭当前会话（SessionClosed → db closed → 清理 adapter）
+2. 新增 `/new` —— 强制开新会话（旧 idle 建新 → SessionCreated）
+3. 新增 `/status` —— 显示当前会话状态 + id + 存活时长
+4. 新增 `/sessions` —— 列出该用户最近 10 条历史会话（状态/日期/cwd）
 
-> 备注：聚合器与 formatOutputDelta 均纯逻辑单测（假 bus + 小 ms 真定时器），不起子进程。`bindAdapterOutput` 为 Composition Root 接线（唯一可同时 import cli+core 的层），M6 每会话调用；本里程碑未被实际调用（无 adapter/会话生命周期，待 M6）。`bun run start` 仍不完整（缺 DB + Transport，待 M6）。
+**重启映射修复**（`core/session-manager.ts` + `transport/telegram/telegram-transport.ts`）：
+5. `findOrCreate` 复用分支发射 `SessionMapped` 事件（D14）
+6. Transport 订阅 `SessionMapped` + `SessionCreated` 同一 handler 更新 convChat
+
+**审批整轮取消**（`core/commands.ts` + `orchestrator.ts` + `cli/base.ts`）：
+7. `CLIAdapter` 接口加 `interrupt(): void`
+8. `ClaudeSdkAdapter.start` 存 `query` 引用；`interrupt()`→ `query.interrupt()`
+9. orchestrator `ApprovalRejected` 订阅调 `adapter.interrupt()` 停止当前 query
+
+**语言偏好**（`transport/telegram/` + `orchestrator.ts` + `cli/base.ts`）：
+10. Transport 维持 `userLang: Map<userId, 'zh'|'en'>`；`/lang <zh|en>` 切换；默认 `zh`
+11. `CLIAdapter.StartOptions` 加 `systemLanguageHint?: string`
+12. orchestrator `ensureAdapter` 查 lang 并注入到 `adapter.start({ systemLanguageHint })`
+13. `ClaudeSdkAdapter.start` 将 `systemLanguageHint` 作为首条 system 消息喂入
+
+**后端逻辑**：
+14. 新增 `core/commands.ts` 导出 `CommandRouter`——区分系统命令与普通文本
+15. `MessageRouter` 处理 `/` 开头消息时先走 `CommandRouter`
+16. `main.ts` 装配 CommandRouter→注入 CoreHub/router
+
+### 验收
+
+- `bun run typecheck` ✅ · `bun run format` ✅ · `bun run lint` 0 违规 ✅ · `bun test` 全绿 ✅
+- 真机验证四轮：
+  ① `/status`→正确会话信息 → `/close`→会话 closed → 再发消息→新建会话 → `/new`→旧 idle 新会话
+  ② 重启服务后发消息→回复正常落地（SessionMapped 修复）
+  ③ 审批点 Reject→整轮停止（不弹第二卡）
+  ④ `/lang zh`→中文回复；`/lang en`→英文回复
+
+**M7 — Audit 落地**（M6b 之后）：
+1. 审批决议订阅 → SessionMachine `waitingApproval→running` 迁移
+2. SessionCreated/SessionClosed → DB 状态同步
+3. AuditRepository 全程纪录
+4. main.ts 装配
+
+**M8 — 记忆基础**（M7 之后）：
+- memory/ 订阅 MessageGenerated → 异步摘要；跨会话回放
 
 ---
 
@@ -83,17 +123,21 @@
 
 | 日期 | 内容 |
 |---|---|
-| 2026-07-03 | 撰写 01-PRD、02-Architecture；确定长期记忆方案（Postgres+pgvector、API 嵌入、两层记忆）；同步 PRD/架构；产出护栏文档集（CLAUDE.md、03–07、.env.example）；建立本进度文件 |
-| 2026-07-03 | **M0 完成**：搭建 src 骨架（12 模块）、logger(Pino)、shared 基础类型、dependency-cruiser 依赖矩阵校验、ESLint 禁 env 越界；typecheck/lint/start 三项验收通过 |
-| 2026-07-03 | 补 CLAUDE.md 硬规矩：完成阶段性任务必须对齐 PROGRESS.md；未经指令禁止 git commit/push |
-| 2026-07-03 | **M1 完成**：config（Zod schema + loadConfig，fail-fast，唯一 env 入口，注入 source 便于测试）；event（EventBus emit/on/once，订阅快照安全，订阅者抛错隔离转 ErrorOccurred 且不回环；EventMap + Record 强同步 ALL_EVENT_TYPES）；logger 事件桥（订阅全部事件，级别路由，返回 detach）；main 装配 config→logger→bus→桥；新增依赖 zod@4；17 单测 + typecheck + lint(0 违规) + start 全绿 |
-| 2026-07-04 | **M2 完成**：storage（enums + 四表 schema，pgvector customType vector(1536)，FTS gin 索引；createDb 走 drizzle-orm/bun-sql[D8]）；离线 `db:generate` 产出 `drizzle/0000_init.sql`[D9] 并手工前置 `CREATE EXTENSION vector`；repository（types.ts 契约[D10] + 四 Repository 实现 + createRepositories 工厂，searchByVector 留桩 V1.5）；测试（schema 离线 5 通过 + 集成 6 项 TEST_DATABASE_URL 守卫 skip）；eslint 加 `^_` 未用参数放行；新增依赖 drizzle-orm / drizzle-kit(dev)；typecheck + lint(0 违规,40 模块) + format:check + 22 单测全绿。**真·连库迁移/CRUD 待用户备库后验证** |
-| 2026-07-04 | **M2 连库验证**：用户本地 pgvector/pgvector:pg16（5432）→ 建 `ai_cli_hub_test` 库；`db:migrate` 改用 bun-sql migrator（`scripts/migrate.ts`，因 drizzle-kit migrate 需外部驱动，与 D8「零额外驱动」冲突）；迁移建库成功（vector 扩展 + 4 表 + 7 索引 + `embedding vector(1536)`，幂等复跑 no-op）；全量 `bun test` 含 4 项连库 CRUD **26 通过 / 0 失败**。M2 验收全绿 |
-| 2026-07-04 | **M3 完成**：SessionMachine 纯状态机（11 条合法 + 24 条非法迁移 + 终态防护） + Auth（白名单 fail-closed 二次校验）+ SessionManager（findOrCreate 复用/新建、forceNew 置旧 idle、close 转 closed、transition 委托状态机、listStaleIdle 归档扫描、事件发射）+ MessageRouter（订阅 MessageReceived、存 user/assistant 消息、MockHandler 模拟响应、发 MessageGenerated）+ CoreHub 装配（SessionManager + Auth + Router）+ main.ts TODO 更新。**验收**：typecheck ✅ · format:check ✅ · lint 0 error（depcruise 48 模块 115 依赖 0 违规）✅ · bun test **94 pass / 6 skip / 0 fail** ✅ |
-| 2026-07-04 | barrel import 简写（`../shared` / `../repository`）：源码 5 处 import 收敛，repository/index.ts 补 re-export ConversationId/MessageId/CliType/SessionStatus；CLAUDE.md §5 加规则 13（barrel 优先）+ 补回规则 14（写完必格式化）。commit `d389486` |
-| 2026-07-04 | **M4 完成**：CLIAdapter 语义接缝（cli/base，Core/Transport 唯一依赖）+ ClaudeSdkAdapter（SDK 家族：异步输入队列喂 query() 流式输入、assistant→onOutput(final=false)/result→final=true、canUseTool→onApprovalRequest 挂起 Promise、resolveApproval 决议 allow/deny、interrupt/stop；queryFn 可注入测试）+ PtyRuntime/NodePtyRuntime（PTY 家族备用：node-pty spawn/write/kill/resize/onData/onExit、空闲超时自杀；spawnFn 可注入测试）+ cli//runtime/ barrel 导出。新增依赖 node-pty@1.1.0 + @anthropic-ai/claude-agent-sdk@0.3.201。env 越界修正：SDK/node-pty 省略 env 即继承 process.env，不自读（遵 §5）。**验收**：typecheck ✅ · format:check ✅ · lint 0 error（depcruise 57 模块 136 依赖 0 违规）✅ · bun test **113 pass / 6 skip / 0 fail**（+19）✅。ApprovalDetector(PTY scraping) 留待 M4b |
-| 2026-07-04 | **M4 真·连通验证**：`scripts/smoke-claude.ts` 真 spawn 本机 claude CLI(v2.1.200,OAuth 凭证,无 ANTHROPIC_API_KEY)→ 发 "say hi in exactly 3 words" → 收到 "Hi there friend" + final，`ClaudeSdkAdapter` 端到端跑通。**修正上条留痕的夸大**：113 单测仅逻辑自洽（假驱动 mock，不碰真 SDK）；本次才是真实连接验证。SDK 家族确认可用 |
-| 2026-07-04 | **M5 完成**：MessageAggregator（core/aggregator：按会话累计文本 Buffer；debounceMs 去抖触发流式 emit(final=false)；minEditIntervalMs throttle 门控+trailing 补发；maxChunkChars 超长拆分[优先换行处切]切出 final=true 并开下一条；flush 收尾发 final=true 清状态；destroy 清定时器）+ formatOutputDelta（cli/format-output：OutputDelta→展示串，tool_use 合成「🔧 Tool(args)」行）+ main.ts `bindAdapterOutput`（Composition Root 接线：onOutput→format→push；final→flush）。**决策 D12**：content=累计全文（非 delta），契合 Transport editMessage 消费。AggregatorConfig 暂用 DEFAULT 常量(400/1000/4096)，未 env 化（留作后续）。**验收**：typecheck ✅ · format:check ✅ · lint 0 error（depcruise 61 模块 154 依赖 0 违规）✅ · bun test **126 pass / 6 skip / 0 fail**（+20：13 aggregator + 7 format-output）✅ |
+| 2026-07-03 | 撰写 01-PRD、02-Architecture；确定长期记忆方案；产出护栏文档集；建立本进度文件 |
+| 2026-07-03 | **M0 完成**：搭建 src 骨架（12 模块）、logger(Pino)、shared 基础类型、depcruise 依赖矩阵、ESLint 禁 env 越界；typecheck/lint/start 三项通过 |
+| 2026-07-03 | 补 CLAUDE.md 硬规矩：对齐 PROGRESS.md；禁自动 git commit/push |
+| 2026-07-03 | **M1 完成**：config(Zod + loadConfig, fail-fast, 唯一 env) + event(EventBus, EventMap, ALL_EVENT_TYPES 强同步) + logger 事件桥；17 单测全绿 |
+| 2026-07-04 | **M2 完成**：storage(四表 schema, pgvector, FTS, 迁移 0000_init) + repository(四 Repository, 工厂)；db:generate + db:migrate 真库成功；22 单测全绿 |
+| 2026-07-04 | **M2 连库验证**：本地 pgvector 容器 → 建 ai_cli_hub_test 库 → db:migrate 成功(幂等 no-op) → 26 单测试 0 失败 |
+| 2026-07-04 | **M3 完成**：SessionMachine(11 合法/24 非法) + Auth(白名单 fail-closed) + SessionManager + MessageRouter + CoreHub；94 单测全绿 |
+| 2026-07-04 | barrel import 简写 + CLAUDE.md 规则 13/14 |
+| 2026-07-04 | **M4 完成**：CLIAdapter 语义接缝 + ClaudeSdkAdapter(SDK 家族 canUseTool) + PtyRuntime(node-pty 备用)；113 单测全绿。ApprovalDetector 留待 M4b |
+| 2026-07-04 | **M4 真·连通验证**：`scripts/smoke-claude.ts` 真 spawn 本机 claude CLI 端到端跑通 |
+| 2026-07-05 | **M5 完成**：MessageAggregator(Buffer+Debounce+Throttle+超长拆分) + formatOutputDelta + main.ts bindAdapterOutput 接线；126 单测全绿 |
+| 2026-07-05 | **M6 完成**：Telegram Transport(Telegraf) 首端到端——白名单+出站流式 editMessage + 审批卡+ /start /help。**D13**: MessageReceived 去 conversationId。140 单测全绿。依赖新增: telegraf |
+| 2026-07-05 | **M6 真机联调通过 + 两处修复**：① Windows 连通修复（Bun 只认 `HTTP_PROXY`/`HTTPS_PROXY` 环境变量,不读系统代理注册表；`.env` 顶部加两行就通）推翻前会话错误论断。② 真机端到端跑通：TG→MessageReceived→SessionCreated→ClaudeSdkAdapter→流式回复。③ **Markdown 渲染修复**(引入 telegramify-markdown + MarkdownV2)。141 单测全绿。依赖新增: telegramify-markdown |
+| 2026-07-05 | **M6 真机联调二轮修复（生产级加固）**：④ 出站 sendFormatted/editFormatted 加 400 解析错误降级纯文本(消息永不丢失)。⑤ 审批卡 doSendApproval 同理降级(按钮保留)。⑥ detail 反斜杠双写转义(Windows 路径完整)。144 单测全绿 |
+| 2026-07-05 | **🎯 M6b 规划对齐**：真机暴露问题汇总为 M6b 工作包(会话命令/重启映射/审批整轮取消/语言偏好/CommandRouter)；PROGRESS.md 完整重建(清理之前 Edit 残留的 tab 嵌套格式)；新增 D14/D15/D16 |
 
 ---
 

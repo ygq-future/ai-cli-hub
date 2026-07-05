@@ -29,6 +29,9 @@ export const ConfigSchema = z.object({
   PTY_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   SESSION_ARCHIVE_DAYS: z.coerce.number().int().positive().default(7),
 
+  // —— 会话默认工作目录（/cwd 命令延后至 M6b；M6 全会话共享此默认）——
+  DEFAULT_CWD: z.string().min(1).default(process.cwd()),
+
   // —— 日志 ——
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 })

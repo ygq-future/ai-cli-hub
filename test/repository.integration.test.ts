@@ -14,7 +14,7 @@ import { inArray } from 'drizzle-orm'
 import { createDb, type Db } from '../src/storage'
 import { auditLogs, conversations, memories } from '../src/storage/schema'
 import { createRepositories, type Repositories } from '../src/repository'
-import type { ConversationId } from '../src/shared/types/common'
+import type { ConversationId } from '../src/shared'
 
 const url = process.env.TEST_DATABASE_URL
 
