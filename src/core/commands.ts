@@ -6,7 +6,7 @@
  */
 import type { EventBus, EventMap } from '../event'
 import type { CliType, ConversationId, UserLanguage } from '../shared'
-import type { Repositories, Conversation } from '../repository'
+import type { Repositories, Conversation, AuditLog } from '../repository'
 import type { SessionManager } from './session-manager'
 
 export interface CommandRouter {
@@ -119,6 +119,17 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           return true
         }
 
+        case 'audit': {
+          const resolved = await resolveAuditConversation(parsed.args, payload, repos)
+          if (!resolved.ok) {
+            reply(payload, resolved.message)
+            return true
+          }
+          const records = await repos.audit.listByConversation(resolved.conversation.id as ConversationId)
+          reply(payload, formatAudit(resolved.conversation, records.slice(-10)))
+          return true
+        }
+
         default:
           reply(payload, `未知命令：/${parsed.name}\n发送 /help 查看可用命令。`)
           return true
@@ -189,6 +200,64 @@ function formatSessions(sessions: Conversation[]): string {
       s => `${shortId(s.id as ConversationId)} | ${s.status} | ${s.cli} | ${formatDate(s.updatedAt)} | ${s.cwd}`,
     ),
   ].join('\n')
+}
+
+async function resolveAuditConversation(
+  args: string[],
+  payload: EventMap['MessageReceived'],
+  repos: Repositories,
+): Promise<{ ok: true; conversation: Conversation } | { ok: false; message: string }> {
+  const target = args[0]?.trim()
+  if (!target) {
+    const conv = await repos.conversations.findActive(payload.userId, payload.cli, payload.cwd)
+    if (!conv) {
+      return {
+        ok: false,
+        message: '当前没有活跃会话。可用 /sessions 查看会话后执行 /audit <conversationId>。',
+      }
+    }
+    return { ok: true, conversation: conv }
+  }
+
+  const exact = await repos.conversations.findById(target as ConversationId)
+  if (exact) return exact.userId === payload.userId ? { ok: true, conversation: exact } : auditNotFound(target)
+
+  const recent = await repos.conversations.listRecentByUser(payload.userId, 50)
+  const matches = recent.filter(conv => conv.id.startsWith(target))
+  if (matches.length === 1) return { ok: true, conversation: matches[0]! }
+  if (matches.length > 1) return { ok: false, message: `会话 ID 前缀不唯一：${target}\n请多输入几位。` }
+  return auditNotFound(target)
+}
+
+function auditNotFound(target: string): { ok: false; message: string } {
+  return { ok: false, message: `找不到可查看的会话：${target}` }
+}
+
+function formatAudit(conv: Conversation, records: AuditLog[]): string {
+  if (records.length === 0) {
+    return ['审批审计', `Conversation: ${conv.id}`, '暂无审批记录。'].join('\n')
+  }
+
+  return [
+    '审批审计',
+    `Conversation: ${conv.id}`,
+    ...records.map(record =>
+      [
+        `${formatDate(record.createdAt)} | ${formatAuditAction(record.action)} | ${record.operator}`,
+        truncateForAudit(record.command),
+      ].join('\n'),
+    ),
+  ].join('\n\n')
+}
+
+function formatAuditAction(action: AuditLog['action']): string {
+  return action === 'approve' ? 'approved' : 'rejected'
+}
+
+function truncateForAudit(value: string): string {
+  const normalized = value.trim()
+  if (normalized.length <= 300) return normalized
+  return `${normalized.slice(0, 297)}...`
 }
 
 function shortId(id: ConversationId): string {

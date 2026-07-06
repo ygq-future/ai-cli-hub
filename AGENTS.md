@@ -49,6 +49,7 @@ core/ ──❌禁止──▶ 任何具体实现(telegraf/node-pty/drizzle)
 | `cli/*` | `event/`, `shared/`, `config/`, `runtime/`, `approval/`, **该 CLI 的 SDK（如 `@anthropic-ai/Codex-agent-sdk`）** | `transport/`, `storage/`, `core/` 内部 |
 | `repository/` | `storage/`, `shared/` | `core/`, `transport/` |
 | `storage/` | Drizzle, `shared/` | 其它全部业务模块 |
+| `audit/` | `event/`, `repository/`, `shared/` | `core/`, `transport/`, `cli/`, `runtime/`, `storage/` |
 | `memory/` | `event/`, `repository/`, `shared/`, `config/` | `core/`, `transport/` |
 | `config/` | `process.env`（**全局唯一**）, Zod | 无（叶子） |
 | `shared/` | 无 | 一切业务模块 |
@@ -71,6 +72,7 @@ src/
 ├── approval/     # PTY 家族审批 scraping（正则）；SDK 家族经 canUseTool，无需
 ├── repository/   # 数据抽象接口 + Drizzle 实现
 ├── storage/      # Postgres/Drizzle 连接、schema、迁移 (pgvector)
+├── audit/        # 审批审计：订阅审批事件，写入 AuditRepository
 ├── memory/       # 长期记忆：嵌入、召回、摘要、遗忘
 ├── logger/       # Pino 全局日志（订阅全部事件）
 └── shared/       # 全局类型与工具函数（叶子）
@@ -94,6 +96,7 @@ src/
 12. **禁止自动提交 Git**：**每次写完功能/改动后，禁止自动 `git commit` / `git push`，除非用户明确下达提交指令。** 完成后只汇报改了什么，等待用户指令再提交。
 13. **Import 路径优先用 barrel export 简写**：目录有 `index.ts` 时优先写 `'../shared'` 而非 `'../shared/types/common'`，`'../repository'` 而非 `'../repository/types'`。若 barrel 未 re-export 目标类型，仍用完整路径。
 14. **写完必格式化**：**每次写完/改完代码，必须执行 `bun run format`**（Prettier）再进入验收（typecheck/lint/test）。提交前代码须已格式化，`bun run format:check` 应通过。
+15. **Windows 大小写陷阱**：本仓库在 Windows 上工作，文件名大小写不敏感。**禁止创建 `progress.md` / `process.md` 等会与 [PROGRESS.md](./PROGRESS.md) 混淆或碰撞的临时记录文件。** 若确需临时过程记录，追加到 `PROGRESS.md` 的明确 `临时备注/TODO` 小段，并在开发完毕、提交前删除该临时段。
 
 ---
 

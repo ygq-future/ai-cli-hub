@@ -272,6 +272,10 @@ export interface AuditRepository {
   listByConversation(id: ConversationId): Promise<AuditLog[]>;
 }
 
+// M7 审计范围：仅记录 Human Approval 决策。
+// audit_logs.command 写入工具/命令名、approvalId 与请求详情的可读文本；
+// /audit [conversationId] 通过 listByConversation 查看最近审批记录。
+
 export interface MemoryRepository {
   insert(m: NewMemory): Promise<Memory>;
   // V1：关系 + FTS 检索

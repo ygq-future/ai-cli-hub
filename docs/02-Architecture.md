@@ -313,7 +313,8 @@ sequenceDiagram
     participant C as Core
     participant T as Transport
     participant U as 用户
-    participant AU as AuditRepository
+    participant AU as Audit
+    participant AR as AuditRepository
 
     A->>A: 审批点命中（SDK：canUseTool 回调 / PTY：ApprovalDetector scraping）
     A->>B: emit ApprovalRequested
@@ -322,7 +323,8 @@ sequenceDiagram
     T->>U: 展示内联按钮
     U->>T: 点击 Approve
     T->>B: emit ApprovalApproved
-    B->>AU: 记录审批（时间/操作人/内容/决策）
+    B->>AU: 订阅决策事件
+    AU->>AR: 记录审批（时间/操作人/内容/决策）
     B->>A: resolveApproval(id, 'approve')
     Note over A: SDK 家族→resolve({behavior:'allow'})；PTY 家族→write("y\r")
     Note over T,U: 拒绝 → interrupt() + resolveApproval(id,'reject')（SDK: deny / PTY: "n\r" 或 Ctrl+C）

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { Conversation, NewConversation, ConversationId } from '../repository'
+import type { Conversation, NewConversation, ConversationId, AuditLog, NewAuditLog } from '../repository'
 import type { EventBus } from '../event'
 import { createCommandRouter } from './commands'
 import { createSessionManager } from './session-manager'
@@ -9,6 +9,7 @@ import { createMessageRouter, type MessageHandler } from './message-router'
 function createMockRepos() {
   const conversations: Record<string, Conversation> = {}
   const messages: Array<Record<string, unknown>> = []
+  const auditLogs: AuditLog[] = []
 
   function findActive(userId: string, cli: string, cwd: string): Conversation | null {
     const latest =
@@ -69,7 +70,14 @@ function createMockRepos() {
         return messages.filter(m => m.conversationId === id)
       },
     },
-    audit: {},
+    audit: {
+      async record(a: NewAuditLog) {
+        auditLogs.push(a as AuditLog)
+      },
+      async listByConversation(id: ConversationId) {
+        return auditLogs.filter(a => a.conversationId === id)
+      },
+    },
     memories: {},
   } as Parameters<typeof createSessionManager>[1]
 }
@@ -560,5 +568,89 @@ describe('CommandRouter', () => {
     })
 
     expect((replies[0] as { content: string }).content).toContain(`ID: ${cid}`)
+  })
+
+  test('/audit 展示当前会话审批记录', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+    })
+    const cid = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: 'hi',
+    })
+    await repos.audit.record({
+      id: 'audit-1',
+      conversationId: cid,
+      command: 'command=Bash\napprovalId=a1\ndetail={"cmd":"rm x"}',
+      action: 'approve',
+      operator: 'u1',
+      createdAt: 1_700_000_000_000,
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/audit',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    const content = (replies[0] as { content: string }).content
+    expect(content).toContain('审批审计')
+    expect(content).toContain(`Conversation: ${cid}`)
+    expect(content).toContain('approved')
+    expect(content).toContain('command=Bash')
+  })
+
+  test('/audit <shortId> 可查看自己的历史会话', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+    })
+    const cid = await sm.forceNew({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/new',
+    })
+    await repos.audit.record({
+      id: 'audit-1',
+      conversationId: cid,
+      command: 'command=Write',
+      action: 'reject',
+      operator: 'u1',
+      createdAt: 1_700_000_000_000,
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/other',
+      text: `/audit ${cid.slice(0, 8)}`,
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    const content = (replies[0] as { content: string }).content
+    expect(content).toContain(`Conversation: ${cid}`)
+    expect(content).toContain('rejected')
   })
 })

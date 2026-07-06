@@ -2,9 +2,9 @@
  * main.ts —— Composition Root：唯一装配具体实现的地方。
  *
  * 装配顺序（按依赖方向）：
- *  config → logger → bus → db → repositories → aggregator → telegramTransport → orchestrator → coreHub
+ *  config → logger → bus → db → repositories → audit → aggregator → telegramTransport → orchestrator → coreHub
  *
- * 优雅关闭信号：SIGINT/SIGTERM → transport.stop → orchestrator.destroy → aggregator.destroy → coreHub.destroy
+ * 优雅关闭信号：SIGINT/SIGTERM → transport.stop → orchestrator.destroy → audit.destroy → aggregator.destroy → coreHub.destroy
  *
  * 依赖矩阵（CLAUDE.md §3）：只有本文件允许 import 具体实现并装配。
  */
@@ -18,6 +18,7 @@ import { createRepositories } from './repository'
 import { createCoreHub } from './core'
 import { createMessageAggregator } from './core'
 import { createClaudeSdkAdapter } from './cli'
+import { createApprovalAudit } from './audit'
 import { createSessionOrchestrator } from './orchestrator'
 import { createTelegramTransport } from './transport'
 import type { Transport } from './shared'
@@ -37,18 +38,21 @@ async function main() {
   // —— 4. Repositories ——
   const repos = createRepositories(db)
 
-  // —— 5. Aggregator ——
+  // —— 5. Audit（审批事件旁路落库）——
+  const approvalAudit = createApprovalAudit({ bus, audit: repos.audit })
+
+  // —— 6. Aggregator ——
   const aggregator = createMessageAggregator(bus, {
     debounceMs: 400,
     minEditIntervalMs: 1000,
     maxChunkChars: 4096,
   })
 
-  // —— 6. Telegram Transport ——
+  // —— 7. Telegram Transport ——
   const telegram = createTelegramTransport({ bus, config })
   const transport: Transport = telegram
 
-  // —— 7. Orchestrator（adapter 编排，每会话一个 adapter）——
+  // —— 8. Orchestrator（adapter 编排，每会话一个 adapter）——
   const orch = createSessionOrchestrator({
     bus,
     repos,
@@ -62,7 +66,7 @@ async function main() {
     idleTimeoutMs: config.AGENT_IDLE_TIMEOUT_MS,
   })
 
-  // —— 8. Core Hub（SessionManager + Auth + MessageRouter）——
+  // —— 9. Core Hub（SessionManager + Auth + MessageRouter）——
   const coreHub = createCoreHub({
     bus,
     repos,
@@ -81,6 +85,7 @@ async function main() {
     try {
       await transport.stop()
       await orch.destroy()
+      approvalAudit.destroy()
       await aggregator.destroy()
       await coreHub.destroy()
       detachLogger()

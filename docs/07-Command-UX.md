@@ -38,6 +38,7 @@ flowchart TD
 | `/status` | — | 当前会话详情 | 展示完整 conversationId、status、cli/cwd、目标 cli/cwd、语言 |
 | `/cwd` | `[path]` | 查看或切换工作目录 | 无参数查看；带路径则关闭当前会话、切换目标 cwd，下一条消息懒启动 |
 | `/sessions` | — | 列出该用户近期会话 | 历史查看，不表示 resume |
+| `/audit` | `[conversationId]` | 查看审批审计 | 无参数查看当前会话；带完整或短会话 ID 查看指定会话最近审批记录 |
 
 > 参数缺省：`/new` 不带参数则使用当前目标 `cli`、当前目标 `cwd`（若无则用 `DEFAULT_CWD`）。V1 当前只接入 `claude`，`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
 
@@ -87,6 +88,7 @@ Markdown 卡片 + 内联按钮：
 
 - **幂等**：同一 `approvalId` 重复点击只生效一次（按 `approvalId` 去重），并把卡片 `editMessage` 为最终结果（禁用按钮）。
 - 每次决策**强制**写 `audit_logs`（时间/操作人/命令/决策）。
+- `/audit [conversationId]` 可查看最近审批记录；只能查看当前用户自己的会话。M7 审计仅覆盖 Human Approval，不记录所有普通命令或消息。
 
 ### 4.3 卡片终态回显
 ```text

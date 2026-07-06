@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-06 · 阶段：**M6b（会话管理命令 & 生产级加固完成）**
+> 最后更新：2026-07-06 · 阶段：**M7（Audit 落地完成）**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **M6b — 会话管理命令 & 生产级加固**（完成） |
-| 代码 | ✅ M6b 全部真机复测完成；format/typecheck/lint/test 全绿 |
+| 当前里程碑 | **M7 — Audit 落地**（完成） |
+| 代码 | ✅ M7 审批审计 + `/audit` 完成；format/typecheck/lint/test 全绿 |
 | 文档 | ✅ 齐全 |
 | 阻塞项 | 无 |
-| 下一步 | 进入 **M7 Audit 落地**：审批决议、会话生命周期与关键操作写入永久审计 |
+| 下一步 | 进入 **M8 全局记忆基础**：先做 M8-A 环境快照记忆 |
 
 ---
 
@@ -31,7 +31,7 @@
 | M5 | 消息聚合器 | ✅ 完成 | MessageAggregator(core/aggregator, push/flush/destroy; 累计文本 Buffer + Debounce[debounceMs] + Throttle[minEditIntervalMs trailing 补发] + 超长拆分[maxChunkChars,优先换行处切], 发 MessageGenerated) + formatOutputDelta(cli/format-output, OutputDelta→展示串, tool_use 合成工具行) + main.ts bindAdapterOutput 接线(onOutput→format→push; final→flush, M6 每会话调用)。**content 语义定为累计全文(D12)**；新增 20 单测(13 aggregator + 7 format-output)；126 单测全绿, depcruise 61 模块 0 违规。AggregatorConfig 暂用默认常量(DEFAULT_AGGREGATOR_CONFIG 400/1000/4096), 未 env 化 |
 | M6 | Telegram Transport | ✅ 完成 | 首个端到端。真机验证通过(见会话日志). **M6b 为质量闭环, 不单独列里程碑** |
 | M6b | 会话管理命令 & 生产级加固 | ✅ 完成 | `/new` `/cwd` `/status` `/sessions` `/lang`、状态流转、SDK 输出源、TG 展示与审批回归均已真机复测 |
-| M7 | Audit 落地 | ⬜ 下一个 | 永久审计 |
+| M7 | Audit 落地 | ✅ 完成 | Human Approval 审计 + `/audit [conversationId]` 查看 |
 | M8 | 全局记忆基础 | ⬜ | M8-A 环境快照记忆优先落地；随后做 adapter 注入、`/remember`、`/memory`/`/forget` |
 | M9 | 媒体/文件处理 + OCR/Vision | ⬜ | emoji 归一化、sticker metadata、文件/图片/PDF/Office 解析、OCR 默认开启，Vision 可选增强 |
 | M10 | 加固与交付 | ⬜ | 优雅关闭 / 故障隔离 / 部署 |
@@ -81,6 +81,7 @@
 | D32 | **M8/M9 重新切分**：M8 做全局记忆基础；M9 做媒体/文件处理与 OCR。M8 顺序由 D33 细化，M9 媒体分层由 D34 细化。 | 2026-07-06 |
 | D33 | **环境快照记忆是 M8 第一子任务**：VPS 运维 AI 必须先知道当前运行环境；M8 拆为 M8-A 环境快照 upsert、M8-B adapter start 注入、M8-C `/remember`、M8-D `/memory`/`/forget`。环境快照包括 OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、可用 CLI 与平台路径风格。 | 2026-07-06 |
 | D34 | **M9 媒体理解分层**：Unicode emoji 是文本语义归一化，不走 OCR；Telegram sticker/custom emoji 先解析 metadata（`emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`），不靠 OCR；OCR 只负责图片/PDF/截图中的文字；动态 sticker 视觉语义属于 Vision/抽帧增强，作为 M9-D 可选能力。 | 2026-07-06 |
+| D35 | **M7 审计范围收口为 Human Approval 审计 + 可查看**：`audit/` 订阅 `ApprovalRequested` 缓存请求详情，订阅 `ApprovalApproved/Rejected` 写 `audit_logs`；`/audit [conversationId]` 查看当前或指定会话最近审批记录。M7 不做完整操作日志，不改变 conversation status；审批 `detail` 以可读文本折入现有 `audit_logs.command` 字段，暂不新增迁移。 | 2026-07-06 |
 
 ---
 
@@ -140,11 +141,22 @@
   ⑮ `/new codex ...` / `/new gemini ...` 在 Adapter 未接入前返回不支持；未知 cli 不得被静默当成 cwd
   ⑯ `hello` 这类首轮回复不得在 TG 展示 `Wait for all results... </system-reminder>`；debug raw result 不打印完整 `result.result`
 
-**M7 — Audit 落地**（M6b 之后）：
-1. 审批决议订阅 → AuditRepository.record；不改变 conversation status
-2. SessionCreated/SessionClosed → DB 状态同步
-3. AuditRepository 全程纪录
-4. main.ts 装配
+**M7 — Audit 落地**：
+
+状态：**M7 已完成；自动验收通过**。
+
+### 变更清单
+
+1. 新增 `src/audit/`：订阅 `ApprovalRequested` 缓存 `command/detail`；订阅 `ApprovalApproved/Rejected` 写 `AuditRepository.record`
+2. 审计记录包含 `approvalId`、工具/命令名、请求详情、operator、approve/reject、createdAt；不改变 conversation status
+3. 新增 `/audit [conversationId]`：无参数查看当前会话；带完整 ID 或短前缀查看指定会话最近审批记录；仅允许查看当前用户自己的会话
+4. Telegram `/help` 增加 `/audit`
+5. 依赖矩阵新增 `audit/`：只允许依赖 `event/`、`repository/`、`shared/`
+6. `AGENTS.md` / `CLAUDE.md` 新增 Windows 大小写不敏感注意事项，禁止创建会撞 `PROGRESS.md` 的临时记录文件
+
+### 验收
+
+- 自动验收：`bun run format` ✅ · `bun run typecheck` ✅ · `bun run lint` ✅ · `bun test` ✅（163 pass / 6 skip / 0 fail）
 
 **M8 — 全局记忆基础**（M7 之后）：
 - **M8-A 环境快照记忆**：启动时 upsert OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、可用 CLI、平台路径风格等环境事实
@@ -201,6 +213,7 @@
 | 2026-07-06 | **M8 顺序收口**：确认“当前系统信息/运行环境注入”没有丢，但从 M8 普通子项提升为 M8-A 第一子任务；M8 明确拆为环境快照 upsert → adapter start 注入 → `/remember` → `/memory`/`/forget`。 |
 | 2026-07-06 | **M9 媒体处理收口**：确认 Unicode emoji 可直接文本归一化；Telegram sticker/custom emoji 第一版走 metadata（含 associated emoji 与 sticker 类型），OCR 只处理图片/PDF/截图文字；动态 sticker 视觉语义放入可选 Vision/抽帧增强，不和 OCR 混为一谈。 |
 | 2026-07-06 | **M6b 真机复测完成**：用户确认 M6b 所有项目已测过；本阶段关闭，下一步进入 M7 Audit 落地。 |
+| 2026-07-06 | **M7 完成**：新增 Human Approval 审计模块与 `/audit [conversationId]` 查看命令；审批请求详情折入 `audit_logs.command`，不新增迁移、不改变 conversation status；补依赖矩阵与命令 UX 文档；同时在 AGENTS/CLAUDE 记录 Windows 大小写不敏感导致 `progress.md`/`process.md` 可能撞 `PROGRESS.md` 的注意事项。自动验收：format/typecheck/lint/test 全绿，163 pass / 6 skip / 0 fail。 |
 
 ---
 

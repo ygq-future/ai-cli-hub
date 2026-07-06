@@ -89,8 +89,10 @@ flowchart LR
 
 ### M7 — Audit 落地
 
-- 订阅 `ApprovalApproved/Rejected` → `AuditRepository.record`（时间/操作人/命令/决策）。
-- **验收**：每次审批必产生一条不可删审计；会话归档后审计仍在。
+- `audit/` 订阅 `ApprovalRequested` 缓存命令详情；订阅 `ApprovalApproved/Rejected` → `AuditRepository.record`（时间/操作人/命令详情/决策）。
+- 新增 `/audit [conversationId]` 查看当前或指定会话最近审批记录；允许使用 `/sessions` 展示的短 ID 前缀。
+- M7 审计范围仅指 **Human Approval 审计**，不扩展为完整操作日志；不改变 conversation status。
+- **验收**：每次审批必产生一条不可删审计；会话归档后审计仍在；Telegram 可用 `/audit` 查看。
 
 ### M8 — 全局记忆基础（V1：环境快照 + 命令式记忆）
 
