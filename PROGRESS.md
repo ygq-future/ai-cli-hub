@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-06 · 阶段：**M7（Audit 落地完成）**
+> 最后更新：2026-07-06 · 阶段：**M8（记忆模型文档调整完成，待实现）**
 
 ---
 
@@ -11,9 +11,9 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **M7 — Audit 落地**（完成） |
-| 代码 | ✅ M7 审批审计 + `/audit` 完成；format/typecheck/lint/test 全绿 |
-| 文档 | ✅ 齐全 |
+| 当前里程碑 | **M8 — 全局记忆基础**（设计已调整，代码待实现） |
+| 代码 | ✅ M8 记忆数据模型/Repository/迁移已同步；命令与注入待开发 |
+| 文档 | ✅ M8 记忆归属模型已改为实例级 `namespace` 全局共享 |
 | 阻塞项 | 无 |
 | 下一步 | 进入 **M8 全局记忆基础**：先做 M8-A 环境快照记忆 |
 
@@ -52,10 +52,10 @@
 | D3 | 嵌入**只走 API**（`text-embedding-3-small`），**不在 VPS 跑本地模型**；异步批量 | 2026-07-03 |
 | D4 | 会话边界 = `(user_id, cli, cwd)` 复用 + `/new` 开新 + `/close`/超期归档 | 2026-07-03 |
 | D5 | **运行时回收 ≠ 会话关闭**：CLI/adapter 空闲超时仅关闭已启动运行时并让会话保持 `idle`。`closed` 由 `/close`、`/new`、`/cwd <path>` 或归档触发（D29/D30 对原始表述做了收口修正）。 | 2026-07-03 |
-| D6 | 记忆分 **user-level / conversation-level 两层**；M8 收口为先做 user-level 命令式全局记忆与环境记忆，conversation-level 摘要后续用于归档/召回（D32）。 | 2026-07-03 |
+| D6 | 原记忆分层方案已由 **D36** 修正：长期记忆不再按 Transport 用户身份隔离，而归属实例级 `namespace`；`conversation_id` 只标注会话来源。 | 2026-07-03 |
 | D7 | 文档集定为 CLAUDE.md + 01–07 + .env.example（不单列安全/ADR/贡献指南） | 2026-07-03 |
 | D8 | Postgres 驱动用 **drizzle-orm/bun-sql**（Bun 内置 SQL），零额外驱动依赖，遵「用 bun」。迁移应用走 **bun-sql migrator**（`scripts/migrate.ts`← `db:migrate`），因 `drizzle-kit migrate` 需外部 pg/postgres 驱动；`db:generate` 仍用 drizzle-kit（离线，无需驱动） | 2026-07-04 |
-| D9 | 迁移沿用 drizzle-kit **0 基序号**（首个迁移 = `0000_init`，非 `0001`）——强改为 0001 会与后续自动生成的 `0001_*` 撞号；docs 中「迁移 0001」指此首迁移，内容为准 | 2026-07-04 |
+| D9 | 迁移沿用 drizzle-kit **0 基序号**（首个迁移 = `0000_init`，非 `0001`）——强改为 0001 会与后续自动生成的序号撞号；后续迁移继续按 drizzle-kit 序号递增。 | 2026-07-04 |
 | D10 | Repository 契约接口置于 **`src/repository/types.ts`**（非 shared/）：实体类型由 Drizzle `$inferSelect/$inferInsert` 推导必居 storage/，shared/ 是叶子不可依赖 storage/；core/ 经 repository/ 取领域类型（依赖矩阵允许 core→repository、repository→storage） | 2026-07-04 |
 | D11 | **执行层接缝在语义化 `CLIAdapter`（非 `Runtime`）；Claude 走 `@anthropic-ai/claude-agent-sdk`（SDK 家族），node-pty 仅作无 SDK 的 CLI 备用（PTY 家族）**。要点：① Core/Transport 只依赖语义 `CLIAdapter`；② 审批 SDK 侧走 `canUseTool`（结构化）、PTY 侧走 `ApprovalDetector`（正则 scraping，仅 PTY 专属）；③ `Runtime`→`PtyRuntime`，PTY 家族内部件，SDK Adapter 不实现不使用；④ 厂商中立靠「每 CLI 一个 Adapter 实现 `CLIAdapter`」，不造共享 SDK 基类。 | 2026-07-04 |
 | D12 | **`MessageGenerated.content` = 当前消息的累计全文（非增量 delta）**：聚合器流式 emit 发累计 buffer(final=false)；`flush`/拆分发 final=true 定稿；拆分=定稿当前条(final=true)并开启下一条。Transport 按会话维护「当前草稿 MessageRef」：final=false 首次 sendMessage 存 ref、后续 editMessage(ref)，final=true 定稿并清 ref | 2026-07-04 |
@@ -82,6 +82,7 @@
 | D33 | **环境快照记忆是 M8 第一子任务**：VPS 运维 AI 必须先知道当前运行环境；M8 拆为 M8-A 环境快照 upsert、M8-B adapter start 注入、M8-C `/remember`、M8-D `/memory`/`/forget`。环境快照包括 OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、可用 CLI 与平台路径风格。 | 2026-07-06 |
 | D34 | **M9 媒体理解分层**：Unicode emoji 是文本语义归一化，不走 OCR；Telegram sticker/custom emoji 先解析 metadata（`emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`），不靠 OCR；OCR 只负责图片/PDF/截图中的文字；动态 sticker 视觉语义属于 Vision/抽帧增强，作为 M9-D 可选能力。 | 2026-07-06 |
 | D35 | **M7 审计范围收口为 Human Approval 审计 + 可查看**：`audit/` 订阅 `ApprovalRequested` 缓存请求详情，订阅 `ApprovalApproved/Rejected` 写 `audit_logs`；`/audit [conversationId]` 查看当前或指定会话最近审批记录。M7 不做完整操作日志，不改变 conversation status；审批 `detail` 以可读文本折入现有 `audit_logs.command` 字段，暂不新增迁移。 | 2026-07-06 |
+| D36 | **长期记忆归属实例级 `namespace`，不按 Transport `user_id` 隔离**：`user_id` 只用于鉴权、会话路由和审批操作者；Telegram/QQ/WebSocket 上的同一个个人 VPS AI Hub 共享同一套环境事实、全局偏好和跨会话回放。`memories.namespace='global'` 为默认共享池；`conversation_id=NULL` 表示全局事实/偏好/环境，填值表示某会话产出的情节摘要但仍可在同 namespace 内召回。M8 全局事实全量注入；`MEMORY_RECALL_TOP_K` 只限制后续关键词/向量检索召回。 | 2026-07-06 |
 
 ---
 
@@ -159,10 +160,10 @@
 - 自动验收：`bun run format` ✅ · `bun run typecheck` ✅ · `bun run lint` ✅ · `bun test` ✅（163 pass / 6 skip / 0 fail）
 
 **M8 — 全局记忆基础**（M7 之后）：
-- **M8-A 环境快照记忆**：启动时 upsert OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、可用 CLI、平台路径风格等环境事实
-- **M8-B 全局记忆注入**：Adapter start 注入环境记忆 + user-level 全局记忆；conversation messages 当前不做完整回放
-- **M8-C `/remember <text>`**：写入 user-level 持久记忆；不做隐式猜测抽取
-- **M8-D `/memory` / `/forget <id>`**：查看与删除用户记忆
+- **M8-A 环境快照记忆**：启动时按 `namespace + tag` 幂等 upsert OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、可用 CLI、平台路径风格等环境事实
+- **M8-B 全局记忆注入**：Adapter start 全量注入实例级全局记忆（环境事实 + `/remember` + 偏好）；conversation messages 当前不做完整回放
+- **M8-C `/remember <text>`**：写入实例级全局持久记忆（默认 `namespace='global'`、`conversation_id=NULL`）；不做隐式猜测抽取
+- **M8-D `/memory` / `/forget <id>`**：查看与删除实例级全局记忆；命令权限仍由 Transport 白名单控制
 
 **M9 — 媒体/文件处理 + OCR/Vision**（M8 之后）：
 - **M9-A emoji 文本归一化**：识别 Unicode emoji，补充 short name/keywords 作为文本上下文；不走 OCR
@@ -214,6 +215,8 @@
 | 2026-07-06 | **M9 媒体处理收口**：确认 Unicode emoji 可直接文本归一化；Telegram sticker/custom emoji 第一版走 metadata（含 associated emoji 与 sticker 类型），OCR 只处理图片/PDF/截图文字；动态 sticker 视觉语义放入可选 Vision/抽帧增强，不和 OCR 混为一谈。 |
 | 2026-07-06 | **M6b 真机复测完成**：用户确认 M6b 所有项目已测过；本阶段关闭，下一步进入 M7 Audit 落地。 |
 | 2026-07-06 | **M7 完成**：新增 Human Approval 审计模块与 `/audit [conversationId]` 查看命令；审批请求详情折入 `audit_logs.command`，不新增迁移、不改变 conversation status；补依赖矩阵与命令 UX 文档；同时在 AGENTS/CLAUDE 记录 Windows 大小写不敏感导致 `progress.md`/`process.md` 可能撞 `PROGRESS.md` 的注意事项。自动验收：format/typecheck/lint/test 全绿，163 pass / 6 skip / 0 fail。 |
+| 2026-07-06 | **M8 记忆归属模型文档调整**：按新拍板将长期记忆从按 Transport 用户身份隔离改为实例级 `namespace` 全局共享；`memories.user_id` 文档改为 `namespace`，环境快照按 `namespace+tag` 幂等 upsert；全局事实全量注入，`MEMORY_RECALL_TOP_K` 仅限制后续检索召回。新增 D36；代码实现待 M8 开发。 |
+| 2026-07-06 | **M8 记忆数据模型与迁移同步**：代码层 `memories.userId` 改为 `namespace`；`MemoryRepository` 改为 `upsertByTag/listGlobal/findById/searchByKeyword(namespace)/delete`；`MemoryUpdated` 改为携带 `namespace` 与可选 `operatorUserId`；新增并已应用 `drizzle/0001_memory_namespace.sql`（旧记忆统一进入 `global`，新增 `idx_mem_namespace` 与 `uniq_mem_tag`）。自动验收：format/typecheck/lint/test 通过；`bun run db:migrate` 已成功。 |
 
 ---
 

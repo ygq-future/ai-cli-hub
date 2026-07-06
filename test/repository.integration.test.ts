@@ -10,7 +10,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { migrate } from 'drizzle-orm/bun-sql/migrator'
-import { inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { createDb, type Db } from '../src/storage'
 import { auditLogs, conversations, memories } from '../src/storage/schema'
 import { createRepositories, type Repositories } from '../src/repository'
@@ -20,6 +20,7 @@ const url = process.env.TEST_DATABASE_URL
 
 const cid = crypto.randomUUID() as string as ConversationId
 const now = Date.now()
+const testNamespace = `test-${crypto.randomUUID()}`
 
 describe.skipIf(!url)('Repositories 集成 CRUD', () => {
   let db: Db
@@ -99,11 +100,11 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     expect(logs[0]!.action).toBe('approve')
   })
 
-  test('MemoryRepository：insert → listUserLevel → searchByKeyword → touch；searchByVector 抛错', async () => {
-    // user-level（conversationId 为 NULL）
+  test('MemoryRepository：insert → listGlobal → searchByKeyword → touch/delete/upsert；searchByVector 抛错', async () => {
+    // global（conversationId 为 NULL）
     const mem = await repos.memories.insert({
       id: crypto.randomUUID(),
-      userId: 'u-int',
+      namespace: testNamespace,
       conversationId: null,
       type: 'preference',
       content: 'prefers dark mode and terse replies',
@@ -111,20 +112,39 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     })
     expect(mem.conversationId).toBeNull()
 
-    const userLevel = await repos.memories.listUserLevel('u-int')
-    expect(userLevel.some(m => m.id === mem.id)).toBe(true)
+    const global = await repos.memories.listGlobal(testNamespace)
+    expect(global.some(m => m.id === mem.id)).toBe(true)
 
-    const hits = await repos.memories.searchByKeyword('u-int', 'dark mode', 5)
+    const hits = await repos.memories.searchByKeyword(testNamespace, 'dark mode', 5)
     expect(hits.some(m => m.id === mem.id)).toBe(true)
 
     await repos.memories.touch(mem.id)
-    const touched = (await repos.memories.listUserLevel('u-int')).find(m => m.id === mem.id)
+    const touched = (await repos.memories.listGlobal(testNamespace)).find(m => m.id === mem.id)
     expect(touched?.accessCount).toBe(1)
     expect(touched?.lastAccessedAt).not.toBeNull()
 
-    // 清理该条 user-level 记忆（conversationId 为 NULL，afterAll 的 cid 过滤覆盖不到）
-    await db.delete(memories).where(inArray(memories.id, [mem.id]))
+    const upserted = await repos.memories.upsertByTag(testNamespace, 'env:test', {
+      conversationId: null,
+      type: 'semantic',
+      content: 'environment snapshot v1',
+      importance: 0.9,
+    })
+    const updated = await repos.memories.upsertByTag(testNamespace, 'env:test', {
+      conversationId: null,
+      type: 'semantic',
+      content: 'environment snapshot v2',
+      importance: 0.9,
+    })
+    expect(updated.id).toBe(upserted.id)
+    expect(updated.content).toBe('environment snapshot v2')
 
-    expect(repos.memories.searchByVector('u-int', [0.1, 0.2], 5)).rejects.toThrow(/V1\.5/)
+    const byId = await repos.memories.findById(mem.id)
+    expect(byId?.id).toBe(mem.id)
+
+    await repos.memories.delete(mem.id)
+    expect(await repos.memories.findById(mem.id)).toBeNull()
+    await db.delete(memories).where(eq(memories.id, upserted.id))
+
+    expect(repos.memories.searchByVector(testNamespace, [0.1, 0.2], 5)).rejects.toThrow(/V1\.5/)
   })
 })

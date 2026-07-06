@@ -16,7 +16,7 @@
 | **事件驱动** | 模块间不直接相互调用，一律通过 Event Bus 发布/订阅 |
 | **安全可控** | 白名单前置拦截 + Human-in-the-loop 审批 + 永久审计 |
 | **资源节约** | CLI/adapter 按需启停，空闲回收，Session 元数据与运行时解耦 |
-| **智能记忆** | 会话 / 进程双层解耦，记忆分 user-level / conversation-level 两层；事件驱动异步嵌入 + 向量召回，零侵入对话主链路 |
+| **智能记忆** | 会话 / 进程双层解耦，长期记忆归属实例级 `namespace`，不按 Transport `user_id` 隔离；事件驱动异步嵌入 + 向量召回，零侵入对话主链路 |
 
 ### 1.2 分层视图
 
@@ -289,7 +289,7 @@ sequenceDiagram
     T->>T: 白名单校验
     T->>B: emit MessageReceived
     B->>C: 路由到活跃 Session
-    C->>M: 召回相关记忆 Top-K（向量检索）
+    C->>M: 取全局事实 + 召回相关记忆 Top-K
     M-->>C: 拼接为上下文前缀
     C->>C: 状态 idle→Starting（如无 Runtime）
     C->>A: start() / sendUserInput(记忆+用户输入)
@@ -302,7 +302,7 @@ sequenceDiagram
     A->>B: PTYExited（空闲回收后，Session 转 idle）
 ```
 
-> **两个记忆钩子**：① 入站侧「召回注入」——用户消息进 CLI 前先取 Top-K 记忆拼进上下文；② 出站侧「异步写入」——`MessageGenerated` 后台触发嵌入与摘要，**不阻塞**对话主链路。详见 §7。
+> **两个记忆钩子**：① 入站侧「召回注入」——adapter start 前先全量注入实例级全局事实，再按 Top-K 追加检索召回；② 出站侧「异步写入」——`MessageGenerated` 后台触发嵌入与摘要，**不阻塞**对话主链路。详见 §7。
 
 ### 4.2 审批（Human-in-the-loop）时序
 
@@ -365,7 +365,7 @@ flowchart TD
 - **`/cwd`**：无参数显示当前目标 cwd；带路径时关闭当前会话、更新目标 cwd，不创建 conversation，下一条普通消息再新建。
 - **`/close`**：显式结束，触发归档并生成 episodic 摘要（见 §7）。
 - **自动归档**：超过 `SESSION_ARCHIVE_DAYS` 无活动的 `idle` 会话自动转 `closed` 并生成摘要。
-- **cwd 隔离**：不同项目目录天然分属不同会话，记忆据此按项目隔离。
+- **cwd 隔离**：不同项目目录天然分属不同会话；长期记忆不按平台用户隔离，项目/任务局部事实由 `conversation_id` 标注来源，后续通过 namespace 内召回共享。
 
 ### 5.2 会话状态机
 
@@ -445,8 +445,8 @@ erDiagram
     }
     memories {
         string id PK
-        string user_id "跨会话，用户级记忆"
-        string conversation_id FK "可空：user-level 记忆无归属会话"
+        string namespace "实例级记忆命名空间，默认 global"
+        string conversation_id FK "可空：全局事实/偏好/环境无归属会话"
         string type "episodic|semantic|preference"
         text content
         vector embedding "pgvector，V1.5 启用"
@@ -459,7 +459,7 @@ erDiagram
     }
 ```
 
-> `memories.conversation_id` 可空：填值即 conversation-level（本项目/任务情节），为空即 user-level（跨会话画像/偏好）。`embedding` 列在 V1 建表即预留（可 NULL），V1.5 启用 `pgvector` 索引后填充。
+> `memories.namespace = 'global'` 是当前个人 VPS / AI Hub 实例的默认共享记忆池。Transport 的 `user_id` 只用于鉴权、会话隔离与审批操作者，不用于记忆隔离。`memories.conversation_id` 可空：填值即 conversation-derived（本项目/任务情节），为空即实例级全局事实/偏好/环境。`embedding` 列在 V1 建表即预留（可 NULL），V1.5 启用 `pgvector` 索引后填充。
 
 | 表 | 写入触发 | 说明 |
 |---|---|---|
@@ -472,24 +472,24 @@ erDiagram
 
 ## 7. 长期记忆子系统
 
-记忆是本系统区别于"无状态 CLI 代理"的核心能力。设计目标：**跨会话记住用户与项目，且零侵入对话主链路**。
+记忆是本系统区别于"无状态 CLI 代理"的核心能力。设计目标：**跨会话记住实例环境、全局事实与项目上下文，且零侵入对话主链路**。
 
-### 7.1 两层记忆模型
+### 7.1 实例级记忆模型
 
 | 层 | 归属 | 内容 | `conversation_id` |
 |---|---|---|---|
-| **User-level（用户级）** | `user_id` | 稳定画像、跨项目偏好（"偏好 Bun"、"回答用中文"） | NULL |
-| **Conversation-level（会话级）** | `conversation_id` | 本项目/任务的情节摘要、局部上下文 | 填值 |
+| **Global / instance-level** | `namespace='global'` | 环境事实、全局偏好、手工 `/remember` 事实 | NULL |
+| **Conversation-derived** | `namespace='global'` + `conversation_id` | 某次会话产出的情节摘要、项目/任务局部事实 | 填值 |
 
-V1 记忆注入 = 取 **user-level 全局记忆** + **environment 环境记忆**，在 adapter start 时注入。conversation-level 摘要后续用于归档回顾和相关召回，不做完整 messages replay。
+V1 记忆注入 = 取 **实例级全局记忆** + **environment 环境记忆**，在 adapter start 时全量注入。conversation-derived 摘要后续用于归档回顾和相关召回，不做完整 messages replay。`MEMORY_RECALL_TOP_K` 只限制检索召回部分，不限制全局事实注入。
 
 ### 7.2 记忆分型
 
 | type | 生成方式 | 用途 |
 |---|---|---|
 | `episodic`（情节） | 会话归档 / 滚动时 LLM 摘要 | 记住"上次做了什么" |
-| `semantic`（事实） | 从对话抽取结构化事实 | 记住"用户/项目的稳定属性" |
-| `preference`（偏好） | 抽取 + 去重合并 | 记住"用户希望怎样交互" |
+| `semantic`（事实） | `/remember`、环境 upsert 或后续抽取 | 记住"实例/项目的稳定属性" |
+| `preference`（偏好） | `/remember` 或后续抽取 + 去重合并 | 记住"操作者希望怎样交互" |
 
 ### 7.3 写入侧：异步嵌入（订阅 `MessageGenerated`）
 
@@ -512,20 +512,20 @@ flowchart LR
 ```mermaid
 flowchart LR
     IN[用户新消息] --> Q[嵌入为 query 向量]
-    Q --> KNN[pgvector KNN<br/>user_id 过滤 + Top-K]
+    Q --> KNN[pgvector KNN<br/>namespace 过滤 + Top-K]
     KNN --> RANK[按 相似度 × importance 重排]
     RANK --> INJ[拼为上下文前缀<br/>注入 sendUserInput]
     INJ --> UPD[命中记忆 access_count++<br/>last_accessed_at 更新]
 ```
 
-- `MEMORY_RECALL_TOP_K` 控制注入条数，避免上下文膨胀。
+- `MEMORY_RECALL_TOP_K` 控制检索召回条数，避免上下文膨胀；实例级全局事实/环境/偏好全量注入，不参与 Top-K 截断。
 - 命中即更新访问统计，作为**遗忘/衰减**依据（低 importance + 久未访问的记忆可定期清理或降权）。
 
 ### 7.5 分阶段落地（V1 → V1.5）
 
 | 阶段 | 存储 | 检索能力 | 说明 |
 |---|---|---|---|
-| **V1** | Postgres（含预留 `embedding` 列，可 NULL） | user-level 取回 + 环境记忆 upsert | 先跑通 `/remember`、环境事实与启动注入 |
+| **V1** | Postgres（含预留 `embedding` 列，可 NULL） | 实例级全局记忆全量取回 + 环境记忆 upsert | 先跑通 `/remember`、环境事实与启动注入 |
 | **V1.5** | 同库启用 `pgvector` + HNSW 索引 | 向量语义召回 Top-K | 填充 `embedding`，接入 §7.4 召回钩子 |
 
 > **一次定库、分阶段加能力**：数据库第一版即 Postgres，避免 SQLite→PG 二次迁移；向量作为召回精度增强在 V1.5 平滑接入，Repository 接口不变，Core 零改动。
@@ -650,8 +650,8 @@ flowchart LR
 | 3 | Config 独占 `process.env` | 强类型校验、fail-fast、可测试 | 需依赖注入贯穿全局 |
 | 4 | Aggregator 独立成层 | 隔离平台限流与流式渲染 | 增加一次输出延迟（Debounce 窗口） |
 | 5 | V1 直接选 Postgres + Drizzle | 一次定库避免二次迁移；`pgvector` 可同库存向量 | VPS 多一个 DB 服务进程（docker 一把梭，可接受） |
-| 6 | 记忆分 user / conversation 两层 | user-level 承载全局记忆与环境事实，conv-level 承载项目情节 | 记忆归属由 `conversation_id` 是否为空区分 |
+| 6 | 记忆归属实例级 namespace，不按 Transport user_id 隔离 | 个人 VPS 的 Telegram/QQ/WebSocket 操作者本质共享同一套环境事实与全局记忆；`user_id` 只服务会话隔离/鉴权/审批操作者 | 需用 `namespace` 支撑未来多人格/工作区；全局事实由 `conversation_id` 是否为空区分 |
 | 7 | 嵌入走 API 而非本地模型 | VPS 不跑模型，省内存运维 | 有网络延迟与调用成本 → 强制异步批量，V1 可先不用 |
 | 8 | 向量召回分阶段（V1.5 上 pgvector） | V1 先跑通命令式记忆与环境注入，不被召回调优拖慢 | V1 无语义模糊召回 |
-| 9 | 会话边界 = cwd 目标 + `/new` + `/cwd` + 归档 | 贴合 CLI 控制语义，记忆按项目天然隔离；`/cwd` 切目标不热切换已启动 CLI | `conversations` 需加 `cwd` 字段；用户目标 cwd 当前为运行期状态，后续偏好模块持久化 |
+| 9 | 会话边界 = cwd 目标 + `/new` + `/cwd` + 归档 | 贴合 CLI 控制语义，会话按项目目录隔离；记忆在 namespace 内共享并通过 `conversation_id` 标注来源 | `conversations` 需加 `cwd` 字段；用户目标 cwd 当前为运行期状态，后续偏好模块持久化 |
 | 10 | **执行层接缝在语义化 `CLIAdapter`，非 `Runtime`；Claude 走 Agent SDK，PTY 家族仅作无 SDK 备用**（详见 D11） | 审批/输出结构化（`canUseTool`+`SDKMessage`）根治"解析 TUI 菜单"的脆性；接缝在 Adapter 才能同时容纳字节与结构化两形态；厂商中立靠"每 CLI 一个 Adapter"而非共享 SDK 基类 | SDK 依赖 +5.5MB（含原生二进制，依赖树干净、peerDeps zod^4 与本项目一致）；`Runtime`/`ApprovalDetector` 降级为 PTY 家族专属 |

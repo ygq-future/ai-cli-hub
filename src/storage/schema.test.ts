@@ -33,9 +33,12 @@ describe('schema — 表结构与契约', () => {
     expect(t.foreignKeys[0]!.onDelete).toBe('no action')
   })
 
-  test('memories：向量列 vector(1536) + FTS gin 索引 + set null 外键', () => {
+  test('memories：namespace + 向量列 vector(1536) + FTS gin 索引 + set null 外键', () => {
     const t = getTableConfig(memories)
     expect(t.name).toBe('memories')
+    const cols = t.columns.map(c => c.name)
+    expect(cols).toEqual(expect.arrayContaining(['id', 'namespace', 'conversation_id', 'type', 'content', 'tag']))
+
     const embedding = t.columns.find(c => c.name === 'embedding')
     expect(embedding).toBeDefined()
     expect(embedding!.getSQLType()).toBe('vector(1536)')
@@ -45,6 +48,9 @@ describe('schema — 表结构与契约', () => {
     const fts = t.indexes.find(i => i.config.name === 'idx_mem_fts')
     expect(fts).toBeDefined()
     expect(fts!.config.method).toBe('gin')
+
+    const idx = t.indexes.map(i => i.config.name)
+    expect(idx).toEqual(expect.arrayContaining(['idx_mem_namespace', 'uniq_mem_tag']))
   })
 
   test('pgvector 序列化：number[] → 文本字面量 [a,b,c]', () => {

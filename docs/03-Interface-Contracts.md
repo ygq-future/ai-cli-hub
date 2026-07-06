@@ -80,7 +80,13 @@ export interface EventMap {
   PTYExited:  { conversationId: ConversationId; code: number | null; reason: 'idleTimeout' | 'crash' | 'stop' };
 
   // —— 记忆 ——
-  MemoryUpdated: { conversationId: ConversationId | null; userId: string; memoryType: MemoryType; memoryId: string };
+  MemoryUpdated: {
+    conversationId: ConversationId | null;
+    namespace: string;              // 默认 'global'：当前实例级共享记忆池
+    memoryType: MemoryType;
+    memoryId: string;
+    operatorUserId?: string;        // 命令操作者，仅用于日志/审计，不作为记忆隔离键
+  };
 
   // —— 错误 ——
   ErrorOccurred: { scope: string; message: string; cause?: unknown; conversationId?: ConversationId };
@@ -278,12 +284,17 @@ export interface AuditRepository {
 
 export interface MemoryRepository {
   insert(m: NewMemory): Promise<Memory>;
-  // V1：关系 + FTS 检索
-  searchByKeyword(userId: string, query: string, topK: number): Promise<Memory[]>;
-  listUserLevel(userId: string): Promise<Memory[]>;
+  // M8：环境快照等稳定 tag 记忆幂等写入；同 namespace+tag 存在则更新 content/type/importance。
+  upsertByTag(namespace: string, tag: string, m: Omit<NewMemory, 'id' | 'namespace' | 'tag' | 'createdAt'>): Promise<Memory>;
+  // 实例级全局记忆：conversationId 为 NULL，启动时全量注入，不受 MEMORY_RECALL_TOP_K 限制。
+  listGlobal(namespace: string): Promise<Memory[]>;
+  findById(id: string): Promise<Memory | null>;
+  // V1：关系 + FTS 检索；用于后续跨会话召回补充，受 topK 限制。
+  searchByKeyword(namespace: string, query: string, topK: number): Promise<Memory[]>;
   // V1.5：向量检索（embedding 非空时启用）
-  searchByVector(userId: string, embedding: number[], topK: number): Promise<Memory[]>;
+  searchByVector(namespace: string, embedding: number[], topK: number): Promise<Memory[]>;
   touch(id: string): Promise<void>; // access_count++ / last_accessed_at
+  delete(id: string): Promise<void>;
 }
 ```
 

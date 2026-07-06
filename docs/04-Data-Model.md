@@ -121,11 +121,11 @@ export type NewAuditLog = typeof auditLogs.$inferInsert;
 
 ---
 
-## 6. `memories` — 长期记忆（两层 + 向量 + 遗忘）
+## 6. `memories` — 长期记忆（实例级命名空间 + 向量 + 遗忘）
 
 ```typescript
 // storage/schema/memories.ts
-import { pgTable, text, bigint, real, integer, index, customType } from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, real, integer, index, uniqueIndex, customType } from 'drizzle-orm/pg-core';
 import { memoryTypeEnum } from './enums';
 import { conversations } from './conversations';
 
@@ -137,8 +137,8 @@ const vector = customType<{ data: number[]; driverData: string }>({
 
 export const memories = pgTable('memories', {
   id:              text('id').primaryKey(),
-  userId:          text('user_id').notNull(),               // 用户级记忆锚点
-  conversationId:  text('conversation_id')                  // 可空：NULL=user-level
+  namespace:       text('namespace').notNull().default('global'), // 实例级记忆命名空间；默认全局共享
+  conversationId:  text('conversation_id')                  // 可空：NULL=全局事实/偏好/环境
                      .references(() => conversations.id, { onDelete: 'set null' }),
   type:            memoryTypeEnum('type').notNull(),
   content:         text('content').notNull(),
@@ -150,7 +150,8 @@ export const memories = pgTable('memories', {
   tag:             text('tag'),
   createdAt:       bigint('created_at', { mode: 'number' }).notNull(),
 }, (t) => ({
-  byUser: index('idx_mem_user').on(t.userId, t.type),
+  byNamespace: index('idx_mem_namespace').on(t.namespace, t.type),
+  byTag: uniqueIndex('uniq_mem_tag').on(t.namespace, t.tag),
   byConv: index('idx_mem_conv').on(t.conversationId),
   // V1：全文检索预留；V1.5 结合语义召回
   fts: index('idx_mem_fts').using('gin', sql`to_tsvector('simple', ${t.content})`),
@@ -162,7 +163,8 @@ export type Memory    = typeof memories.$inferSelect;
 export type NewMemory = typeof memories.$inferInsert;
 ```
 
-> `conversationId` = NULL → user-level（画像/偏好）；填值 → conversation-level（情节摘要）。
+> `namespace = 'global'` 是当前个人 VPS / AI Hub 实例的默认共享记忆池。Transport 的 `user_id` 只用于鉴权、会话隔离和审批操作者，不用于记忆隔离；Telegram/QQ/WebSocket 上的同一个实例共享同一套环境事实、全局偏好与跨会话回放。
+> `conversationId` = NULL → 实例级全局事实/偏好/环境；填值 → 某会话产出的情节摘要，但仍归属同一 `namespace`，后续可参与跨会话召回。
 > 遗忘三件套 `importance / accessCount / lastAccessedAt` 支撑衰减清理，见 [06-记忆设计](./06-Memory-Design.md)。
 
 ---
@@ -175,7 +177,8 @@ export type NewMemory = typeof memories.$inferInsert;
 | conversations | `(status, updated_at)` | 归档扫描 `listStaleIdle` |
 | messages | `(conversation_id, created_at)` | 历史查看、审计与后续摘要；当前不做完整上下文回放 |
 | audit_logs | `(conversation_id, created_at)` | 审计查询 |
-| memories | `(user_id, type)` | user-level 取回 |
+| memories | `(namespace, type)` | 实例级全局记忆取回 |
+| memories | unique `(namespace, tag)` | 环境快照等幂等 upsert；普通手工记忆可使用唯一 tag 或 NULL tag |
 | memories | GIN FTS on `content` | V1 关键词召回 |
 | memories | HNSW on `embedding` | V1.5 向量召回 |
 
@@ -188,7 +191,8 @@ bun run db:generate    # 依据 schema 生成 SQL 迁移到 drizzle/
 bun run db:migrate     # 应用迁移
 ```
 
-- **迁移 0001**：`CREATE EXTENSION vector` + 四表 + 除 HNSW 外全部索引。`embedding` 列建但不建向量索引。
+- **迁移 0000_init**：`CREATE EXTENSION vector` + 四表 + 除 HNSW 外全部索引。`embedding` 列建但不建向量索引。
+- **迁移 0001_memory_namespace**：`memories.user_id` 迁为实例级 `namespace`，旧数据统一进入 `global` 命名空间；新增 `(namespace,type)` 索引与 unique `(namespace,tag)` 幂等 upsert 索引。
 - **迁移 00xx（V1.5）**：回填 `embedding` 后 `CREATE INDEX ... USING hnsw`。分开是因为 HNSW 建索引需数据先就位且耗时。
 
 > `sql` 需 `import { sql } from 'drizzle-orm'`。向量维度若换嵌入模型需同步调整 `vector(N)` 与索引。

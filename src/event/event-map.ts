@@ -59,9 +59,10 @@ export interface EventMap {
   // —— 记忆 ——
   MemoryUpdated: {
     conversationId: ConversationId | null
-    userId: string
+    namespace: string
     memoryType: MemoryType
     memoryId: string
+    operatorUserId?: string
   }
 
   // —— 错误 ——

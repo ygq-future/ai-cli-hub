@@ -48,7 +48,7 @@ flowchart LR
 
 ### M2 — 存储与仓储
 
-- `storage/`：Drizzle 连接 + 四表 schema（[04](./04-Data-Model.md)）+ 迁移 0001（含 `CREATE EXTENSION vector`，不含 HNSW）。
+- `storage/`：Drizzle 连接 + 四表 schema（[04](./04-Data-Model.md)）+ 首迁移 `0000_init`（含 `CREATE EXTENSION vector`，不含 HNSW）。
 - `repository/`：四个 Repository 实现（`embedding` 相关方法先留桩/关键词版）。
 - **验收**：跑迁移建库成功；集成测试对每个 Repository 增查通过；**全项目仅 `repository/` 出现 SQL**（lint 校验）。
 
@@ -94,12 +94,12 @@ flowchart LR
 - M7 审计范围仅指 **Human Approval 审计**，不扩展为完整操作日志；不改变 conversation status。
 - **验收**：每次审批必产生一条不可删审计；会话归档后审计仍在；Telegram 可用 `/audit` 查看。
 
-### M8 — 全局记忆基础（V1：环境快照 + 命令式记忆）
+### M8 — 全局记忆基础（V1：实例级环境快照 + 命令式记忆）
 
 - **M8-A 环境快照记忆（优先）**：启动时 upsert 当前运行环境事实，包含 OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、可用 CLI、平台路径风格。
-- **M8-B 全局记忆注入**：Adapter start 时注入环境记忆 + user-level 全局记忆；conversation 历史 messages 不做完整回放。
-- **M8-C `/remember <text>`**：显式写入 user-level 持久记忆；不做隐式猜测抽取。
-- **M8-D `/memory` / `/forget <id>`**：查看、删除用户记忆。
+- **M8-B 全局记忆注入**：Adapter start 时全量注入实例级全局记忆（环境事实 + `/remember` + 偏好）；conversation 历史 messages 不做完整回放。
+- **M8-C `/remember <text>`**：显式写入实例级全局持久记忆（默认 `namespace='global'`、`conversation_id=NULL`）；不做隐式猜测抽取。
+- **M8-D `/memory` / `/forget <id>`**：查看、删除实例级全局记忆；命令权限仍由 Transport 白名单控制。
 - **验收**：新会话首轮上下文自动带上当前系统/目录/shell 等环境事实；用户写入“所有软件都放在 softs 文件夹”后，新会话也带上该事实；服务重启后两类记忆仍存在。
 
 ### M9 — 媒体/文件处理 + OCR/Vision
@@ -158,5 +158,5 @@ flowchart TD
 - ✅ Telegram 接入 / Claude Adapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）/ 状态机会话生命周期
 - ✅ Message Aggregator / Approval Flow / 永久 Audit
 - ✅ 会话边界（cwd 目标 / `/new` / `/cwd` / `/close` / 归档）
-- ✅ 记忆基础：环境快照记忆 + 命令式全局记忆注入（向量列预留待 V1.5）
+- ✅ 记忆基础：实例级环境快照记忆 + 命令式全局记忆注入（向量列预留待 V1.5）
 - ✅ 全程满足依赖矩阵、无 env/SQL 越界、优雅关闭
