@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Conversation, NewConversation, ConversationId } from '../repository'
 import type { EventBus } from '../event'
+import { createCommandRouter } from './commands'
 import { createSessionManager } from './session-manager'
 import { createMessageRouter, type MessageHandler } from './message-router'
 
@@ -10,11 +11,12 @@ function createMockRepos() {
   const messages: Array<Record<string, unknown>> = []
 
   function findActive(userId: string, cli: string, cwd: string): Conversation | null {
-    return (
+    const latest =
       Object.values(conversations)
-        .reverse()
-        .find(c => c.userId === userId && c.cli === cli && c.cwd === cwd && c.status !== 'closed') ?? null
-    )
+        .filter(c => c.userId === userId && c.cli === cli && c.cwd === cwd)
+        .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)[0] ?? null
+    if (latest?.status === 'closed' || latest?.status === 'closing') return null
+    return latest
   }
 
   // messages is referenced by the arrow functions below
@@ -41,6 +43,12 @@ function createMockRepos() {
       },
       async findById(id: string) {
         return conversations[id] ?? null
+      },
+      async listRecentByUser(userId: string, limit: number) {
+        return Object.values(conversations)
+          .filter(c => c.userId === userId)
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, limit)
       },
       async updateStatus(id: string, status: string) {
         const c = conversations[id]
@@ -127,7 +135,9 @@ describe('SessionManager', () => {
     const repos = createMockRepos()
     const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
     const events: unknown[] = []
+    const mapped: unknown[] = []
     bus.on('SessionCreated', p => events.push(p))
+    bus.on('SessionMapped', p => mapped.push(p))
 
     const cid1 = await sm.findOrCreate({
       userId: 'u1',
@@ -149,6 +159,7 @@ describe('SessionManager', () => {
     })
     expect(cid2).toBe(cid1)
     expect(events.length).toBe(1)
+    expect(mapped).toEqual([{ conversationId: cid1, platform: 'telegram', userId: 'u1' }])
   })
 
   test('不同 cwd 建不同会话', async () => {
@@ -161,10 +172,12 @@ describe('SessionManager', () => {
     expect(cid1).not.toBe(cid2)
   })
 
-  test('forceNew 将旧活跃置 idle 再新建', async () => {
+  test('forceNew 关闭旧活跃会话再新建', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()
     const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const closed: unknown[] = []
+    bus.on('SessionClosed', p => closed.push(p))
 
     const cid1 = await sm.findOrCreate({
       userId: 'u1',
@@ -176,7 +189,43 @@ describe('SessionManager', () => {
     const cid2 = await sm.forceNew({ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/project', text: '/new' })
 
     expect(cid1).not.toBe(cid2)
-    expect((await repos.conversations.findById(cid1))?.status).toBe('idle')
+    expect((await repos.conversations.findById(cid1))?.status).toBe('closed')
+    expect((await repos.conversations.findById(cid2))?.status).toBe('idle')
+    expect(closed).toEqual([{ conversationId: cid1, reason: 'user' }])
+  })
+
+  test('findOrCreate 不在最新会话 closed 后翻出更旧 idle，会新建会话', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+
+    const oldIdle = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'old',
+    })
+    await new Promise(r => setTimeout(r, 2))
+    const latest = await sm.forceNew({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: '/new',
+    })
+    await sm.close(latest, 'user')
+
+    const afterClose = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'hello',
+    })
+
+    expect(afterClose).not.toBe(oldIdle)
+    expect(afterClose).not.toBe(latest)
   })
 
   test('close 将会话从 running 转 closed', async () => {
@@ -290,7 +339,7 @@ describe('MessageRouter with MockHandler', () => {
       },
     }
 
-    createMessageRouter(bus as unknown as EventBus, repos, sm, handler)
+    createMessageRouter(bus as unknown as EventBus, repos, sm, undefined, handler)
 
     const generated: unknown[] = []
     bus.on('MessageGenerated', p => generated.push(p))
@@ -310,6 +359,7 @@ describe('MessageRouter with MockHandler', () => {
 
     const msgs = await repos.messages.listByConversation(cid)
     expect(msgs.length).toBeGreaterThanOrEqual(2)
+    expect(await sm.getStatus(cid)).toBe('running')
     const lastUserMsg = msgs[msgs.length - 2] as Record<string, unknown>
     const lastAsstMsg = msgs[msgs.length - 1] as Record<string, unknown>
     expect(lastUserMsg.role).toBe('user')
@@ -342,7 +392,7 @@ describe('MessageRouter with MockHandler', () => {
       },
     }
 
-    createMessageRouter(bus as unknown as EventBus, repos, sm, failingHandler)
+    createMessageRouter(bus as unknown as EventBus, repos, sm, undefined, failingHandler)
 
     const errors: unknown[] = []
     bus.on('ErrorOccurred', p => errors.push(p))
@@ -361,5 +411,154 @@ describe('MessageRouter with MockHandler', () => {
     expect(errors.length).toBeGreaterThanOrEqual(1)
     expect((errors[0] as Record<string, unknown>).scope).toBe('router:MessageReceived')
     expect((errors[0] as Record<string, unknown>).message).toContain('Mock failure')
+  })
+
+  test('斜杠命令先走 CommandRouter：不保存消息、不调用 handler', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      getUserLanguage: () => 'en',
+    })
+
+    const cid = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'hi',
+    })
+
+    let handledByAdapter = false
+    const handler: MessageHandler = {
+      async onMessage() {
+        handledByAdapter = true
+        return 'should not happen'
+      },
+    }
+
+    createMessageRouter(bus as unknown as EventBus, repos, sm, commandRouter, handler)
+
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    bus.emit('MessageReceived', {
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: '/status',
+      ref: { platform: 'telegram' as const, chatId: 'c', nativeId: '1' },
+    })
+
+    await new Promise(r => setTimeout(r, 10))
+
+    const msgs = await repos.messages.listByConversation(cid)
+    expect(msgs.length).toBe(0)
+    expect(handledByAdapter).toBe(false)
+    expect(replies.length).toBe(1)
+    expect((replies[0] as Record<string, unknown>).content).toContain('当前会话')
+    expect((replies[0] as Record<string, unknown>).content).toContain('Language: en')
+  })
+})
+
+describe('CommandRouter', () => {
+  test('/cwd path 关闭当前会话并切换目标 cwd，不创建新会话', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      resolveCwd: cwd => ({ ok: true, cwd }),
+    })
+
+    const cid = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: 'hi',
+    })
+
+    const targetChanges: unknown[] = []
+    const replies: unknown[] = []
+    bus.on('UserTargetChanged', p => targetChanges.push(p))
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/cwd /new',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    expect((await repos.conversations.findById(cid))?.status).toBe('closed')
+    expect(targetChanges).toEqual([{ userId: 'u1', cwd: '/new' }])
+    expect(replies.length).toBe(1)
+    expect((replies[0] as { content: string }).content).toContain('已切换工作目录')
+  })
+
+  test('/new 拒绝未接入 CLI', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+    })
+
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/new codex /tmp',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    expect(replies.length).toBe(1)
+    expect((replies[0] as { content: string }).content).toContain('暂不支持 CLI：codex')
+  })
+
+  test('/status 展示完整 conversationId', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+    })
+    const cid = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: 'hi',
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/status',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    expect((replies[0] as { content: string }).content).toContain(`ID: ${cid}`)
   })
 })

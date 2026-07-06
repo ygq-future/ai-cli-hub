@@ -6,14 +6,7 @@ import { pgEnum } from 'drizzle-orm/pg-core'
 
 export const platformEnum = pgEnum('platform', ['telegram', 'qq', 'websocket'])
 export const cliEnum = pgEnum('cli', ['claude', 'codex', 'gemini'])
-export const sessionStatusEnum = pgEnum('session_status', [
-  'idle',
-  'starting',
-  'running',
-  'waitingApproval',
-  'closing',
-  'closed',
-])
+export const sessionStatusEnum = pgEnum('session_status', ['idle', 'starting', 'running', 'closing', 'closed'])
 export const roleEnum = pgEnum('role', ['user', 'assistant', 'system'])
 export const memoryTypeEnum = pgEnum('memory_type', ['episodic', 'semantic', 'preference'])
 export const approvalActionEnum = pgEnum('approval_action', ['approve', 'reject'])

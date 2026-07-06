@@ -9,12 +9,9 @@ describe('SessionMachine', () => {
     ['idle', 'SESSION_CREATED', 'idle'],
     ['idle', 'START', 'starting'],
     ['starting', 'ADAPTER_READY', 'running'],
-    ['running', 'APPROVAL_REQUESTED', 'waitingApproval'],
-    ['waitingApproval', 'APPROVAL_RESOLVED', 'running'],
     ['running', 'IDLE_TIMEOUT', 'idle'],
     ['running', 'CLOSE', 'closing'],
     ['idle', 'CLOSE', 'closing'],
-    ['waitingApproval', 'CLOSE', 'closing'],
     ['closing', 'ARCHIVE_DONE', 'closed'],
     ['idle', 'ARCHIVE_TIMEOUT', 'closing'],
   ]
@@ -26,14 +23,10 @@ describe('SessionMachine', () => {
   // ---- 非法迁移 ----
   const invalidCases: [SessionStatus, SessionEvent][] = [
     ['idle', 'ADAPTER_READY'],
-    ['idle', 'APPROVAL_REQUESTED'],
-    ['idle', 'APPROVAL_RESOLVED'],
     ['idle', 'IDLE_TIMEOUT'],
     ['idle', 'ARCHIVE_DONE'],
     ['starting', 'SESSION_CREATED'],
     ['starting', 'START'],
-    ['starting', 'APPROVAL_REQUESTED'],
-    ['starting', 'APPROVAL_RESOLVED'],
     ['starting', 'IDLE_TIMEOUT'],
     ['starting', 'CLOSE'],
     ['starting', 'ARCHIVE_TIMEOUT'],
@@ -41,21 +34,11 @@ describe('SessionMachine', () => {
     ['running', 'SESSION_CREATED'],
     ['running', 'START'],
     ['running', 'ADAPTER_READY'],
-    ['running', 'APPROVAL_RESOLVED'],
     ['running', 'ARCHIVE_TIMEOUT'],
     ['running', 'ARCHIVE_DONE'],
-    ['waitingApproval', 'SESSION_CREATED'],
-    ['waitingApproval', 'START'],
-    ['waitingApproval', 'ADAPTER_READY'],
-    ['waitingApproval', 'APPROVAL_REQUESTED'],
-    ['waitingApproval', 'IDLE_TIMEOUT'],
-    ['waitingApproval', 'ARCHIVE_TIMEOUT'],
-    ['waitingApproval', 'ARCHIVE_DONE'],
     ['closing', 'SESSION_CREATED'],
     ['closing', 'START'],
     ['closing', 'ADAPTER_READY'],
-    ['closing', 'APPROVAL_REQUESTED'],
-    ['closing', 'APPROVAL_RESOLVED'],
     ['closing', 'IDLE_TIMEOUT'],
     ['closing', 'CLOSE'],
     ['closing', 'ARCHIVE_TIMEOUT'],
@@ -70,8 +53,6 @@ describe('SessionMachine', () => {
     'SESSION_CREATED',
     'START',
     'ADAPTER_READY',
-    'APPROVAL_REQUESTED',
-    'APPROVAL_RESOLVED',
     'IDLE_TIMEOUT',
     'CLOSE',
     'ARCHIVE_TIMEOUT',
@@ -93,7 +74,7 @@ describe('SessionMachine', () => {
 
   test('getValidTransitionKeys 返回正确的数量', () => {
     const keys = getValidTransitionKeys()
-    expect(keys.length).toBe(11)
+    expect(keys.length).toBe(8)
     expect(keys).toContain('idle->START')
     expect(keys).toContain('running->IDLE_TIMEOUT')
     expect(keys).toContain('closing->ARCHIVE_DONE')

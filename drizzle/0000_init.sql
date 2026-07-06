@@ -5,7 +5,7 @@ CREATE TYPE "public"."cli" AS ENUM('claude', 'codex', 'gemini');--> statement-br
 CREATE TYPE "public"."memory_type" AS ENUM('episodic', 'semantic', 'preference');--> statement-breakpoint
 CREATE TYPE "public"."platform" AS ENUM('telegram', 'qq', 'websocket');--> statement-breakpoint
 CREATE TYPE "public"."role" AS ENUM('user', 'assistant', 'system');--> statement-breakpoint
-CREATE TYPE "public"."session_status" AS ENUM('idle', 'starting', 'running', 'waitingApproval', 'closing', 'closed');--> statement-breakpoint
+CREATE TYPE "public"."session_status" AS ENUM('idle', 'starting', 'running', 'closing', 'closed');--> statement-breakpoint
 CREATE TABLE "conversations" (
 	"id" text PRIMARY KEY NOT NULL,
 	"platform" "platform" NOT NULL,

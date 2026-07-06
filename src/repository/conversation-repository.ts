@@ -2,7 +2,7 @@
  * ConversationRepository —— Drizzle 实现（docs/03 §5 / docs/04 §3）。
  * 唯一允许出现 SQL/Drizzle 查询的层。
  */
-import { and, desc, eq, lt, ne } from 'drizzle-orm'
+import { and, desc, eq, lt } from 'drizzle-orm'
 import type { Db } from '../storage'
 import { conversations } from '../storage/schema'
 import type {
@@ -26,22 +26,25 @@ export function createConversationRepository(db: Db): ConversationRepository {
       const [row] = await db
         .select()
         .from(conversations)
-        .where(
-          and(
-            eq(conversations.userId, userId),
-            eq(conversations.cli, cli),
-            eq(conversations.cwd, cwd),
-            ne(conversations.status, 'closed'), // 非 closed 即活跃可复用
-          ),
-        )
-        .orderBy(desc(conversations.updatedAt))
+        .where(and(eq(conversations.userId, userId), eq(conversations.cli, cli), eq(conversations.cwd, cwd)))
+        .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
         .limit(1)
+      if (row?.status === 'closed' || row?.status === 'closing') return null
       return row ?? null
     },
 
     async findById(id: ConversationId): Promise<Conversation | null> {
       const [row] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1)
       return row ?? null
+    },
+
+    async listRecentByUser(userId: string, limit: number): Promise<Conversation[]> {
+      return db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.userId, userId))
+        .orderBy(desc(conversations.updatedAt))
+        .limit(limit)
     },
 
     async updateStatus(id: ConversationId, status: SessionStatus): Promise<void> {

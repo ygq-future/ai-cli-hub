@@ -11,8 +11,6 @@ export type SessionEvent =
   | 'SESSION_CREATED' // 会话记录写入 DB 后
   | 'START'
   | 'ADAPTER_READY' // Runtime/SDK Adapter 就绪（对应架构图中 PTYStarted）
-  | 'APPROVAL_REQUESTED'
-  | 'APPROVAL_RESOLVED' // 审批通过或拒绝（二者均恢复 running）
   | 'IDLE_TIMEOUT' // 进程空闲超时回收
   | 'CLOSE' // 用户主动 /close
   | 'ARCHIVE_TIMEOUT' // 归档超时
@@ -23,12 +21,9 @@ const TRANSITIONS: Record<string, SessionStatus> = {
   'idle->SESSION_CREATED': 'idle',
   'idle->START': 'starting',
   'starting->ADAPTER_READY': 'running',
-  'running->APPROVAL_REQUESTED': 'waitingApproval',
-  'waitingApproval->APPROVAL_RESOLVED': 'running',
   'running->IDLE_TIMEOUT': 'idle',
   'running->CLOSE': 'closing',
   'idle->CLOSE': 'closing',
-  'waitingApproval->CLOSE': 'closing',
   'closing->ARCHIVE_DONE': 'closed',
   'idle->ARCHIVE_TIMEOUT': 'closing',
 }

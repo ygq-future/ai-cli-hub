@@ -22,9 +22,10 @@ export type { CliType, SessionStatus, ConversationId, MessageId }
 
 export interface ConversationRepository {
   create(c: NewConversation): Promise<Conversation>
-  /** 会话边界定位：命中非 closed 的活跃会话即复用（docs/04 §3）。 */
+  /** 会话边界定位：仅最新同边界会话未 closed/closing 时复用；避免 /close 后翻出旧 idle。 */
   findActive(userId: string, cli: CliType, cwd: string): Promise<Conversation | null>
   findById(id: ConversationId): Promise<Conversation | null>
+  listRecentByUser(userId: string, limit: number): Promise<Conversation[]>
   updateStatus(id: ConversationId, status: SessionStatus): Promise<void>
   /** 归档扫描：updatedAt < beforeTs 的 idle 会话。 */
   listStaleIdle(beforeTs: number): Promise<Conversation[]>

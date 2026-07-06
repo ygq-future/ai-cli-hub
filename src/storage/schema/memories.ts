@@ -42,7 +42,7 @@ export const memories = pgTable(
   t => [
     index('idx_mem_user').on(t.userId, t.type),
     index('idx_mem_conv').on(t.conversationId),
-    // V1：全文检索（关系 + FTS 回放）
+    // 全文检索预留；后续与语义召回结合。
     index('idx_mem_fts').using('gin', sql`to_tsvector('simple', ${t.content})`),
     // V1.5：向量近邻索引（HNSW）在启用时追加独立迁移，见 docs/04 §8
   ],

@@ -13,6 +13,7 @@ export interface EventMap {
     cli: CliType
     cwd: string
   }
+  SessionMapped: { conversationId: ConversationId; platform: Platform; userId: string }
   SessionClosed: { conversationId: ConversationId; reason: 'user' | 'archiveTimeout' }
 
   // —— 消息 ——
@@ -31,6 +32,11 @@ export interface EventMap {
   }
   /** final=false 为流式增量。 */
   MessageGenerated: { conversationId: ConversationId; content: string; final: boolean }
+  /** 命令类回复：不绑定 conversation，直接回到原始客户端消息所在 chat。 */
+  CommandReply: { ref: MessageRef; content: string }
+  UserLanguageChanged: { userId: string; language: 'zh' | 'en' }
+  /** 用户当前目标会话边界变更：例如 /cwd 只改目标，不创建 conversation。 */
+  UserTargetChanged: { userId: string; cli?: CliType; cwd?: string }
 
   // —— 审批（Human-in-the-loop）——
   ApprovalRequested: {
@@ -82,9 +88,13 @@ export interface EventBus {
  */
 const EVENT_TYPE_REGISTRY: Record<EventType, true> = {
   SessionCreated: true,
+  SessionMapped: true,
   SessionClosed: true,
   MessageReceived: true,
   MessageGenerated: true,
+  CommandReply: true,
+  UserLanguageChanged: true,
+  UserTargetChanged: true,
   ApprovalRequested: true,
   ApprovalApproved: true,
   ApprovalRejected: true,

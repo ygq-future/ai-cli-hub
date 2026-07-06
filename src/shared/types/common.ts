@@ -5,13 +5,13 @@
 
 export type Platform = 'telegram' | 'qq' | 'websocket'
 export type CliType = 'claude' | 'codex' | 'gemini'
+export type UserLanguage = 'zh' | 'en'
 
 /** 会话状态（对应 docs/02-Architecture.md §5.2 状态机）。 */
 export type SessionStatus =
   | 'idle' // 无活跃进程，可唤醒
   | 'starting' // 正在拉起 Runtime
   | 'running' // 交互中
-  | 'waitingApproval' // 等待人工审批
   | 'closing' // 归档中
   | 'closed' // 已归档
 

@@ -497,7 +497,6 @@
         "idle",
         "starting",
         "running",
-        "waitingApproval",
         "closing",
         "closed"
       ]

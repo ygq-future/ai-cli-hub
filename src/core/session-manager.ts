@@ -2,9 +2,9 @@
  * SessionManager —— 会话生命周期管理（docs/02-Architecture.md §5）。
  *
  * 职责：
- *  - 会话边界定位：findActive(userId, cli, cwd) → 复用/新建
+ *  - 会话边界定位：findActive(userId, cli, cwd) → 复用最新可用会话/新建
  *  - 状态迁移（委托 SessionMachine）
- *  - 处理 /new（旧活跃会话置 idle）、/close（转 closing）
+ *  - 处理 /new（旧活跃会话关闭）、/close（转 closing）
  *  - 归档扫描 listStaleIdle
  *  - 发射 SessionCreated / SessionClosed 事件
  *
@@ -16,7 +16,7 @@ import type { Repositories } from '../repository'
 import { transition, type SessionEvent } from './session-machine'
 
 export interface SessionManager {
-  /** 定位活跃会话：命中 (userId, cli, cwd) 的非 closed 会话即复用；否则新建。 */
+  /** 定位活跃会话：最新同边界会话可用则复用；若最新已 closed/closing 则新建。 */
   findOrCreate(opts: {
     userId: string
     platform: Platform
@@ -25,7 +25,7 @@ export interface SessionManager {
     text: string
   }): Promise<ConversationId>
 
-  /** 强制 /new：旧活跃会话置 idle → 新建并返回会话 ID。 */
+  /** 强制 /new：关闭同边界旧活跃会话 → 新建并返回会话 ID。 */
   forceNew(opts: {
     userId: string
     platform: Platform
@@ -46,7 +46,7 @@ export interface SessionManager {
   /** 归档扫描：返回所有超期 idle 会话。 */
   listStaleIdle(): Promise<{ id: ConversationId; updatedAt: number }[]>
 
-  /** 将旧活跃会话（非 closed、非指定）置 idle（/new 前置操作）。 */
+  /** 保留接口占位；当前 /new 直接关闭旧会话，不做 idle 批量迁移。 */
   setIdleExcept(conversationId: ConversationId): Promise<void>
 
   /** 停止监听事件。 */
@@ -64,6 +64,11 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
       // 尝试复用现有活跃会话
       const active = await repos.conversations.findActive(userId, cli, cwd)
       if (active) {
+        bus.emit('SessionMapped', {
+          conversationId: active.id as ConversationId,
+          platform,
+          userId,
+        })
         return active.id as ConversationId
       }
 
@@ -96,10 +101,11 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
     async forceNew(opts) {
       const { userId, platform, cli, cwd, text: _text } = opts
 
-      // 先将旧活跃会话置 idle
+      // /new 语义：旧同边界会话关闭，新会话 idle，下一条普通消息懒启动 CLI。
       const active = await repos.conversations.findActive(userId, cli, cwd)
       if (active) {
-        await repos.conversations.updateStatus(active.id as ConversationId, 'idle')
+        const oldConversationId = active.id as ConversationId
+        await closeConversation(oldConversationId, 'user')
       }
 
       // 再新建
@@ -128,22 +134,7 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
     },
 
     async close(conversationId, reason) {
-      // 先转 closing
-      const current = await repos.conversations.findById(conversationId)
-      if (!current) {
-        throw new Error(`SessionManager.close: 会话 ${conversationId} 不存在`)
-      }
-      if (current.status === 'closed' || current.status === 'closing') {
-        return // 已关闭或正在关闭，幂等
-      }
-
-      await repos.conversations.updateStatus(conversationId, 'closing')
-
-      // 发射 SessionClosed
-      bus.emit('SessionClosed', { conversationId, reason })
-
-      // 完成归档 transition: closing -> closed
-      await repos.conversations.updateStatus(conversationId, 'closed')
+      await closeConversation(conversationId, reason)
     },
 
     async transition(conversationId, event) {
@@ -169,9 +160,7 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
     },
 
     async setIdleExcept(_conversationId) {
-      // 通过 repository 的 findActive 查找所有活跃会话
-      // 注：目前 repository 限定了 (user, cli, cwd) 三元组，这里仅做标记
-      // 实际 /new 时 forceNew 已处理旧活跃
+      // /new 已改为关闭旧会话；此接口暂不执行批量 idle 迁移。
     },
 
     destroy() {
@@ -183,4 +172,18 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
   }
 
   return sm
+
+  async function closeConversation(conversationId: ConversationId, reason: 'user' | 'archiveTimeout') {
+    const current = await repos.conversations.findById(conversationId)
+    if (!current) {
+      throw new Error(`SessionManager.close: 会话 ${conversationId} 不存在`)
+    }
+    if (current.status === 'closed' || current.status === 'closing') {
+      return // 已关闭或正在关闭，幂等
+    }
+
+    await repos.conversations.updateStatus(conversationId, 'closing')
+    bus.emit('SessionClosed', { conversationId, reason })
+    await repos.conversations.updateStatus(conversationId, 'closed')
+  }
 }

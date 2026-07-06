@@ -14,6 +14,7 @@
 import type { ConversationId, Unsubscribe } from '../shared'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
+import type { CommandRouter } from './commands'
 import type { SessionManager } from './session-manager'
 
 /**
@@ -33,6 +34,7 @@ export function createMessageRouter(
   bus: EventBus,
   repos: Repositories,
   sessionManager: SessionManager,
+  commandRouter?: CommandRouter,
   handler?: MessageHandler,
 ): MessageRouter {
   const unsubs: Unsubscribe[] = []
@@ -43,8 +45,16 @@ export function createMessageRouter(
     let conversationId: ConversationId | undefined
 
     try {
+      if (text.trim().startsWith('/') && commandRouter) {
+        const handled = await commandRouter.tryHandle(payload)
+        if (handled) return
+      }
+
       // 解析/新建会话（新建时同步发 SessionCreated）
       conversationId = await sessionManager.findOrCreate({ userId, platform, cli, cwd, text })
+      const status = await sessionManager.getStatus(conversationId)
+      const shouldMarkReady = status === 'idle'
+      if (shouldMarkReady) await sessionManager.transition(conversationId, 'START')
 
       // 保存用户消息（角色=user）
       const msgId = crypto.randomUUID()
@@ -59,6 +69,7 @@ export function createMessageRouter(
       // 交由 handler 处理
       if (handler) {
         const response = await handler.onMessage(text, conversationId)
+        if (shouldMarkReady) await sessionManager.transition(conversationId, 'ADAPTER_READY')
         if (response) {
           const respId = crypto.randomUUID()
           // 保存 assistant 消息
@@ -77,6 +88,8 @@ export function createMessageRouter(
             final: true,
           })
         }
+      } else if (shouldMarkReady) {
+        await sessionManager.transition(conversationId, 'ADAPTER_READY')
       }
     } catch (err) {
       bus.emit('ErrorOccurred', {

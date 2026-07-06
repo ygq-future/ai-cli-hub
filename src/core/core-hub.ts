@@ -8,6 +8,7 @@ import type { AppConfig } from '../config'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
 import { createAuth, type Auth } from './auth'
+import { createCommandRouter, type CommandRouter } from './commands'
 import { createSessionManager, type SessionManager } from './session-manager'
 import { createMessageRouter, type MessageRouter, type MessageHandler } from './message-router'
 
@@ -23,6 +24,14 @@ export interface CoreHubOptions {
   repos: Repositories
   config: AppConfig
   handler?: MessageHandler
+  commandRouter?: CommandRouter
+  getUserLanguage?: (userId: string) => 'zh' | 'en'
+  resolveCwd?: (
+    cwd: string,
+  ) =>
+    | Promise<{ ok: true; cwd: string } | { ok: false; message: string }>
+    | { ok: true; cwd: string }
+    | { ok: false; message: string }
 }
 
 export function createCoreHub(opts: CoreHubOptions): CoreHub {
@@ -34,8 +43,18 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
   // SessionManager：会话生命周期
   const sessionManager = createSessionManager(bus, repos, config.SESSION_ARCHIVE_DAYS)
 
+  const commandRouter =
+    opts.commandRouter ??
+    createCommandRouter({
+      bus,
+      repos,
+      sessionManager,
+      getUserLanguage: opts.getUserLanguage,
+      resolveCwd: opts.resolveCwd,
+    })
+
   // MessageRouter：消息路由 + handler 处理（M6 由 orchestrator 注入真实 adapter 驱动）
-  const messageRouter = createMessageRouter(bus, repos, sessionManager, opts.handler)
+  const messageRouter = createMessageRouter(bus, repos, sessionManager, commandRouter, opts.handler)
 
   return {
     auth,
