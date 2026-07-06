@@ -55,7 +55,7 @@ flowchart LR
 ### M3 — Core 状态机与会话生命周期
 
 - `core/`：`SessionManager`（状态机，合法迁移见 02-架构 §5.2）、`Auth`（白名单二次校验）、`MessageRouter`。
-- 会话边界：`findActive(user,cli,cwd)` 复用 / `/new` 新建 / 归档扫描。
+- 会话边界：`findActive(user,cli,cwd)` 复用 / `/new` 关闭旧会话后新建 / `/cwd` 切目标目录 / 归档扫描。
 - 进程占位：先用 **MockRuntime** 打通"收消息→路由→存库→回消息"闭环。
 - **验收**：状态机单测覆盖全部合法/非法迁移；用 Mock 打通端到端（无真实 PTY）；进程回收→会话转 `idle` 而非 `closed`。
 
@@ -64,7 +64,8 @@ flowchart LR
 - `cli/`：`ClaudeSdkAdapter` 实现 `CLIAdapter`（§3.1），内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄。
   - `sendUserInput` → 流式输入（`AsyncIterable<SDKUserMessage>` / `streamInput`）；`onOutput` ← `SDKMessage`（assistant/tool_use/result）。
   - **审批走 `canUseTool` 回调**：拿到工具名+参数 → `onApprovalRequest` → `bus.emit('ApprovalRequested')`；`resolveApproval(id,'approve'|'reject')` → `resolve({behavior:'allow'|'deny'})`。**无 scraping、无 `Runtime`、无 `ApprovalDetector`。**
-  - 生命周期：子进程起止/崩溃 → `onExit` → `PTYStarted/PTYExited` 事件；`PTY_IDLE_TIMEOUT_MS` 空闲杀进程（`query.interrupt()`/close），会话转 `idle`。
+  - 生命周期：CLI/adapter 起止/崩溃 → `onExit` → `PTYStarted/PTYExited` 或 adapter exit；`AGENT_IDLE_TIMEOUT_MS` 空闲关闭已启动 CLI/adapter（`query.interrupt()`/close），conversation 保持 `idle`。
+  - 审批：`waitingApproval` 只属于 Adapter 内存态，conversation 持久状态保持 `running`。
 - **验收**：真实拉起 Claude 完成一轮对话；构造一次工具审批，`canUseTool` 命中 → 收到结构化 `command`+`detail`；点 Approve 继续、Reject 拒绝；空闲超时进程被回收、会话可唤醒。
 
 ### M4b — PtyRuntime（PTY 家族，无 SDK 的 CLI 备用，可延后）
@@ -83,6 +84,7 @@ flowchart LR
 
 - `transport/telegram`：Telegraf 封装，实现 `Transport` 全方法。
 - 白名单前置丢弃；流式 `editMessage`；审批 Markdown 卡片 + 回调 → `ApprovalApproved/Rejected`。
+- M6b 收口命令：`/new`、`/close`、`/status`、`/sessions`、`/lang`、`/cwd`；`/new` 旧会话 closed，新会话 idle；`/cwd <path>` 关闭当前会话并切换目标 cwd，不创建 conversation。
 - **验收**：真机 Telegram 端到端——发消息得流式回复；点 Approve 继续（SDK: `resolveApproval` allow）；点 Reject 中断；非白名单无响应。
 
 ### M7 — Audit 落地
@@ -90,14 +92,23 @@ flowchart LR
 - 订阅 `ApprovalApproved/Rejected` → `AuditRepository.record`（时间/操作人/命令/决策）。
 - **验收**：每次审批必产生一条不可删审计；会话归档后审计仍在。
 
-### M8 — 记忆基础（V1：关系 + FTS 回放）
+### M8 — 全局记忆基础（V1：环境快照 + 命令式记忆）
 
-- `memory/`：订阅 `MessageGenerated` → 异步生成 episodic 摘要 + semantic/preference 抽取（**不含向量**，`embedding` 留空）。
-- 召回：新会话按 `user_id` 取 user-level + FTS 关键词 Top-K 注入上下文。
-- 归档时生成会话摘要。
-- **验收**：跨会话——新会话能带出上一会话摘要与用户偏好；后台任务失败不阻塞对话。
+- **M8-A 环境快照记忆（优先）**：启动时 upsert 当前运行环境事实，包含 OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、可用 CLI、平台路径风格。
+- **M8-B 全局记忆注入**：Adapter start 时注入环境记忆 + user-level 全局记忆；conversation 历史 messages 不做完整回放。
+- **M8-C `/remember <text>`**：显式写入 user-level 持久记忆；不做隐式猜测抽取。
+- **M8-D `/memory` / `/forget <id>`**：查看、删除用户记忆。
+- **验收**：新会话首轮上下文自动带上当前系统/目录/shell 等环境事实；用户写入“所有软件都放在 softs 文件夹”后，新会话也带上该事实；服务重启后两类记忆仍存在。
 
-### M9 — 加固与交付
+### M9 — 媒体/文件处理 + OCR/Vision
+
+- **M9-A emoji 文本归一化**：识别 Unicode emoji，补充 short name/keywords 作为文本上下文；不走 OCR。
+- **M9-B Telegram sticker/custom emoji metadata**：解析 sticker/custom emoji 的 `emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`；第一版不做画面理解。
+- **M9-C 文件/图片/PDF/Office 解析 + OCR**：Telegram document/photo 入站，下载到受控目录、记录 metadata、大小/类型/超时限制；PDF/Office 优先文本提取；图片与扫描 PDF 走可插拔 OCR，默认开启。
+- **M9-D Vision 可选增强**：static sticker/thumbnail 可走图片理解；animated/video sticker 后续抽帧再走 Vision，不归入 OCR。
+- **验收**：普通 emoji 能被归一化进上下文；sticker 能展示 associated emoji 和 metadata；用户发图片可识别文字；发 PDF/Word/Excel 可摘要内容并作为本轮上下文；不会自动执行附件中的脚本或命令。
+
+### M10 — 加固与交付
 
 - 优雅关闭（SIGTERM：停入站→flush→杀 Runtime→关 DB）；故障隔离（单 Runtime 崩溃不波及他会话）；幂等审批去重。
 - PM2/systemd 部署脚本；README。
@@ -118,14 +129,12 @@ flowchart LR
 flowchart TD
     M0 --> M1 --> M2 --> M3
     M3 --> M4 --> M5 --> M6 --> M7
-    M6 --> M8
-    M7 --> M9
-    M8 --> M9
-    M9 -.-> V15[V1.5 记忆增强]
+    M7 --> M8 --> M9 --> M10
+    M10 -.-> V15[V1.5 记忆增强]
 ```
 
-- **可并行**：M5（聚合器，依赖 M4 的 chunk 但接口独立）与 M4 后段可交叠；M8 可在 M6 完成后与 M7 并行。
-- **关键路径**：M0→M1→M2→M3→M4→M6→M9。
+- **可并行**：M5（聚合器，依赖 M4 的 chunk 但接口独立）与 M4 后段可交叠；文件/OCR 可在 M8 记忆契约稳定后并行细化解析器。
+- **关键路径**：M0→M1→M2→M3→M4→M6→M7→M8→M9→M10。
 
 ---
 
@@ -146,6 +155,6 @@ flowchart TD
 - ✅ Bun+TS 架构 / Postgres+Drizzle+Repository / Event Bus / Config
 - ✅ Telegram 接入 / Claude Adapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）/ 状态机会话生命周期
 - ✅ Message Aggregator / Approval Flow / 永久 Audit
-- ✅ 会话边界（cwd 复用 / `/new` / `/close` / 归档）
-- ✅ 记忆基础：跨会话摘要回放（向量列预留待 V1.5）
+- ✅ 会话边界（cwd 目标 / `/new` / `/cwd` / `/close` / 归档）
+- ✅ 记忆基础：环境快照记忆 + 命令式全局记忆注入（向量列预留待 V1.5）
 - ✅ 全程满足依赖矩阵、无 env/SQL 越界、优雅关闭

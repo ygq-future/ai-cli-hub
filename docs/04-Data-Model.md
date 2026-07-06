@@ -29,7 +29,7 @@ import { pgEnum } from 'drizzle-orm/pg-core';
 export const platformEnum      = pgEnum('platform', ['telegram', 'qq', 'websocket']);
 export const cliEnum           = pgEnum('cli', ['claude', 'codex', 'gemini']);
 export const sessionStatusEnum = pgEnum('session_status',
-  ['idle', 'starting', 'running', 'waitingApproval', 'closing', 'closed']);
+  ['idle', 'starting', 'running', 'closing', 'closed']);
 export const roleEnum          = pgEnum('role', ['user', 'assistant', 'system']);
 export const memoryTypeEnum    = pgEnum('memory_type', ['episodic', 'semantic', 'preference']);
 export const approvalActionEnum= pgEnum('approval_action', ['approve', 'reject']);
@@ -64,7 +64,7 @@ export type Conversation    = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 ```
 
-> 边界规则：`findActive(userId, cli, cwd)` 命中 `status ∈ {idle, running, ...非 closed}` 的记录即复用；`/new` 先把旧活跃会话置 `idle` 再插新记录。
+> 边界规则：`findActive(userId, cli, cwd)` 只检查该边界下最新一条会话；若最新会话未 `closing/closed` 则复用，若最新已关闭则返回空并让下一条普通消息新建，避免 `/close`、`/new`、`/cwd` 后翻出更旧的 `idle` 会话。`/new` 关闭旧会话后插入新 `idle` 记录；`/cwd <path>` 只切目标目录并关闭当前会话，不插入新记录。
 
 ---
 
@@ -152,7 +152,7 @@ export const memories = pgTable('memories', {
 }, (t) => ({
   byUser: index('idx_mem_user').on(t.userId, t.type),
   byConv: index('idx_mem_conv').on(t.conversationId),
-  // V1：全文检索（关系 + FTS 回放）
+  // V1：全文检索预留；V1.5 结合语义召回
   fts: index('idx_mem_fts').using('gin', sql`to_tsvector('simple', ${t.content})`),
   // V1.5：向量近邻索引（启用时追加迁移）
   // vec: index('idx_mem_vec').using('hnsw', t.embedding.op('vector_cosine_ops')),
@@ -173,7 +173,7 @@ export type NewMemory = typeof memories.$inferInsert;
 |---|---|---|
 | conversations | `(user_id, cli, cwd, status)` | 会话边界定位（复用/新建） |
 | conversations | `(status, updated_at)` | 归档扫描 `listStaleIdle` |
-| messages | `(conversation_id, created_at)` | 上下文恢复 |
+| messages | `(conversation_id, created_at)` | 历史查看、审计与后续摘要；当前不做完整上下文回放 |
 | audit_logs | `(conversation_id, created_at)` | 审计查询 |
 | memories | `(user_id, type)` | user-level 取回 |
 | memories | GIN FTS on `content` | V1 关键词召回 |

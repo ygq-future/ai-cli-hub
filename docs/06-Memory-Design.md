@@ -2,14 +2,14 @@
 
 > 展开 [02-架构 §7](./02-Architecture.md) 为可实现的详细设计。表结构见 [04](./04-Data-Model.md)，接口见 [03 §5](./03-Interface-Contracts.md)。
 > 定位：让系统**跨会话记住用户与项目**，且**零侵入对话主链路**。
-> 落地节奏：**V1 关系 + FTS 回放** → **V1.5 pgvector 语义召回**（见 [05](./05-Implementation-Plan.md)）。
+> 落地节奏：**V1 环境快照记忆优先 + 命令式全局记忆** → **V1.5 pgvector 语义召回**（见 [05](./05-Implementation-Plan.md)）。
 
 ---
 
 ## 1. 设计原则
 
 1. **异步、不阻塞**：记忆的写入（抽取/摘要/嵌入）全部在对话回复之后后台进行，失败重试，绝不拖慢用户收发。
-2. **两层解耦**：用户级（跨会话）与会话级（项目内）分离，对应"跨会话回放"与"项目上下文"两种诉求。
+2. **两层解耦**：用户级（跨会话）与会话级（项目内）分离。V1 先做用户显式记忆与环境事实；conversation messages 当前不做完整回放。
 3. **可解释、可遗忘**：每条记忆可溯源（`source_message_id`），并带重要度/访问统计，支持衰减清理，避免无限膨胀。
 4. **嵌入走 API**：不在 VPS 跑本地模型；批量调用降低成本与延迟影响。
 
@@ -22,7 +22,7 @@
 | **User-level** | `user_id` | NULL | 稳定画像、跨项目偏好 | "偏好 Bun"、"用中文回答"、"部署在 VPS" |
 | **Conversation-level** | `conversation_id` | 填值 | 本项目/任务情节摘要、局部上下文 | "本仓库在重构 auth 模块，已完成 X" |
 
-**跨会话回放** = `user-level 全部` + `当前 (user,cli,cwd) 相关会话的 episodic 摘要`，拼为上下文前缀注入新会话。
+**V1 注入** = `user-level 全局记忆` + `environment 记忆`，拼为上下文前缀注入新会话。conversation-level 摘要后续用于归档回顾和相关召回，不做完整 messages replay。
 
 > 因为会话按 `cwd` 隔离（[02 §5.1](./02-Architecture.md)），conversation-level 记忆天然按项目分区；user-level 跨项目共享。
 
@@ -32,13 +32,23 @@
 
 | type | 生成时机 | 生成方式 | 典型内容 |
 |---|---|---|---|
-| `episodic`（情节） | 会话归档 / 滚动（每 N 条消息） | LLM 摘要 | "这次会话做了什么、结论是什么" |
-| `semantic`（事实） | 每轮回复后 | LLM 抽取结构化事实 | "项目用 Postgres"、"入口是 main.ts" |
-| `preference`（偏好） | 抽取 + 去重合并 | LLM 抽取 + 相似合并 | "希望回答简洁"、"用 emoji 分段" |
+| `episodic`（情节） | 会话归档 / 滚动（后续） | LLM 摘要 | "这次会话做了什么、结论是什么" |
+| `semantic`（事实） | `/remember` 或环境 upsert | 显式写入 / 系统探测 | "所有软件放在 softs 文件夹"、"当前系统是 Windows" |
+| `preference`（偏好） | `/remember` | 显式写入 | "回复用中文"、"默认使用 Bun" |
 
 ---
 
-## 4. 写入侧：异步管线（订阅 `MessageGenerated`）
+## 4. 写入侧：V1 环境快照 + 命令式记忆
+
+V1 不做隐式抽取，避免误判用户随口表述。写入入口按优先级推进：
+
+- **M8-A 环境快照**：系统启动时 upsert 环境记忆，包含 OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、已接入 CLI、平台路径风格。
+- **M8-C 命令式记忆**：`/remember <text>` 直接写入 user-level 持久记忆。
+- 后续归档：可生成 conversation-level episodic 摘要，但不回放完整 messages。
+
+环境记忆必须幂等更新，不允许每次启动重复插入同一事实。
+
+## 4.1 后续异步管线（V1.5/增强）
 
 ```mermaid
 flowchart TD
@@ -69,17 +79,19 @@ flowchart TD
 
 ---
 
-## 5. 召回侧：检索注入（RAG）
+## 5. 召回侧：记忆注入
 
 对话入站、进 CLI 之前插入一个"召回注入"钩子（[02 §4.1](./02-Architecture.md)）。
 
 ```mermaid
 flowchart LR
-    IN[MessageReceived] --> U[取 user-level 记忆]
+    IN[Adapter start] --> E[取 environment 记忆]
+    IN --> U[取 user-level 记忆]
     IN --> R{V1 or V1.5?}
     R -->|V1| FTS[FTS 关键词 Top-K<br/>by user_id]
     R -->|V1.5| VEC[嵌入 query → pgvector KNN Top-K]
-    U --> MERGE[合并 + 去重]
+    E --> MERGE[合并 + 去重]
+    U --> MERGE
     FTS --> MERGE
     VEC --> RANK[相似度 × importance 重排]
     RANK --> MERGE
@@ -88,12 +100,12 @@ flowchart LR
     INJ --> TOUCH[命中记忆 touch:<br/>access_count++ / last_accessed_at]
 ```
 
-### 5.1 注入格式（拼进 CLI 输入前缀）
+### 5.1 注入格式（拼进 adapter system prompt 或首轮前缀）
 ```text
 [长期记忆 · 供参考]
 - 偏好：回答简洁，用中文
 - 项目事实：本仓库使用 Postgres + Drizzle
-- 上次进展：已完成 auth 重构的 X 部分，待办 Y
+- 环境：当前运行在 Windows + PowerShell，默认目录 D:/...，路径风格为 Windows drive path
 ---
 （以下为用户本次输入）
 {user text}
@@ -142,7 +154,7 @@ memory/
 
 | 时机 | Memory 做什么 | Core 是否改动 |
 |---|---|---|
-| 用户消息入站 | Core 调用注入的 `Recaller.recall()` 拿到前缀（唯一接触点，通过接口注入） | 否（注入接口，非 import 实现） |
+| Adapter start | Orchestrator 或装配根调用注入的 `Recaller.recall()` 拿到前缀 | 否（注入接口，非 import 实现） |
 | 回复生成后 | Memory 订阅 `MessageGenerated` 后台处理 | 否 |
 | 会话归档 | Memory 订阅 `SessionClosed` 生成终摘要 | 否 |
 
@@ -159,6 +171,6 @@ memory/
 | 嵌入 | 不调用 | API 批量异步回填 |
 | 去重 | 文本归一化匹配 | 向量相似度阈值合并 |
 | 遗忘 | 暂不启用 | 衰减评分 + 定时清理/压缩 |
-| 能力 | "带出上次摘要与偏好" | "语义模糊也能精准召回" |
+| 能力 | "带出用户显式记忆与环境事实" | "语义模糊也能精准召回" |
 
 > **一次定库、分阶段加能力**：数据库第一版即 Postgres；向量作为召回精度增强平滑接入，`MemoryRepository` 接口不变，Core 零改动。

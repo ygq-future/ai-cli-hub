@@ -15,7 +15,7 @@
 | **可扩展** | 新增 CLI / 客户端 / 存储 = 新增一个实现类并注册，Core 零改动 |
 | **事件驱动** | 模块间不直接相互调用，一律通过 Event Bus 发布/订阅 |
 | **安全可控** | 白名单前置拦截 + Human-in-the-loop 审批 + 永久审计 |
-| **资源节约** | PTY 进程按需启停，空闲回收，Session 元数据与运行时解耦 |
+| **资源节约** | CLI/adapter 按需启停，空闲回收，Session 元数据与运行时解耦 |
 | **智能记忆** | 会话 / 进程双层解耦，记忆分 user-level / conversation-level 两层；事件驱动异步嵌入 + 向量召回，零侵入对话主链路 |
 
 ### 1.2 分层视图
@@ -159,6 +159,7 @@ interface EventBus {
 |---|---|---|---|
 | `SessionCreated` | Core | Logger / Storage | 会话元数据创建 |
 | `SessionClosed` | Core | Runtime / Storage | 会话终止，触发进程回收 |
+| `UserTargetChanged` | Core(CommandRouter) | Transport | `/cwd` 等只切换用户目标 cli/cwd，不创建 conversation |
 | `MessageReceived` | Transport | Core(Router) | 用户输入到达 |
 | `MessageGenerated` | Aggregator | Transport / Memory | CLI 输出聚合完成，待渲染 |
 | `ApprovalRequested` | Adapter | Core / Transport | 检测到危险操作 |
@@ -261,7 +262,7 @@ const ConfigSchema = z.object({
   MEMORY_RECALL_TOP_K: z.coerce.number().default(6), // 召回注入条数
 
   // 生命周期超时
-  PTY_IDLE_TIMEOUT_MS: z.coerce.number().default(300_000),      // 进程回收（5min）
+  AGENT_IDLE_TIMEOUT_MS: z.coerce.number().default(300_000),    // 已启动 CLI/adapter 空闲回收（5min）
   SESSION_ARCHIVE_DAYS: z.coerce.number().default(7),           // 会话自动归档（天）
 });
 export type AppConfig = z.infer<typeof ConfigSchema>;
@@ -316,16 +317,15 @@ sequenceDiagram
 
     A->>A: 审批点命中（SDK：canUseTool 回调 / PTY：ApprovalDetector scraping）
     A->>B: emit ApprovalRequested
-    B->>C: SessionState → WaitingApproval
+    B->>C: conversation 持久状态保持 running
     B->>T: sendApproval（Markdown 卡片 + [Approve]/[Reject]）
     T->>U: 展示内联按钮
     U->>T: 点击 Approve
     T->>B: emit ApprovalApproved
     B->>AU: 记录审批（时间/操作人/内容/决策）
     B->>A: resolveApproval(id, 'approve')
-    B->>C: SessionState → Running
     Note over A: SDK 家族→resolve({behavior:'allow'})；PTY 家族→write("y\r")
-    Note over T,U: 拒绝 → resolveApproval(id,'reject')（SDK: deny / PTY: "n\r" 或 Ctrl+C）
+    Note over T,U: 拒绝 → interrupt() + resolveApproval(id,'reject')（SDK: deny / PTY: "n\r" 或 Ctrl+C）
 ```
 
 ---
@@ -337,9 +337,9 @@ sequenceDiagram
 | 层 | 存活位置 | 单位 | 回收/结束条件 |
 |---|---|---|---|
 | **会话层 Conversation** | Postgres（长期） | 一次连续工作任务 / 一个项目上下文 | 显式 `/close` 或 `SESSION_ARCHIVE_DAYS` 天无活动 → 归档 |
-| **进程层 PTY Runtime** | 内存（临时） | 一个 node-pty 子进程 | `PTY_IDLE_TIMEOUT_MS` 空闲 → 杀进程省内存 |
+| **CLI/adapter 运行时** | 内存（临时） | 一个 SDK query 或 node-pty 子进程 | `AGENT_IDLE_TIMEOUT_MS` 空闲 → 关闭已启动的 CLI/adapter，conversation 保持 `idle` |
 
-> **核心区分**：`进程被回收` ≠ `会话被关闭`。进程回收后会话状态是 **`idle`**（可随时唤醒复用），只有 `/close` 或长期无活动才进入 **`closed`（归档）**。
+> **核心区分**：`进程被回收` ≠ `会话被关闭`。进程回收后会话状态是 **`idle`**（可随时唤醒复用）；`/close`、`/new`、`/cwd <path>` 或长期无活动才进入 **`closed`（归档）**。
 
 ### 5.1 什么时候新建一个会话（会话边界策略）
 
@@ -347,17 +347,20 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    MSG[收到用户消息] --> NEW{显式 /new ?}
-    NEW -->|是| CREATE[新建 conversation<br/>旧活跃会话转 idle]
-    NEW -->|否| FIND{存在<br/>user+cli+cwd<br/>的活跃会话?}
+    MSG[收到用户消息] --> CMD{系统命令?}
+    CMD -->|/cwd path| CLOSESET[关闭当前会话<br/>更新目标 cwd<br/>不创建 conversation]
+    CMD -->|/new| CLOSENEW[关闭当前/目标旧会话<br/>新建 idle conversation]
+    CMD -->|否| FIND{最新同边界会话<br/>未 closing/closed?}
     FIND -->|是| REUSE[复用该会话]
-    FIND -->|否| CREATE
-    CREATE --> RUN[进入会话]
+    FIND -->|否| CREATE[新建 idle conversation]
+    CLOSENEW --> RUN[等待首条普通消息懒启动]
+    CREATE --> RUN
     REUSE --> RUN
 ```
 
-- **默认复用**：以 `(user_id, cli, cwd)` 三元组定位活跃会话，发消息即接着上次聊。
-- **`/new`**：强制开新会话（切换任务时），旧会话转 `idle` 保留。
+- **默认复用**：以 `(user_id, cli, cwd)` 三元组定位最新同边界会话；最新未 `closing/closed` 则复用，否则新建。
+- **`/new`**：强制开新会话，旧会话直接 `closed`，新会话初始 `idle`。
+- **`/cwd`**：无参数显示当前目标 cwd；带路径时关闭当前会话、更新目标 cwd，不创建 conversation，下一条普通消息再新建。
 - **`/close`**：显式结束，触发归档并生成 episodic 摘要（见 §7）。
 - **自动归档**：超过 `SESSION_ARCHIVE_DAYS` 无活动的 `idle` 会话自动转 `closed` 并生成摘要。
 - **cwd 隔离**：不同项目目录天然分属不同会话，记忆据此按项目隔离。
@@ -368,19 +371,21 @@ flowchart TD
 stateDiagram-v2
     [*] --> Idle: SessionCreated
     Idle --> Starting: MessageReceived（无 Runtime）
-    Starting --> Running: PTYStarted
-    Running --> WaitingApproval: ApprovalRequested
-    WaitingApproval --> Running: Approved / Rejected
-    Running --> Idle: PTY 空闲超时（仅杀进程，会话留存）
+    Starting --> Running: Adapter start 成功
+    Running --> Idle: CLI/adapter 空闲超时（仅关闭已启动运行时，会话留存）
     Idle --> Closing: /close 或 归档超时
     Running --> Closing: /close
+    Starting --> Closing: /close
     Closing --> Closed: 生成 episodic 摘要 + 落库
     Closed --> [*]
     note right of Idle
       进程已回收、会话仍在。
-      下次消息 → Starting 唤醒复用
+      下次同边界消息 → Starting 唤醒复用；
+      不回放完整 messages，不 resume 旧 CLI 上下文。
     end note
 ```
+
+审批不是持久化会话状态。`waitingApproval` 仅是 Adapter/Orchestrator 内存态：进程或 SDK query 结束后审批即失效，不能从 DB 恢复。
 
 ### 5.3 进程按需启停（资源回收）
 
@@ -390,7 +395,7 @@ flowchart TD
     Q -->|否| S[启动 Runtime<br/>绑定 Adapter↔Session]
     Q -->|是| I[持续交互]
     S --> I
-    I --> W{超出 PTY_IDLE_TIMEOUT?}
+    I --> W{超出 AGENT_IDLE_TIMEOUT_MS?}
     W -->|否| I
     W -->|是| K[销毁 Runtime 进程<br/>释放内存]
     K --> P[会话转 idle<br/>元数据保留于 DB]
@@ -417,7 +422,7 @@ erDiagram
         string user_id
         string cli
         string cwd "项目目录，会话边界"
-        string status "active|idle|closed"
+        string status "idle|starting|running|closing|closed"
         int created_at
         int updated_at
     }
@@ -457,7 +462,7 @@ erDiagram
 | 表 | 写入触发 | 说明 |
 |---|---|---|
 | `conversations` | `SessionCreated` / 状态变更 | 会话全局状态与生命周期；`cwd` 决定会话边界 |
-| `messages` | `MessageReceived` / `MessageGenerated` | 完整对话记录，用于恢复上下文 |
+| `messages` | `MessageReceived` / `MessageGenerated` | 完整对话记录，用于历史查看、审计与后续摘要；当前不做完整上下文回放 |
 | `audit_logs` | `ApprovalApproved/Rejected` | **强制、永久**，敏感指令审批留痕 |
 | `memories` | `MemoryUpdated`（订阅 `MessageGenerated` 异步生成） | 长期记忆：摘要 / 事实 / 偏好 + 向量，详见 §7 |
 
@@ -474,7 +479,7 @@ erDiagram
 | **User-level（用户级）** | `user_id` | 稳定画像、跨项目偏好（"偏好 Bun"、"回答用中文"） | NULL |
 | **Conversation-level（会话级）** | `conversation_id` | 本项目/任务的情节摘要、局部上下文 | 填值 |
 
-"跨会话回放" = 取 **user-level 全部** + **当前会话相关 episodic 摘要**，注入新会话上下文。
+V1 记忆注入 = 取 **user-level 全局记忆** + **environment 环境记忆**，在 adapter start 时注入。conversation-level 摘要后续用于归档回顾和相关召回，不做完整 messages replay。
 
 ### 7.2 记忆分型
 
@@ -518,7 +523,7 @@ flowchart LR
 
 | 阶段 | 存储 | 检索能力 | 说明 |
 |---|---|---|---|
-| **V1** | Postgres（含预留 `embedding` 列，可 NULL） | 关系查询 + FTS（`user_id` 取回、关键词 BM25） | 先跑通会话/记忆机制与摘要回放 |
+| **V1** | Postgres（含预留 `embedding` 列，可 NULL） | user-level 取回 + 环境记忆 upsert | 先跑通 `/remember`、环境事实与启动注入 |
 | **V1.5** | 同库启用 `pgvector` + HNSW 索引 | 向量语义召回 Top-K | 填充 `embedding`，接入 §7.4 召回钩子 |
 
 > **一次定库、分阶段加能力**：数据库第一版即 Postgres，避免 SQLite→PG 二次迁移；向量作为召回精度增强在 V1.5 平滑接入，Repository 接口不变，Core 零改动。
@@ -550,7 +555,7 @@ flowchart TB
 ```
 
 1. **白名单前置**：硬编码 User ID 白名单，启动时加载；非白名单请求在 Transport 层直接丢弃，**永不进入 Core**。
-2. **交互式审批**：危险操作触发 `WaitingApproval`，用户通过内联按钮决策 → Core 调 `adapter.resolveApproval(id, 'approve'|'reject')`；SDK 家族据此 `resolve({behavior:'allow'|'deny'})`，PTY 家族据此注入 `y\r`/`n\r` 或 `Ctrl+C`。
+2. **交互式审批**：危险操作触发 Adapter 内存态 `waitingApproval`，用户通过内联按钮决策 → Orchestrator 调 `adapter.resolveApproval(id, 'approve'|'reject')`；拒绝时先 `interrupt()` 停止当前轮。conversation 持久状态保持 `running`。
 3. **永久审计**：每次审批的时间、操作人、内容、决策结果强制落 `audit_logs`，不可删除。
 
 ---
@@ -601,7 +606,7 @@ flowchart TD
 |---|---|
 | **可观测性** | Logger 订阅全部事件，统一结构化日志（Pino）；`ErrorOccurred` 集中上报 |
 | **背压 / 限流** | Aggregator 的 Throttle 保护 Transport；平台限流不反压到 PTY |
-| **故障隔离** | 单个 Runtime 崩溃发 `PTYExited`，Core 将 Session 置回 `Idle`，不影响其它会话 |
+| **故障隔离** | 单个 Runtime/adapter 崩溃发退出事件或错误事件，conversation 回到 `idle` 或保留 `starting` 供排障，不影响其它会话 |
 | **幂等与去重** | 审批回调按 `MessageRef` 去重，防止用户重复点击导致重复注入 |
 | **优雅关闭** | 收到 SIGTERM → 停止 Transport 入站 → flush Aggregator → 销毁全部 Runtime → 关闭 DB |
 
@@ -643,8 +648,8 @@ flowchart LR
 | 3 | Config 独占 `process.env` | 强类型校验、fail-fast、可测试 | 需依赖注入贯穿全局 |
 | 4 | Aggregator 独立成层 | 隔离平台限流与流式渲染 | 增加一次输出延迟（Debounce 窗口） |
 | 5 | V1 直接选 Postgres + Drizzle | 一次定库避免二次迁移；`pgvector` 可同库存向量 | VPS 多一个 DB 服务进程（docker 一把梭，可接受） |
-| 6 | 记忆分 user / conversation 两层 | user-level 实现跨会话回放，conv-level 承载项目情节 | 记忆归属由 `conversation_id` 是否为空区分 |
-| 7 | 嵌入走 API 而非本地模型 | VPS 不跑模型，省内存运维 | 有网络延迟与调用成本 → 强制异步批量 |
-| 8 | 向量召回分阶段（V1.5 上 pgvector） | V1 先跑通会话/记忆机制，不被召回调优拖慢 | V1 仅关系 + FTS 回放，无语义模糊召回 |
-| 9 | 会话边界 = cwd 复用 + `/new` + 归档 | 贴合 CLI 控制语义，记忆按项目天然隔离 | `conversations` 需加 `cwd` 字段 |
+| 6 | 记忆分 user / conversation 两层 | user-level 承载全局记忆与环境事实，conv-level 承载项目情节 | 记忆归属由 `conversation_id` 是否为空区分 |
+| 7 | 嵌入走 API 而非本地模型 | VPS 不跑模型，省内存运维 | 有网络延迟与调用成本 → 强制异步批量，V1 可先不用 |
+| 8 | 向量召回分阶段（V1.5 上 pgvector） | V1 先跑通命令式记忆与环境注入，不被召回调优拖慢 | V1 无语义模糊召回 |
+| 9 | 会话边界 = cwd 目标 + `/new` + `/cwd` + 归档 | 贴合 CLI 控制语义，记忆按项目天然隔离；`/cwd` 切目标不热切换已启动 CLI | `conversations` 需加 `cwd` 字段；用户目标 cwd 当前为运行期状态，后续偏好模块持久化 |
 | 10 | **执行层接缝在语义化 `CLIAdapter`，非 `Runtime`；Claude 走 Agent SDK，PTY 家族仅作无 SDK 备用**（详见 D11） | 审批/输出结构化（`canUseTool`+`SDKMessage`）根治"解析 TUI 菜单"的脆性；接缝在 Adapter 才能同时容纳字节与结构化两形态；厂商中立靠"每 CLI 一个 Adapter"而非共享 SDK 基类 | SDK 依赖 +5.5MB（含原生二进制，依赖树干净、peerDeps zod^4 与本项目一致）；`Runtime`/`ApprovalDetector` 降级为 PTY 家族专属 |

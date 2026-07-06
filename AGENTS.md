@@ -1,4 +1,4 @@
-# CLAUDE.md — AI CLI Remote Control Hub
+# AGENTS.md — AI CLI Remote Control Hub
 
 > 本文件是编码 Agent 的**宪法**，每个会话自动加载。动手写任何代码前，先读完本文件。
 > **然后读 [PROGRESS.md](./PROGRESS.md)** 了解当前进度、已拍板的决策和下一步——这是动态状态真相源，每个会话必读。
@@ -8,7 +8,7 @@
 
 ## 1. 项目一句话
 
-一个运行于个人 VPS 的**轻量 AI CLI 会话管理器**：通过 Telegram/QQ 等客户端远程控制本地 AI CLI（Claude CLI 等），支持远程对话、Tool Approval、按需启停、跨会话长期记忆。**不是 Agent，不是 IDE，是 Session Manager。**
+一个运行于个人 VPS 的**轻量 AI CLI 会话管理器**：通过 Telegram/QQ 等客户端远程控制本地 AI CLI（Codex CLI 等），支持远程对话、Tool Approval、按需启停、跨会话长期记忆。**不是 Agent，不是 IDE，是 Session Manager。**
 
 ---
 
@@ -18,8 +18,8 @@
 |---|---|---|
 | 运行时 | **Bun** | 用 `bun`，不用 node/npm/pnpm |
 | 语言 | **TypeScript**（strict） | 全量类型，禁止 `any`（除非注释说明） |
-| 终端劫持 | **node-pty** | 仅 PTY 家族（无 SDK 的 CLI），封装在 `runtime/`；Claude 走 Agent SDK，见 D11 |
-| CLI 接入（首选） | **@anthropic-ai/claude-agent-sdk** | SDK 家族，`ClaudeSdkAdapter` 内部持 `query()`，审批经 `canUseTool` |
+| 终端劫持 | **node-pty** | 仅 PTY 家族（无 SDK 的 CLI），封装在 `runtime/`；Codex 走 Agent SDK，见 D11 |
+| CLI 接入（首选） | **@anthropic-ai/Codex-agent-sdk** | SDK 家族，`ClaudeSdkAdapter` 内部持 `query()`，审批经 `canUseTool` |
 | 数据库 | **Postgres** | V1 即用，非 SQLite |
 | ORM | **Drizzle** | 唯一 SQL 出口，全在 `repository/`+`storage/` |
 | 向量 | **pgvector** | 同库；V1 预留列，V1.5 启用 |
@@ -46,7 +46,7 @@ core/ ──❌禁止──▶ 任何具体实现(telegraf/node-pty/drizzle)
 |---|---|---|
 | `core/` | `event/`, `shared/`, `config/`, 抽象接口 | 任何具体 Transport/Adapter/Storage |
 | `transport/*` | `event/`, `shared/`, `config/`, 平台 SDK | `core/` 内部、`storage/` |
-| `cli/*` | `event/`, `shared/`, `config/`, `runtime/`, `approval/`, **该 CLI 的 SDK（如 `@anthropic-ai/claude-agent-sdk`）** | `transport/`, `storage/`, `core/` 内部 |
+| `cli/*` | `event/`, `shared/`, `config/`, `runtime/`, `approval/`, **该 CLI 的 SDK（如 `@anthropic-ai/Codex-agent-sdk`）** | `transport/`, `storage/`, `core/` 内部 |
 | `repository/` | `storage/`, `shared/` | `core/`, `transport/` |
 | `storage/` | Drizzle, `shared/` | 其它全部业务模块 |
 | `memory/` | `event/`, `repository/`, `shared/`, `config/` | `core/`, `transport/` |
@@ -66,7 +66,7 @@ src/
 ├── event/        # Event Bus + EventMap 类型
 ├── config/       # 唯一读 process.env 的地方（Zod 校验，fail-fast）
 ├── transport/    # 客户端接入 (telegram, qq, websocket)
-├── cli/          # CLI 适配器 (base, claude=SDK 家族)；语义接缝 CLIAdapter，两家族同实现
+├── cli/          # CLI 适配器 (base, Codex=SDK 家族)；语义接缝 CLIAdapter，两家族同实现
 ├── runtime/      # PTY 家族字节容器 (nodepty)；SDK 家族不经此层
 ├── approval/     # PTY 家族审批 scraping（正则）；SDK 家族经 canUseTool，无需
 ├── repository/   # 数据抽象接口 + Drizzle 实现
