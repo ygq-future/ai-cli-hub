@@ -9,9 +9,10 @@ import type { Repositories } from './repository'
 const CID = 'conv-1' as ConversationId
 
 const tick = () => new Promise(r => setTimeout(r, 0))
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 /** 假 adapter：记录调用，允许测试手动触发 output/approval/exit。 */
-function createFakeAdapter() {
+function createFakeAdapter(opts?: { onStop?: () => Promise<void> }) {
   const outputHandlers: Array<(d: OutputDelta) => void> = []
   const approvalHandlers: Array<(r: ApprovalRequest) => void> = []
   const exitHandlers: Array<(i: ExitInfo) => void> = []
@@ -19,6 +20,8 @@ function createFakeAdapter() {
     start: [] as SpawnOptions[],
     sendUserInput: [] as string[],
     resolveApproval: [] as Array<[string, ApprovalAction]>,
+    callOrder: [] as string[],
+    interrupt: 0,
     stop: 0,
   }
   const adapter: CLIAdapter = {
@@ -28,13 +31,18 @@ function createFakeAdapter() {
     },
     async stop() {
       calls.stop++
+      await opts?.onStop?.()
     },
-    interrupt() {},
+    interrupt() {
+      calls.interrupt++
+      calls.callOrder.push('interrupt')
+    },
     sendUserInput(t) {
       calls.sendUserInput.push(t)
     },
     resolveApproval(id, d) {
       calls.resolveApproval.push([id, d])
+      calls.callOrder.push(`resolve:${d}`)
     },
     onOutput(h) {
       outputHandlers.push(h)
@@ -59,8 +67,9 @@ function createFakeAdapter() {
   }
 }
 
-function createFakeRepos(cwd = '/work') {
+function createFakeRepos(cwd = '/work', initialStatus: 'idle' | 'running' = 'idle') {
   const messages: Array<Record<string, unknown>> = []
+  let status = initialStatus
   const repos = {
     conversations: {
       async findById(id: string) {
@@ -70,10 +79,13 @@ function createFakeRepos(cwd = '/work') {
           userId: 'u1',
           cli: 'claude',
           platform: 'telegram',
-          status: 'idle',
+          status,
           createdAt: 0,
           updatedAt: 0,
         }
+      },
+      async updateStatus(_id: string, nextStatus: 'idle' | 'running') {
+        status = nextStatus
       },
     },
     messages: {
@@ -88,7 +100,7 @@ function createFakeRepos(cwd = '/work') {
     audit: {},
     memories: {},
   } as unknown as Repositories
-  return { repos, messages }
+  return { repos, messages, getStatus: () => status }
 }
 
 describe('SessionOrchestrator', () => {
@@ -105,9 +117,10 @@ describe('SessionOrchestrator', () => {
     expect(fake.calls.start.length).toBe(1)
     expect(fake.calls.start[0]!.cwd).toBe('/proj')
     expect(fake.calls.start[0]!.conversationId).toBe(CID)
+    expect(fake.calls.start[0]!.systemLanguageHint).toContain('中文')
     expect(fake.calls.sendUserInput).toEqual(['hi'])
 
-    orch.destroy()
+    await orch.destroy()
     agg.destroy()
   })
 
@@ -124,7 +137,7 @@ describe('SessionOrchestrator', () => {
     expect(fake.calls.start.length).toBe(1)
     expect(fake.calls.sendUserInput).toEqual(['one', 'two'])
 
-    orch.destroy()
+    await orch.destroy()
     agg.destroy()
   })
 
@@ -143,11 +156,11 @@ describe('SessionOrchestrator', () => {
 
     expect(seen).toEqual([{ conversationId: CID, approvalId: 'a1', command: 'Bash', detail: '{"cmd":"ls"}' }])
 
-    orch.destroy()
+    await orch.destroy()
     agg.destroy()
   })
 
-  test('ApprovalApproved/Rejected → adapter.resolveApproval', async () => {
+  test('ApprovalApproved/Rejected → adapter.resolveApproval；Reject 额外 interrupt', async () => {
     const fake = createFakeAdapter()
     const bus = createEventBus()
     const agg = createMessageAggregator(bus)
@@ -162,8 +175,132 @@ describe('SessionOrchestrator', () => {
       ['a1', 'approve'],
       ['a2', 'reject'],
     ])
+    expect(fake.calls.interrupt).toBe(1)
+    expect(fake.calls.callOrder).toEqual(['resolve:approve', 'interrupt', 'resolve:reject'])
 
-    orch.destroy()
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('语言偏好注入 adapter.start', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => fake.adapter,
+      getUserLanguage: () => 'en',
+    })
+
+    await orch.handler.onMessage('hi', CID)
+
+    expect(fake.calls.start[0]!.systemLanguageHint).toContain('English')
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('SessionClosed → stop 并清理 adapter', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
+
+    await orch.handler.onMessage('one', CID)
+    bus.emit('SessionClosed', { conversationId: CID, reason: 'user' })
+    await tick()
+    await orch.handler.onMessage('two', CID)
+
+    expect(fake.calls.stop).toBe(1)
+    expect(fake.calls.start.length).toBe(2)
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('adapter 空闲超时 → stop 并把会话状态标回 idle', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos, getStatus } = createFakeRepos('/work', 'running')
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => fake.adapter,
+      idleTimeoutMs: 5,
+    })
+
+    await orch.handler.onMessage('one', CID)
+    await sleep(25)
+
+    expect(fake.calls.stop).toBe(1)
+    expect(getStatus()).toBe('idle')
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('UserLanguageChanged → 停止该用户 adapter，下条消息按新语言重启', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    let lang: 'zh' | 'en' = 'zh'
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => fake.adapter,
+      getUserLanguage: () => lang,
+    })
+
+    await orch.handler.onMessage('one', CID)
+    expect(fake.calls.start[0]!.systemLanguageHint).toContain('中文')
+
+    lang = 'en'
+    bus.emit('UserLanguageChanged', { userId: 'u1', language: 'en' })
+    await tick()
+    await orch.handler.onMessage('two', CID)
+
+    expect(fake.calls.stop).toBe(1)
+    expect(fake.calls.start.length).toBe(2)
+    expect(fake.calls.start[1]!.systemLanguageHint).toContain('English')
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('destroy 等待 adapter.stop 完成后才返回', async () => {
+    let releaseStop!: () => void
+    let stopped = false
+    const stopGate = new Promise<void>(resolve => {
+      releaseStop = () => {
+        stopped = true
+        resolve()
+      }
+    })
+    const fake = createFakeAdapter({ onStop: () => stopGate })
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
+
+    await orch.handler.onMessage('one', CID)
+    const destroying = orch.destroy()
+    await tick()
+
+    expect(fake.calls.stop).toBe(1)
+    expect(stopped).toBe(false)
+
+    releaseStop()
+    await destroying
+
+    expect(stopped).toBe(true)
     agg.destroy()
   })
 
@@ -190,7 +327,7 @@ describe('SessionOrchestrator', () => {
     expect(asst.length).toBe(1)
     expect(asst[0]!.content).toBe('Hello world')
 
-    orch.destroy()
+    await orch.destroy()
     agg.destroy()
   })
 
@@ -217,13 +354,12 @@ describe('SessionOrchestrator', () => {
     const errors: Array<{ scope: string }> = []
     bus.on('ErrorOccurred', p => errors.push(p))
 
-    const res = await orch.handler.onMessage('x', CID)
+    await expect(orch.handler.onMessage('x', CID)).rejects.toThrow('CLI adapter 启动失败')
 
-    expect(res).toBe('')
     expect(fake.calls.start.length).toBe(0)
     expect(errors.some(e => e.scope === 'orchestrator:ensureAdapter')).toBe(true)
 
-    orch.destroy()
+    await orch.destroy()
     agg.destroy()
   })
 })

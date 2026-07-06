@@ -7,6 +7,17 @@
  */
 import { z } from 'zod'
 
+const EnvBooleanSchema = z.preprocess(value => {
+  if (value === undefined) return false
+  if (typeof value === 'boolean') return value
+  if (typeof value !== 'string') return value
+
+  const normalized = value.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off', ''].includes(normalized)) return false
+  return value
+}, z.boolean())
+
 export const ConfigSchema = z.object({
   // —— Telegram / 白名单 ——
   TELEGRAM_BOT_TOKEN: z.string().min(1),
@@ -26,14 +37,18 @@ export const ConfigSchema = z.object({
   MEMORY_RECALL_TOP_K: z.coerce.number().int().positive().default(6),
 
   // —— 生命周期超时 ——
-  PTY_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  // 已启动的 CLI/adapter 空闲超过该时间后自动关闭；conversation 保持 idle，可再次唤醒。
+  AGENT_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   SESSION_ARCHIVE_DAYS: z.coerce.number().int().positive().default(7),
 
-  // —— 会话默认工作目录（/cwd 命令延后至 M6b；M6 全会话共享此默认）——
+  // —— 会话默认工作目录（/cwd 可切换当前用户目标目录）——
   DEFAULT_CWD: z.string().min(1).default(process.cwd()),
 
   // —— 日志 ——
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+
+  // —— CLI Adapter 调试 ——
+  DEBUG_AGENT_SDK_JSON: EnvBooleanSchema,
 })
 
 export type AppConfig = z.infer<typeof ConfigSchema>

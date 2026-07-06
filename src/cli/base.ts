@@ -20,7 +20,7 @@ export interface CLIAdapter {
   /** 一轮用户输入（字符串在两家族天然成立，非 PTY 泄漏） */
   sendUserInput(text: string): void
 
-  /** 流式助手输出（语义，非裸字节） */
+  /** 用户可见输出（语义，非裸字节；Claude SDK 家族只发 result.result） */
   onOutput(handler: (delta: OutputDelta) => void): Unsubscribe
   onApprovalRequest(handler: (req: ApprovalRequest) => void): Unsubscribe
   resolveApproval(approvalId: string, decision: ApprovalAction): void
@@ -30,7 +30,7 @@ export interface CLIAdapter {
 }
 
 export interface OutputDelta {
-  /** 输出类型：text=纯文本, tool_use=工具调用, tool_result=工具执行结果, thinking=推理过程 */
+  /** 输出类型：text=用户可见文本；其它类型保留给 PTY/未来 adapter 内部转换 */
   kind: 'text' | 'tool_use' | 'tool_result' | 'thinking'
   /** kind=text/tool_result/thinking 时填充；tool_use 时为空 */
   text: string
@@ -61,6 +61,7 @@ export interface SpawnOptions {
   cols?: number // 仅 PTY 家族用
   rows?: number // 仅 PTY 家族用
   env?: Record<string, string>
+  systemLanguageHint?: string
 }
 
 export type AdapterState = 'stopped' | 'starting' | 'ready' | 'busy' | 'waitingApproval'

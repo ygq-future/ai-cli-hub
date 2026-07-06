@@ -6,8 +6,8 @@
  * 接线（onOutput → format → push；final → flush）在 Composition Root（main.ts）完成。
  *
  * 映射规则：
- *  - text / tool_result / thinking：直出 delta.text
- *  - tool_use：delta.text 为空，合成一行工具调用摘要「🔧 ToolName(args)」
+ *  - text：清洗后直出 delta.text
+ *  - thinking / tool_use / tool_result：不对用户展示
  * final=true 的收尾 delta（text 常为空）返回 '' → 聚合器 push 空串为 no-op，
  * 由 Composition Root 据 delta.final 调 flush 收尾。
  */
@@ -16,13 +16,36 @@ import type { OutputDelta } from './base'
 export function formatOutputDelta(delta: OutputDelta): string {
   switch (delta.kind) {
     case 'text':
-    case 'tool_result':
+      return sanitizeVisibleText(delta.text)
     case 'thinking':
-      return delta.text
-    case 'tool_use': {
-      const name = delta.toolName ?? 'tool'
-      const args = delta.toolInput ? JSON.stringify(delta.toolInput) : ''
-      return `\n🔧 ${name}(${args})\n`
-    }
+    case 'tool_result':
+    case 'tool_use':
+      return ''
   }
+}
+
+function sanitizeVisibleText(text: string): string {
+  const cleaned = text
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<system-role>[\s\S]*?<\/system-role>/gi, '')
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '')
+    .replace(/^\s*Wait for all results before deciding next steps\.[\s\S]*?<\/system-reminder>\s*/i, '')
+    .replace(
+      /IMPORTANT: Skills are loaded into the conversation separately via the 'Skill' tool[\s\S]*?(?:<\/think>|(?=\n\S))/gi,
+      '',
+    )
+    .replace(
+      /## Skill usage for this turn[\s\S]*?(?:<\/think>|Let me consider other skills that might apply[^\n.]*\.)/gi,
+      '',
+    )
+    .replace(/^\s*# Safety[\s\S]*?<\/think>/i, '')
+    .replace(/<\/?(?:think|system-role|system-reminder)>/gi, '')
+    .replace(
+      /If you see the message "This tool does not support running in the background"[\s\S]*?TaskList at the start of each turn\.\s*/gi,
+      '',
+    )
+    .replace(/^\s*(?:让我先看看相关技能是否适用|Let me check if any skills might apply here)[^\n]*\n?/gim, '')
+    .replace(/^\s*(?:看起来这是个简单的.*?不需要调用复杂技能。)[^\n]*\n?/gim, '')
+
+  return cleaned === text ? cleaned : cleaned.trimStart()
 }

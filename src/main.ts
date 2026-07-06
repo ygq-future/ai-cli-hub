@@ -2,12 +2,14 @@
  * main.ts —— Composition Root：唯一装配具体实现的地方。
  *
  * 装配顺序（按依赖方向）：
- *  config → logger → bus → db → repositories → aggregator → orchestrator → coreHub → telegramTransport
+ *  config → logger → bus → db → repositories → aggregator → telegramTransport → orchestrator → coreHub
  *
  * 优雅关闭信号：SIGINT/SIGTERM → transport.stop → orchestrator.destroy → aggregator.destroy → coreHub.destroy
  *
  * 依赖矩阵（CLAUDE.md §3）：只有本文件允许 import 具体实现并装配。
  */
+import { existsSync, statSync } from 'node:fs'
+import path from 'node:path'
 import { createEventBus } from './event'
 import { loadConfig } from './config'
 import { createLogger, attachEventLogger } from './logger'
@@ -15,6 +17,7 @@ import { createDb } from './storage'
 import { createRepositories } from './repository'
 import { createCoreHub } from './core'
 import { createMessageAggregator } from './core'
+import { createClaudeSdkAdapter } from './cli'
 import { createSessionOrchestrator } from './orchestrator'
 import { createTelegramTransport } from './transport'
 import type { Transport } from './shared'
@@ -41,32 +44,55 @@ async function main() {
     maxChunkChars: 4096,
   })
 
-  // —— 6. Orchestrator（adapter 编排，每会话一个 adapter）——
-  const orch = createSessionOrchestrator({ bus, repos, aggregator })
+  // —— 6. Telegram Transport ——
+  const telegram = createTelegramTransport({ bus, config })
+  const transport: Transport = telegram
 
-  // —— 7. Core Hub（SessionManager + Auth + MessageRouter）——
-  const coreHub = createCoreHub({ bus, repos, config, handler: orch.handler })
+  // —— 7. Orchestrator（adapter 编排，每会话一个 adapter）——
+  const orch = createSessionOrchestrator({
+    bus,
+    repos,
+    aggregator,
+    adapterFactory: () =>
+      createClaudeSdkAdapter({
+        debugRawJson: config.DEBUG_AGENT_SDK_JSON,
+        rawMessageLogger: rawJson => logger.info({ cli: 'claude', rawJson }, 'Agent SDK raw message'),
+      }),
+    getUserLanguage: telegram.getUserLanguage,
+    idleTimeoutMs: config.AGENT_IDLE_TIMEOUT_MS,
+  })
 
-  // —— 8. Telegram Transport ——
-  const transport: Transport = createTelegramTransport({ bus, config })
+  // —— 8. Core Hub（SessionManager + Auth + MessageRouter）——
+  const coreHub = createCoreHub({
+    bus,
+    repos,
+    config,
+    handler: orch.handler,
+    getUserLanguage: telegram.getUserLanguage,
+    resolveCwd,
+  })
 
   // —— 注册优雅关闭 ——
-  function shutdown() {
+  let shuttingDown = false
+  async function shutdown() {
+    if (shuttingDown) return
+    shuttingDown = true
     logger.info('收到关闭信号，优雅关闭...')
-    transport
-      .stop()
-      .catch(() => {})
-      .then(() => orch.destroy())
-      .then(() => aggregator.destroy())
-      .then(() => coreHub.destroy())
-      .then(() => detachLogger())
-      .then(() => {
-        logger.info('已关闭')
-        process.exit(0)
-      })
+    try {
+      await transport.stop()
+      await orch.destroy()
+      await aggregator.destroy()
+      await coreHub.destroy()
+      detachLogger()
+      logger.info('已关闭')
+      process.exit(0)
+    } catch (err) {
+      logger.error({ err }, '关闭失败')
+      process.exit(1)
+    }
   }
-  process.on('SIGINT', shutdown)
-  process.on('SIGTERM', shutdown)
+  process.on('SIGINT', () => void shutdown())
+  process.on('SIGTERM', () => void shutdown())
 
   // —— 启动 ——
   logger.info({ cwd: config.DEFAULT_CWD }, 'AI CLI Hub 启动')
@@ -74,6 +100,17 @@ async function main() {
 
   // 主进程保持存活（transport.start() 只启 bot，不阻塞；此处挂起防 main 退出）
   await new Promise(() => {})
+}
+
+function resolveCwd(raw: string): { ok: true; cwd: string } | { ok: false; message: string } {
+  const cwd = raw.trim().replace(/\\+/g, '/')
+  if (!cwd) return { ok: false, message: '工作目录不能为空。' }
+  if (!path.isAbsolute(cwd) && !path.win32.isAbsolute(cwd) && !path.posix.isAbsolute(cwd)) {
+    return { ok: false, message: `工作目录必须是绝对路径：${cwd}` }
+  }
+  if (!existsSync(cwd)) return { ok: false, message: `目录不存在：${cwd}` }
+  if (!statSync(cwd).isDirectory()) return { ok: false, message: `路径不是目录：${cwd}` }
+  return { ok: true, cwd }
 }
 
 main().catch(err => {
