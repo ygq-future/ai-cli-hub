@@ -16,7 +16,7 @@ function fakeConfig(): AppConfig {
     EMBEDDING_API_KEY: 'k',
     EMBEDDING_MODEL: 'text-embedding-3-small',
     MEMORY_RECALL_TOP_K: 6,
-    PTY_IDLE_TIMEOUT_MS: 300000,
+    AGENT_IDLE_TIMEOUT_MS: 300000,
     SESSION_ARCHIVE_DAYS: 7,
     LOG_LEVEL: 'info',
   } as AppConfig
@@ -122,7 +122,7 @@ describe('TelegramTransport 入站', () => {
     expect(received.length).toBe(0)
   })
 
-  test('未知斜杠命令 → 提示，不 emit', () => {
+  test('系统斜杠命令 → emit MessageReceived 交给 Core', () => {
     const bus = createEventBus()
     const mock = createMockBot()
     createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
@@ -138,8 +138,83 @@ describe('TelegramTransport 入站', () => {
       reply: async (t: string) => replies.push(t),
     })
 
+    expect(received).toEqual([
+      {
+        userId: '42',
+        platform: 'telegram',
+        cli: 'claude',
+        cwd: '/w',
+        text: '/status',
+        ref: { platform: 'telegram', chatId: '42', nativeId: '1' },
+      },
+    ])
+    expect(replies.length).toBe(0)
+  })
+
+  test('/lang zh|en 本地切换语言偏好，不 emit', () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    const transport = createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+
+    const received: unknown[] = []
+    const changed: unknown[] = []
+    bus.on('MessageReceived', p => received.push(p))
+    bus.on('UserLanguageChanged', p => changed.push(p))
+    const replies: string[] = []
+
+    mock.handlers.text!({
+      from: { id: 42 },
+      chat: { id: 42 },
+      message: { text: '/lang en', message_id: 1 },
+      reply: async (t: string) => replies.push(t),
+    })
+
+    expect(transport.getUserLanguage('42')).toBe('en')
     expect(received.length).toBe(0)
-    expect(replies.length).toBe(1)
+    expect(changed).toEqual([{ userId: '42', language: 'en' }])
+    expect(replies).toEqual(['Language switched to English.'])
+  })
+
+  test('SessionCreated 后更新当前目标 cwd，后续普通消息沿用新 cwd', () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+
+    const received: unknown[] = []
+    bus.on('MessageReceived', p => received.push(p))
+
+    mock.handlers.text!({
+      from: { id: 42 },
+      chat: { id: 42 },
+      message: { text: '/new /tmp/other-project', message_id: 1 },
+    })
+    bus.emit('SessionCreated', {
+      conversationId: CID,
+      platform: 'telegram',
+      userId: '42',
+      cli: 'claude',
+      cwd: '/tmp/other-project',
+    })
+    mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: 'hello', message_id: 2 } })
+
+    expect((received[0] as Record<string, unknown>).cwd).toBe('/w')
+    expect((received[1] as Record<string, unknown>).cwd).toBe('/tmp/other-project')
+  })
+
+  test('UserTargetChanged 后更新当前目标 cwd，后续普通消息沿用新 cwd', () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+
+    const received: unknown[] = []
+    bus.on('MessageReceived', p => received.push(p))
+
+    mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: '/cwd /srv/app', message_id: 1 } })
+    bus.emit('UserTargetChanged', { userId: '42', cwd: '/srv/app' })
+    mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: 'hello', message_id: 2 } })
+
+    expect((received[0] as Record<string, unknown>).cwd).toBe('/w')
+    expect((received[1] as Record<string, unknown>).cwd).toBe('/srv/app')
   })
 })
 
@@ -197,6 +272,30 @@ describe('TelegramTransport 出站流式（D12 累计全文）', () => {
     expect((mock.sent[0]!.extra as { parse_mode?: string }).parse_mode).toBe('MarkdownV2')
   })
 
+  test('GitHub 风格表格 → Telegram 可读列表（避免原样显示管道表）', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+
+    mock.handlers.text!({ from: { id: 42 }, chat: { id: 1000 }, message: { text: 'hi', message_id: 1 } })
+    bus.emit('SessionCreated', { conversationId: CID, platform: 'telegram', userId: '42', cli: 'claude', cwd: '/w' })
+
+    bus.emit('MessageGenerated', {
+      conversationId: CID,
+      content: '### 文件夹\n| 名称 | 说明 |\n|------|------|\n| **Java** | Java 相关 |',
+      final: true,
+    })
+    await tick()
+
+    expect(mock.sent.length).toBe(1)
+    const out = mock.sent[0]!.text
+    expect(out).not.toContain('|------|')
+    expect(out).not.toContain('| 名称 | 说明 |')
+    expect(out).toContain('Java')
+    expect(out).toContain('Java 相关')
+    expect((mock.sent[0]!.extra as { parse_mode?: string }).parse_mode).toBe('MarkdownV2')
+  })
+
   test("MarkdownV2 解析失败（400 can't parse entities）→ 降级纯文本重发，消息不丢", async () => {
     const bus = createEventBus()
     const mock = createMockBot({ failOnParseMode: true }) // 带 parse_mode 的发送抛 400
@@ -228,6 +327,96 @@ describe('TelegramTransport 出站流式（D12 累计全文）', () => {
     bus.emit('MessageGenerated', { conversationId: CID, content: 'orphan', final: false })
     await tick()
     expect(mock.sent.length).toBe(0)
+  })
+
+  test('SessionMapped 建立跨重启映射后可发送回复', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+
+    mock.handlers.text!({ from: { id: 42 }, chat: { id: 1000 }, message: { text: '/status', message_id: 1 } })
+    bus.emit('SessionMapped', { conversationId: CID, platform: 'telegram', userId: '42' })
+    bus.emit('MessageGenerated', { conversationId: CID, content: 'mapped', final: true })
+    await tick()
+
+    expect(mock.sent.length).toBe(1)
+    expect(mock.sent[0]!.chatId).toBe('1000')
+    expect(mock.sent[0]!.text.trim()).toBe('mapped')
+  })
+
+  test('CommandReply → 回原 chat', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+
+    bus.emit('CommandReply', {
+      ref: { platform: 'telegram', chatId: '1000', nativeId: '1' },
+      content: 'status ok',
+    })
+    await tick()
+
+    expect(mock.sent.length).toBe(1)
+    expect(mock.sent[0]!.chatId).toBe('1000')
+    expect(mock.sent[0]!.text.trim()).toBe('status ok')
+  })
+
+  test('Windows 路径展示为正斜杠且保留 MarkdownV2 渲染', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+
+    bus.emit('CommandReply', {
+      ref: { platform: 'telegram', chatId: '1000', nativeId: '1' },
+      content: 'CWD: **位置** `D:\\Users\\sheepyu\\cladue-workspace\\ai-cli-hub`',
+    })
+    await tick()
+
+    expect(mock.sent.length).toBe(1)
+    expect(mock.sent[0]!.text).toContain('D:/Users/sheepyu')
+    expect(mock.sent[0]!.text).not.toContain('D:\\Users')
+    expect(mock.sent[0]!.text).toContain('*位置*')
+    expect(mock.sent[0]!.text).not.toContain('**位置**')
+    expect((mock.sent[0]!.extra as { parse_mode?: string }).parse_mode).toBe('MarkdownV2')
+  })
+
+  test('含 Windows 路径的真实回复仍渲染粗体和行内代码', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+
+    bus.emit('CommandReply', {
+      ref: { platform: 'telegram', chatId: '1000', nativeId: '1' },
+      content:
+        '刚才我按你的要求创建了文件 `a.txt`,这是它的情况:\n\n- **文件位置**:`D:\\Users\\sheepyu\\cladue-workspace\\a.txt`\n- **文件内容**:一行文本 `hello`',
+    })
+    await tick()
+
+    expect(mock.sent.length).toBe(1)
+    const out = mock.sent[0]!.text
+    expect(out).toContain('*文件位置*')
+    expect(out).not.toContain('**文件位置**')
+    expect(out).toContain('D:/Users/sheepyu')
+    expect(out).not.toContain('D:\\Users')
+    expect(out).toContain('`hello`')
+    expect((mock.sent[0]!.extra as { parse_mode?: string }).parse_mode).toBe('MarkdownV2')
+  })
+
+  test('超长回复自动分段发送，不冒泡 message is too long', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+
+    const errors: unknown[] = []
+    bus.on('ErrorOccurred', p => errors.push(p))
+
+    mock.handlers.text!({ from: { id: 42 }, chat: { id: 1000 }, message: { text: 'hi', message_id: 1 } })
+    bus.emit('SessionCreated', { conversationId: CID, platform: 'telegram', userId: '42', cli: 'claude', cwd: '/w' })
+    bus.emit('MessageGenerated', { conversationId: CID, content: 'x '.repeat(2500), final: true })
+    await tick()
+
+    expect(mock.sent.length).toBeGreaterThan(1)
+    expect(mock.sent.every(s => s.text.length <= 3800)).toBe(true)
+    expect(errors.length).toBe(0)
   })
 })
 
@@ -321,7 +510,7 @@ describe('TelegramTransport 审批', () => {
     expect(errors.length).toBe(0)
   })
 
-  test('审批卡 detail 含反斜杠（Windows 路径）→ 双写转义不丢', async () => {
+  test('审批卡 detail 含 Windows 路径 → 展示为正斜杠且授权流不中断', async () => {
     const bus = createEventBus()
     const mock = createMockBot()
     createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
@@ -337,9 +526,8 @@ describe('TelegramTransport 审批', () => {
     await tick()
 
     expect(mock.sent.length).toBe(1)
-    // 审批卡文本不含反斜杠时路径将显示为 D:Userssheepyuhello.txt（\\ 被 MarkdownV2 吞掉）
-    // 此处验证双写后路径完整（含 \\）
-    expect(mock.sent[0]!.text).toContain('D:\\\\')
-    expect(mock.sent[0]!.text).toContain('Users\\\\')
+    expect(mock.sent[0]!.text).toContain('D:/Users/sheepyu/hello')
+    expect(mock.sent[0]!.text).not.toContain('D:\\')
+    expect((mock.sent[0]!.extra as { parse_mode?: string }).parse_mode).toBe('MarkdownV2')
   })
 })

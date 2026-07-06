@@ -15,7 +15,15 @@ import { message } from 'telegraf/filters'
 import telegramify from 'telegramify-markdown'
 import type { AppConfig } from '../../config'
 import type { EventBus } from '../../event'
-import type { ApprovalCard, ConversationId, MessageRef, Transport, Unsubscribe } from '../../shared'
+import type {
+  ApprovalCard,
+  CliType,
+  ConversationId,
+  MessageRef,
+  Transport,
+  Unsubscribe,
+  UserLanguage,
+} from '../../shared'
 
 // —— 最小结构化 bot 接口（便于测试注入假 bot；真 Telegraf 经 cast 赋值）——
 interface TgCtx {
@@ -54,10 +62,16 @@ export interface TelegramTransportDeps {
   bot?: TelegramBotLike
 }
 
+export interface TelegramTransport extends Transport {
+  getUserLanguage(userId: string): UserLanguage
+}
+
 const START_TEXT =
   '👋 AI CLI Hub 已就绪。直接发消息即可与 Claude 对话；写操作会弹出授权卡片，请 Approve / Reject。\n发送 /help 查看帮助。'
 const HELP_TEXT =
-  '可用命令：\n/start — 欢迎与状态\n/help — 本帮助\n\n直接发送文本即可对话。会话变更类命令（/new /close /status 等）将在后续版本支持。'
+  '可用命令：\n/start — 欢迎与状态\n/help — 本帮助\n/new [cli] [cwd] — 开新会话，可指定工作目录\n/cwd [path] — 查看或切换工作目录\n/close — 关闭当前会话\n/status — 当前会话状态\n/sessions — 最近会话\n/lang zh|en — 切换回复语言\n\n直接发送文本即可对话。'
+
+const TELEGRAM_SAFE_TEXT_LIMIT = 3800
 
 function isNotModified(err: unknown): boolean {
   return String(err).includes('message is not modified')
@@ -68,25 +82,85 @@ function isParseEntitiesError(err: unknown): boolean {
   return String(err).includes("can't parse entities")
 }
 
+function tableCells(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map(cell => cell.trim())
+}
+
+function isMarkdownTableSeparator(line: string): boolean {
+  const cells = tableCells(line)
+  return cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell))
+}
+
+function formatMarkdownTableRow(headers: string[], row: string[]): string {
+  const [name = '', ...rest] = row
+  const details = rest
+    .map((cell, index) => {
+      const header = headers[index + 1]
+      return header ? `${header} ${cell}` : cell
+    })
+    .filter(Boolean)
+    .join('，')
+  return details ? `- ${name}：${details}` : `- ${name}`
+}
+
+function normalizeMarkdownTables(content: string): string {
+  const lines = content.split('\n')
+  const out: string[] = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    const next = lines[i + 1] ?? ''
+    if (line.trim().startsWith('|') && isMarkdownTableSeparator(next)) {
+      const headers = tableCells(line)
+      i += 2
+      while (i < lines.length && (lines[i] ?? '').trim().startsWith('|')) {
+        out.push(formatMarkdownTableRow(headers, tableCells(lines[i] ?? '')))
+        i++
+      }
+      i--
+      continue
+    }
+    out.push(line)
+  }
+
+  return out.join('\n')
+}
+
+function normalizeWindowsPathSlashes(content: string): string {
+  return content.replace(/\b([A-Za-z]:)\\+([^\n`"'<>]*)/g, (_match: string, drive: string, rest: string) => {
+    const normalizedRest = rest.replace(/\\+/g, '/')
+    return `${drive}/${normalizedRest}`
+  })
+}
+
 /**
  * 把 Claude 输出的 GitHub 风格 Markdown 转成 Telegram MarkdownV2（telegramify-markdown）。
  * 该库保证输出可解析（残缺 markdown 也转义为字面量，流式半句不会 400）。
  * 转换失败时降级为纯文本（不带 parse_mode），确保消息永不丢失。
  */
 function fmt(content: string): { text: string; extra?: { parse_mode: 'MarkdownV2' } } {
+  const normalized = normalizeWindowsPathSlashes(normalizeMarkdownTables(content))
   try {
-    return { text: telegramify(content, 'escape'), extra: { parse_mode: 'MarkdownV2' } }
+    return { text: telegramify(normalized, 'escape'), extra: { parse_mode: 'MarkdownV2' } }
   } catch {
-    return { text: content }
+    return { text: normalized }
   }
 }
 
-export function createTelegramTransport(deps: TelegramTransportDeps): Transport {
+export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTransport {
   const { bus, config } = deps
   const bot = deps.bot ?? (new Telegraf(config.TELEGRAM_BOT_TOKEN) as unknown as TelegramBotLike)
   const whitelist = new Set(config.WHITELIST_USER_IDS)
 
   const userChat = new Map<string, string>() // userId → chatId
+  const userLang = new Map<string, UserLanguage>() // userId → lang
+  const userCli = new Map<string, CliType>() // userId → current cli target
+  const userCwd = new Map<string, string>() // userId → current cwd target
   const convChat = new Map<string, string>() // conversationId → chatId
   const drafts = new Map<string, { ref: MessageRef; lastContent: string }>() // 当前流式草稿
   const approvals = new Map<string, { conversationId: ConversationId; ref: MessageRef; resolved: boolean }>()
@@ -94,6 +168,24 @@ export function createTelegramTransport(deps: TelegramTransportDeps): Transport 
 
   function reportError(scope: string, err: unknown) {
     bus.emit('ErrorOccurred', { scope, message: err instanceof Error ? err.message : String(err) })
+  }
+
+  function getUserLanguage(userId: string): UserLanguage {
+    return userLang.get(userId) ?? 'zh'
+  }
+
+  function parseCommandName(text: string): string | null {
+    const head = text.trim().split(/\s+/)[0]
+    if (!head?.startsWith('/')) return null
+    return head.slice(1).split('@')[0]?.toLowerCase() ?? null
+  }
+
+  function targetCli(userId: string): CliType {
+    return userCli.get(userId) ?? 'claude'
+  }
+
+  function targetCwd(userId: string): string {
+    return userCwd.get(userId) ?? config.DEFAULT_CWD
   }
 
   /** 白名单闸门：非白名单静默丢弃（不回任何提示）。 */
@@ -120,30 +212,80 @@ export function createTelegramTransport(deps: TelegramTransportDeps): Transport 
   }
 
   // —— 对话消息出站：MarkdownV2 渲染 + 解析失败降级纯文本（telegramify 漏转义某字符时的安全网）——
+  function splitText(text: string): string[] {
+    if (text.length <= TELEGRAM_SAFE_TEXT_LIMIT) return [text]
+    const chunks: string[] = []
+    let rest = text
+    while (rest.length > TELEGRAM_SAFE_TEXT_LIMIT) {
+      const window = rest.slice(0, TELEGRAM_SAFE_TEXT_LIMIT)
+      const cut = Math.max(window.lastIndexOf('\n'), window.lastIndexOf(' '))
+      const size = cut > TELEGRAM_SAFE_TEXT_LIMIT * 0.6 ? cut : TELEGRAM_SAFE_TEXT_LIMIT
+      chunks.push(rest.slice(0, size))
+      rest = rest.slice(size).trimStart()
+    }
+    if (rest) chunks.push(rest)
+    return chunks
+  }
+
+  function isMessageTooLong(err: unknown): boolean {
+    return String(err).includes('message is too long')
+  }
+
+  async function sendPlainChunks(chatId: string, raw: string): Promise<MessageRef> {
+    let firstRef: MessageRef | null = null
+    for (const chunk of splitText(raw)) {
+      const ref = await doSend(chatId, chunk)
+      firstRef ??= ref
+    }
+    return firstRef ?? doSend(chatId, '')
+  }
+
+  async function editPlainChunks(ref: MessageRef, raw: string): Promise<void> {
+    const [first = '', ...rest] = splitText(raw)
+    await doEdit(ref, first)
+    for (const chunk of rest) {
+      await doSend(ref.chatId, chunk)
+    }
+  }
+
   async function sendFormatted(chatId: string, raw: string): Promise<MessageRef> {
+    const plain = normalizeWindowsPathSlashes(normalizeMarkdownTables(raw))
     const { text, extra } = fmt(raw)
     try {
+      if (text.length > TELEGRAM_SAFE_TEXT_LIMIT) return sendPlainChunks(chatId, plain)
       return await doSend(chatId, text, extra)
     } catch (err) {
-      if (isParseEntitiesError(err)) return doSend(chatId, raw) // 降级：纯文本原文
+      if (isMessageTooLong(err)) return sendPlainChunks(chatId, plain)
+      if (isParseEntitiesError(err)) return sendPlainChunks(chatId, plain) // 降级：纯文本
       throw err
     }
   }
   async function editFormatted(ref: MessageRef, raw: string): Promise<void> {
+    const plain = normalizeWindowsPathSlashes(normalizeMarkdownTables(raw))
     const { text, extra } = fmt(raw)
     try {
+      if (text.length > TELEGRAM_SAFE_TEXT_LIMIT) {
+        await editPlainChunks(ref, plain)
+        return
+      }
       await doEdit(ref, text, extra)
     } catch (err) {
-      if (isParseEntitiesError(err)) await doEdit(ref, raw)
-      else throw err
+      if (isMessageTooLong(err)) {
+        await editPlainChunks(ref, plain)
+        return
+      }
+      if (isParseEntitiesError(err)) {
+        await editPlainChunks(ref, plain)
+        return
+      }
+      throw err
     }
   }
   async function doDelete(ref: MessageRef): Promise<void> {
     await bot.telegram.deleteMessage(ref.chatId, Number(ref.nativeId))
   }
   async function doSendApproval(chatId: string, card: ApprovalCard): Promise<MessageRef> {
-    // 反斜杠在 MarkdownV2/纯文本中都会被吞，双写转义保证路径完整显示
-    const detail = (card.detail || 'Claude 请求执行上述操作。').replace(/\\/g, '\\\\')
+    const detail = card.detail || 'Claude 请求执行上述操作。'
     const keyboard = {
       inline_keyboard: [
         [
@@ -168,20 +310,37 @@ export function createTelegramTransport(deps: TelegramTransportDeps): Transport 
   // —— 入站 handlers ——
   function onText(ctx: TgCtx) {
     const text = ctx.message?.text ?? ''
-    if (text.startsWith('/')) {
-      // 未注册的斜杠命令（/start /help 已单独处理）——提示暂未支持
-      void ctx.reply('ℹ️ 该命令即将支持。当前可直接发送文本对话，或 /help。').catch(() => {})
-      return
-    }
     const userId = String(ctx.from?.id ?? '')
     const chatId = String(ctx.chat?.id ?? '')
     if (!userId || !chatId) return
     userChat.set(userId, chatId)
+
+    const commandName = parseCommandName(text)
+    if (commandName === 'start') {
+      void ctx.reply(START_TEXT).catch(() => {})
+      return
+    }
+    if (commandName === 'help') {
+      void ctx.reply(HELP_TEXT).catch(() => {})
+      return
+    }
+    if (commandName === 'lang') {
+      const lang = text.trim().split(/\s+/)[1] as UserLanguage | undefined
+      if (lang !== 'zh' && lang !== 'en') {
+        void ctx.reply('用法：/lang zh 或 /lang en').catch(() => {})
+        return
+      }
+      userLang.set(userId, lang)
+      bus.emit('UserLanguageChanged', { userId, language: lang })
+      void ctx.reply(lang === 'zh' ? '已切换为中文回复。' : 'Language switched to English.').catch(() => {})
+      return
+    }
+
     bus.emit('MessageReceived', {
       userId,
       platform: 'telegram',
-      cli: 'claude',
-      cwd: config.DEFAULT_CWD,
+      cli: targetCli(userId),
+      cwd: targetCwd(userId),
       text,
       ref: { platform: 'telegram', chatId, nativeId: String(ctx.message?.message_id ?? '') },
     })
@@ -219,10 +378,24 @@ export function createTelegramTransport(deps: TelegramTransportDeps): Transport 
   bot.action(/^(approve|reject):(.+)$/, guarded(onAction))
 
   // —— 出站订阅 ——
+  function rememberSession(p: { conversationId?: ConversationId; userId: string; cli?: CliType; cwd?: string }) {
+    const chatId = userChat.get(p.userId)
+    if (chatId && p.conversationId) convChat.set(p.conversationId, chatId)
+    if (p.cli) userCli.set(p.userId, p.cli)
+    if (p.cwd) userCwd.set(p.userId, p.cwd)
+  }
+
+  unsubs.push(bus.on('SessionCreated', rememberSession))
+  unsubs.push(bus.on('SessionMapped', rememberSession))
+  unsubs.push(bus.on('UserTargetChanged', rememberSession))
+
   unsubs.push(
-    bus.on('SessionCreated', p => {
-      const chatId = userChat.get(p.userId)
-      if (chatId) convChat.set(p.conversationId, chatId)
+    bus.on('CommandReply', async p => {
+      try {
+        await sendFormatted(p.ref.chatId, p.content)
+      } catch (err) {
+        reportError('telegram:CommandReply', err)
+      }
     }),
   )
 
@@ -295,5 +468,6 @@ export function createTelegramTransport(deps: TelegramTransportDeps): Transport 
     editMessage: (ref, content) => doEdit(ref, content),
     deleteMessage: ref => doDelete(ref),
     sendApproval: (chatId, card) => doSendApproval(chatId, card),
+    getUserLanguage,
   }
 }

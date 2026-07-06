@@ -2,4 +2,4 @@
 // 白名单前置丢弃；禁止依赖 core 内部与 storage（见 CLAUDE.md 依赖矩阵）。
 // 见 docs/03-Interface-Contracts.md §2 / docs/07-Command-UX.md。
 export { createTelegramTransport } from './telegram'
-export type { TelegramTransportDeps, TelegramBotLike } from './telegram'
+export type { TelegramTransport, TelegramTransportDeps, TelegramBotLike } from './telegram'
