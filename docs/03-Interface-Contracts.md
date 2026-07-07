@@ -320,6 +320,8 @@ export const ConfigSchema = z.object({
   AGENT_IDLE_TIMEOUT_MS: z.coerce.number().default(300_000), // 已启动 CLI/adapter 空闲回收；conversation 保持 idle
   SESSION_ARCHIVE_DAYS: z.coerce.number().default(7),
 
+  AGENT_DESCRIPTION: z.string().default(''),       // Agent 职责定位；注入 system hint
+
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

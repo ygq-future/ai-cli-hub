@@ -5,8 +5,14 @@
  * 回复经 CommandReply 事件发回原始 MessageRef，避免为 /status 等只读命令创建会话。
  */
 import type { EventBus, EventMap } from '../event'
-import type { CliType, ConversationId, UserLanguage } from '../shared'
-import type { Repositories, Conversation, AuditLog } from '../repository'
+import {
+  DEFAULT_MEMORY_NAMESPACE,
+  type CliType,
+  type ConversationId,
+  type MemoryType,
+  type UserLanguage,
+} from '../shared'
+import type { Repositories, Conversation, AuditLog, Memory } from '../repository'
 import type { SessionManager } from './session-manager'
 
 export interface CommandRouter {
@@ -127,6 +133,76 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           }
           const records = await repos.audit.listByConversation(resolved.conversation.id as ConversationId)
           reply(payload, formatAudit(resolved.conversation, records.slice(-10)))
+          return true
+        }
+
+        case 'remember': {
+          const raw = parsed.args.join(' ').trim()
+          if (!raw) {
+            reply(payload, '用法：/remember <要长期记住的事实或偏好>')
+            return true
+          }
+          const classified = classifyManualMemory(raw)
+          if (!classified.content) {
+            reply(payload, '记忆内容不能为空。')
+            return true
+          }
+          const memory = await repos.memories.insert({
+            id: crypto.randomUUID(),
+            namespace: DEFAULT_MEMORY_NAMESPACE,
+            conversationId: null,
+            type: classified.type,
+            content: classified.content,
+            embedding: null,
+            sourceMessageId: null,
+            importance: classified.type === 'preference' ? 0.85 : 0.75,
+            accessCount: 0,
+            lastAccessedAt: null,
+            tag: null,
+            createdAt: Date.now(),
+          })
+          bus.emit('MemoryUpdated', {
+            conversationId: null,
+            namespace: DEFAULT_MEMORY_NAMESPACE,
+            memoryType: memory.type,
+            memoryId: memory.id,
+            operatorUserId: payload.userId,
+          })
+          reply(
+            payload,
+            [`已记住，下一条消息会加载最新记忆。`, `ID: ${memory.id}`, `Type: ${memory.type}`, memory.content].join(
+              '\n',
+            ),
+          )
+          return true
+        }
+
+        case 'memory': {
+          const memories = await repos.memories.listGlobal(DEFAULT_MEMORY_NAMESPACE)
+          reply(payload, formatMemories(memories))
+          return true
+        }
+
+        case 'forget': {
+          const target = parsed.args[0]?.trim()
+          if (!target) {
+            reply(payload, '用法：/forget <memoryId>')
+            return true
+          }
+          const resolved = await resolveMemory(target, repos)
+          if (!resolved.ok) {
+            reply(payload, resolved.message)
+            return true
+          }
+          await repos.memories.delete(resolved.memory.id)
+          bus.emit('MemoryUpdated', {
+            conversationId: null,
+            namespace: DEFAULT_MEMORY_NAMESPACE,
+            memoryType: resolved.memory.type,
+            memoryId: resolved.memory.id,
+            operatorUserId: payload.userId,
+          })
+          reply(payload, `已删除记忆，下一条消息会加载最新记忆。\nID: ${resolved.memory.id}`)
           return true
         }
 
@@ -252,6 +328,64 @@ function formatAudit(conv: Conversation, records: AuditLog[]): string {
 
 function formatAuditAction(action: AuditLog['action']): string {
   return action === 'approve' ? 'approved' : 'rejected'
+}
+
+function formatMemories(memories: Memory[]): string {
+  const globalMemories = memories
+    .filter(m => m.namespace === DEFAULT_MEMORY_NAMESPACE && m.conversationId === null)
+    .sort((a, b) => b.createdAt - a.createdAt)
+  if (globalMemories.length === 0) return '暂无长期记忆。'
+
+  return [
+    '**长期记忆**',
+    ...globalMemories.map(m =>
+      [
+        `- **ID**: \`${shortMemoryId(m.id)}\``,
+        `  **Namespace**: \`${m.namespace}\``,
+        `  **Content**: ${truncateMemory(m.content)}`,
+      ].join('\n'),
+    ),
+  ].join('\n\n')
+}
+
+function classifyManualMemory(rawText: string): { type: MemoryType; content: string } {
+  const text = rawText.trim()
+  const preferencePrefixes = ['preference:', 'preference：', '偏好:', '偏好：']
+  const matched = preferencePrefixes.find(prefix => text.toLowerCase().startsWith(prefix.toLowerCase()))
+  if (!matched) return { type: 'semantic', content: text }
+  return { type: 'preference', content: text.slice(matched.length).trim() }
+}
+
+async function resolveMemory(
+  target: string,
+  repos: Repositories,
+): Promise<{ ok: true; memory: Memory } | { ok: false; message: string }> {
+  const exact = await repos.memories.findById(target)
+  if (exact) {
+    return exact.namespace === DEFAULT_MEMORY_NAMESPACE && exact.conversationId === null
+      ? { ok: true, memory: exact }
+      : memoryNotFound(target)
+  }
+
+  const memories = await repos.memories.listGlobal(DEFAULT_MEMORY_NAMESPACE)
+  const matches = memories.filter(m => m.id.startsWith(target))
+  if (matches.length === 1) return { ok: true, memory: matches[0]! }
+  if (matches.length > 1) return { ok: false, message: `记忆 ID 前缀不唯一：${target}\n请多输入几位。` }
+  return memoryNotFound(target)
+}
+
+function memoryNotFound(target: string): { ok: false; message: string } {
+  return { ok: false, message: `找不到可删除的全局记忆：${target}` }
+}
+
+function shortMemoryId(id: string): string {
+  return id.slice(0, 8)
+}
+
+function truncateMemory(value: string): string {
+  const normalized = value.trim()
+  if (normalized.length <= 160) return normalized
+  return `${normalized.slice(0, 157)}...`
 }
 
 function truncateForAudit(value: string): string {

@@ -44,6 +44,9 @@ export const ConfigSchema = z.object({
   // —— 会话默认工作目录（/cwd 可切换当前用户目标目录）——
   DEFAULT_CWD: z.string().min(1).default(process.cwd()),
 
+  // —— Agent 职责定位（注入 system hint）——
+  AGENT_DESCRIPTION: z.string().default(''),
+
   // —— 日志 ——
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 

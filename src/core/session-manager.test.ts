@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import type { Conversation, NewConversation, ConversationId, AuditLog, NewAuditLog } from '../repository'
+import type {
+  Conversation,
+  NewConversation,
+  ConversationId,
+  AuditLog,
+  NewAuditLog,
+  Memory,
+  NewMemory,
+} from '../repository'
 import type { EventBus } from '../event'
 import { createCommandRouter } from './commands'
 import { createSessionManager } from './session-manager'
@@ -10,6 +18,7 @@ function createMockRepos() {
   const conversations: Record<string, Conversation> = {}
   const messages: Array<Record<string, unknown>> = []
   const auditLogs: AuditLog[] = []
+  const memories: Memory[] = []
 
   function findActive(userId: string, cli: string, cwd: string): Conversation | null {
     const latest =
@@ -78,8 +87,46 @@ function createMockRepos() {
         return auditLogs.filter(a => a.conversationId === id)
       },
     },
-    memories: {},
-  } as Parameters<typeof createSessionManager>[1]
+    memories: {
+      async insert(m: NewMemory) {
+        const memory = m as Memory
+        memories.push(memory)
+        return memory
+      },
+      async upsertByTag(
+        _namespace: string,
+        _tag: string,
+        m: Omit<NewMemory, 'id' | 'namespace' | 'tag' | 'createdAt'>,
+      ) {
+        const memory = {
+          ...m,
+          id: crypto.randomUUID(),
+          namespace: 'global',
+          tag: _tag,
+          createdAt: Date.now(),
+        } as Memory
+        memories.push(memory)
+        return memory
+      },
+      async listGlobal(namespace: string) {
+        return memories.filter(m => m.namespace === namespace && m.conversationId === null)
+      },
+      async findById(id: string) {
+        return memories.find(m => m.id === id) ?? null
+      },
+      async searchByKeyword() {
+        return []
+      },
+      async searchByVector() {
+        return []
+      },
+      async touch() {},
+      async delete(id: string) {
+        const idx = memories.findIndex(m => m.id === id)
+        if (idx >= 0) memories.splice(idx, 1)
+      },
+    },
+  } as unknown as Parameters<typeof createSessionManager>[1]
 }
 
 interface MockEventBus {
@@ -652,5 +699,100 @@ describe('CommandRouter', () => {
     const content = (replies[0] as { content: string }).content
     expect(content).toContain(`Conversation: ${cid}`)
     expect(content).toContain('rejected')
+  })
+
+  test('/remember 写入实例级全局记忆并广播 MemoryUpdated', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+    })
+    const replies: unknown[] = []
+    const updates: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+    bus.on('MemoryUpdated', p => updates.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/remember preference: always use Bun',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    const memories = await repos.memories.listGlobal('global')
+    expect(memories.length).toBe(1)
+    expect(memories[0]!.namespace).toBe('global')
+    expect(memories[0]!.conversationId).toBeNull()
+    expect(memories[0]!.type).toBe('preference')
+    expect(memories[0]!.content).toBe('always use Bun')
+    expect((replies[0] as { content: string }).content).toContain('已记住')
+    expect(updates).toEqual([
+      {
+        conversationId: null,
+        namespace: 'global',
+        memoryType: 'preference',
+        memoryId: memories[0]!.id,
+        operatorUserId: 'u1',
+      },
+    ])
+  })
+
+  test('/memory 查看全局记忆，/forget 短前缀删除', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+    })
+    const memory = await repos.memories.insert({
+      id: 'memory-abcdef',
+      namespace: 'global',
+      conversationId: null,
+      type: 'semantic',
+      content: '所有软件都放在 softs 文件夹',
+      embedding: null,
+      sourceMessageId: null,
+      importance: 0.75,
+      accessCount: 0,
+      lastAccessedAt: null,
+      tag: null,
+      createdAt: 1,
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/memory',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: `/forget ${memory.id.slice(0, 8)}`,
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '2' },
+    })
+
+    expect((replies[0] as { content: string }).content).toContain('长期记忆')
+    expect((replies[0] as { content: string }).content).toContain('**ID**: `memory-a`')
+    expect((replies[0] as { content: string }).content).toContain('**Namespace**: `global`')
+    expect((replies[0] as { content: string }).content).toContain('**Content**: 所有软件都放在 softs 文件夹')
+    expect((replies[0] as { content: string }).content).toContain('所有软件都放在 softs 文件夹')
+    expect((replies[0] as { content: string }).content).not.toContain('importance=')
+    expect((replies[0] as { content: string }).content).not.toContain('semantic')
+    expect((replies[1] as { content: string }).content).toContain('已删除记忆')
+    expect(await repos.memories.listGlobal('global')).toEqual([])
   })
 })

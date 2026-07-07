@@ -16,8 +16,14 @@ describe('loadConfig', () => {
     expect(c.MEMORY_RECALL_TOP_K).toBe(6)
     expect(c.AGENT_IDLE_TIMEOUT_MS).toBe(300_000)
     expect(c.SESSION_ARCHIVE_DAYS).toBe(7)
+    expect(c.AGENT_DESCRIPTION).toBe('')
     expect(c.LOG_LEVEL).toBe('info')
     expect(c.DEBUG_AGENT_SDK_JSON).toBe(false)
+  })
+
+  test('AGENT_DESCRIPTION 从 env 读取', () => {
+    const c = loadConfig({ ...VALID, AGENT_DESCRIPTION: '负责远程管理个人 VPS 上的 AI CLI 会话。' })
+    expect(c.AGENT_DESCRIPTION).toBe('负责远程管理个人 VPS 上的 AI CLI 会话。')
   })
 
   test('数值型 env 字符串被强制转换', () => {

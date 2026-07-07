@@ -2,9 +2,9 @@
  * main.ts —— Composition Root：唯一装配具体实现的地方。
  *
  * 装配顺序（按依赖方向）：
- *  config → logger → bus → db → repositories → audit → aggregator → telegramTransport → orchestrator → coreHub
+ *  config → logger → bus → db → repositories → audit → memory → aggregator → telegramTransport → orchestrator → coreHub
  *
- * 优雅关闭信号：SIGINT/SIGTERM → transport.stop → orchestrator.destroy → audit.destroy → aggregator.destroy → coreHub.destroy
+ * 优雅关闭信号：SIGINT/SIGTERM → transport.stop → orchestrator.destroy → memory.destroy → audit.destroy → aggregator.destroy → coreHub.destroy
  *
  * 依赖矩阵（CLAUDE.md §3）：只有本文件允许 import 具体实现并装配。
  */
@@ -19,6 +19,7 @@ import { createCoreHub } from './core'
 import { createMessageAggregator } from './core'
 import { createClaudeSdkAdapter } from './cli'
 import { createApprovalAudit } from './audit'
+import { createMemoryModule } from './memory'
 import { createSessionOrchestrator } from './orchestrator'
 import { createTelegramTransport } from './transport'
 import type { Transport } from './shared'
@@ -41,18 +42,21 @@ async function main() {
   // —— 5. Audit（审批事件旁路落库）——
   const approvalAudit = createApprovalAudit({ bus, audit: repos.audit })
 
-  // —— 6. Aggregator ——
+  // —— 6. Memory（环境快照 + 全局记忆召回）——
+  const memory = await createMemoryModule({ bus, repos, config })
+
+  // —— 7. Aggregator ——
   const aggregator = createMessageAggregator(bus, {
     debounceMs: 400,
     minEditIntervalMs: 1000,
     maxChunkChars: 4096,
   })
 
-  // —— 7. Telegram Transport ——
+  // —— 8. Telegram Transport ——
   const telegram = createTelegramTransport({ bus, config })
   const transport: Transport = telegram
 
-  // —— 8. Orchestrator（adapter 编排，每会话一个 adapter）——
+  // —— 9. Orchestrator（adapter 编排，每会话一个 adapter）——
   const orch = createSessionOrchestrator({
     bus,
     repos,
@@ -63,10 +67,14 @@ async function main() {
         rawMessageLogger: rawJson => logger.info({ cli: 'claude', rawJson }, 'Agent SDK raw message'),
       }),
     getUserLanguage: telegram.getUserLanguage,
+    getSystemMemoryHint: memory.recallGlobalContext,
+    agentDescription: config.AGENT_DESCRIPTION,
+    debugDiagnostics: config.DEBUG_AGENT_SDK_JSON,
+    diagnosticLogger: (event, data) => logger.info({ event, ...data }, 'Orchestrator diagnostic'),
     idleTimeoutMs: config.AGENT_IDLE_TIMEOUT_MS,
   })
 
-  // —— 9. Core Hub（SessionManager + Auth + MessageRouter）——
+  // —— 10. Core Hub（SessionManager + Auth + MessageRouter）——
   const coreHub = createCoreHub({
     bus,
     repos,
@@ -85,6 +93,7 @@ async function main() {
     try {
       await transport.stop()
       await orch.destroy()
+      memory.destroy()
       approvalAudit.destroy()
       await aggregator.destroy()
       await coreHub.destroy()

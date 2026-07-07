@@ -69,7 +69,7 @@ export interface TelegramTransport extends Transport {
 const START_TEXT =
   '👋 AI CLI Hub 已就绪。直接发消息即可与 Claude 对话；写操作会弹出授权卡片，请 Approve / Reject。\n发送 /help 查看帮助。'
 const HELP_TEXT =
-  '可用命令：\n/start — 欢迎与状态\n/help — 本帮助\n/new [cli] [cwd] — 开新会话，可指定工作目录\n/cwd [path] — 查看或切换工作目录\n/close — 关闭当前会话\n/status — 当前会话状态\n/sessions — 最近会话\n/audit [conversationId] — 审批审计\n/lang zh|en — 切换回复语言\n\n直接发送文本即可对话。'
+  '可用命令：\n/start — 欢迎与状态\n/help — 本帮助\n/new [cli] [cwd] — 开新会话，可指定工作目录\n/cwd [path] — 查看或切换工作目录\n/close — 关闭当前会话\n/status — 当前会话状态\n/sessions — 最近会话\n/audit [conversationId] — 审批审计\n/remember <text> — 写入长期记忆\n/memory — 查看长期记忆\n/forget <memoryId> — 删除长期记忆\n/lang zh|en — 切换回复语言\n\n直接发送文本即可对话。'
 
 const TELEGRAM_SAFE_TEXT_LIMIT = 3800
 

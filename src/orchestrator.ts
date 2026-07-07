@@ -33,6 +33,11 @@ export interface SessionOrchestratorDeps {
   /** adapter 工厂（默认 Claude SDK 家族）；测试可注入假 adapter。 */
   adapterFactory?: () => CLIAdapter
   getUserLanguage?: (userId: string) => UserLanguage
+  getSystemMemoryHint?: () => Promise<string> | string
+  agentDescription?: string
+  debugDiagnostics?: boolean
+  diagnosticLogger?: (event: string, data: Record<string, unknown>) => void
+  turnTimeoutMs?: number
   /** adapter 空闲回收时间；0 表示禁用。默认沿用 AGENT_IDLE_TIMEOUT_MS 的 5 分钟语义。 */
   idleTimeoutMs?: number
 }
@@ -44,16 +49,34 @@ interface AdapterEntry {
   /** 本轮助手输出累计文本（delta.final 时落库并清空）。 */
   assistantBuf: string
   idleTimer: ReturnType<typeof setTimeout> | null
+  turnTimer: ReturnType<typeof setTimeout> | null
 }
+
+interface EnsureAdapterResult {
+  entry: AdapterEntry
+  started: boolean
+}
+
+const RECENT_CONTEXT_LIMIT = 10
+const RECENT_CONTEXT_MESSAGE_MAX_CHARS = 1200
+const DEFAULT_TURN_TIMEOUT_MS = 60_000
 
 export function createSessionOrchestrator(deps: SessionOrchestratorDeps): SessionOrchestrator {
   const { bus, repos, aggregator } = deps
   const adapterFactory = deps.adapterFactory ?? createClaudeSdkAdapter
   const getUserLanguage = deps.getUserLanguage ?? (() => 'zh' as const)
+  const getSystemMemoryHint = deps.getSystemMemoryHint ?? (() => '')
   const idleTimeoutMs = deps.idleTimeoutMs ?? 300_000
+  const turnTimeoutMs = deps.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
+  const debugDiagnostics = deps.debugDiagnostics ?? false
 
   const entries = new Map<ConversationId, AdapterEntry>()
   const globalUnsubs: Unsubscribe[] = []
+
+  function diag(event: string, data: Record<string, unknown>) {
+    if (!debugDiagnostics) return
+    deps.diagnosticLogger?.(event, data)
+  }
 
   function reportError(scope: string, err: unknown, conversationId?: ConversationId) {
     bus.emit('ErrorOccurred', {
@@ -67,6 +90,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     const entry = entries.get(cid)
     if (!entry) return null
     clearIdleTimer(entry)
+    clearTurnTimer(entry)
     for (const u of entry.unsubs) u()
     entries.delete(cid)
     return entry
@@ -86,10 +110,24 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     }
   }
 
+  async function stopEntriesForUser(userId: string) {
+    const cids = Array.from(entries.entries())
+      .filter(([, entry]) => entry.userId === userId)
+      .map(([cid]) => cid)
+    await Promise.all(cids.map(cid => stopEntry(cid)))
+  }
+
   function clearIdleTimer(entry: AdapterEntry) {
     if (entry.idleTimer !== null) {
       clearTimeout(entry.idleTimer)
       entry.idleTimer = null
+    }
+  }
+
+  function clearTurnTimer(entry: AdapterEntry) {
+    if (entry.turnTimer !== null) {
+      clearTimeout(entry.turnTimer)
+      entry.turnTimer = null
     }
   }
 
@@ -115,9 +153,9 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   }
 
   /** 懒启动该会话的 adapter 并接线；已存在则复用。 */
-  async function ensureAdapter(cid: ConversationId): Promise<AdapterEntry | null> {
+  async function ensureAdapter(cid: ConversationId): Promise<EnsureAdapterResult | null> {
     const existing = entries.get(cid)
-    if (existing) return existing
+    if (existing) return { entry: existing, started: false }
 
     const conv = await repos.conversations.findById(cid)
     if (!conv) {
@@ -126,13 +164,21 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     }
 
     const adapter = adapterFactory()
-    const entry: AdapterEntry = { adapter, unsubs: [], userId: conv.userId, assistantBuf: '', idleTimer: null }
+    const entry: AdapterEntry = {
+      adapter,
+      unsubs: [],
+      userId: conv.userId,
+      assistantBuf: '',
+      idleTimer: null,
+      turnTimer: null,
+    }
     entries.set(cid, entry)
 
     // 输出流：格式化 → 聚合器；累计助手文本；final 冲刷 + 落库
     entry.unsubs.push(
       adapter.onOutput(delta => {
         resetIdleTimer(cid, entry)
+        if (delta.final) clearTurnTimer(entry)
         const text = formatOutputDelta(delta)
         if (text) {
           aggregator.push(cid, text)
@@ -149,6 +195,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     entry.unsubs.push(
       adapter.onApprovalRequest(req => {
         resetIdleTimer(cid, entry)
+        clearTurnTimer(entry)
         bus.emit('ApprovalRequested', {
           conversationId: cid,
           approvalId: req.approvalId,
@@ -161,24 +208,86 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     // 退出：冲刷 + 清理
     entry.unsubs.push(
       adapter.onExit(() => {
+        clearTurnTimer(entry)
         aggregator.flush(cid)
         cleanupEntry(cid)
       }),
     )
 
     try {
+      const systemMemoryHint = await resolveSystemMemoryHint(cid)
       await adapter.start({
         conversationId: cid,
         cwd: conv.cwd,
-        systemLanguageHint: languageHint(getUserLanguage(conv.userId)),
+        systemLanguageHint: [
+          roleDescriptionHint(deps.agentDescription),
+          languageHint(getUserLanguage(conv.userId)),
+          systemMemoryHint,
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
       })
       resetIdleTimer(cid, entry)
+      diag('adapterStarted', {
+        conversationId: cid,
+        userId: conv.userId,
+        cwd: conv.cwd,
+        systemHintChars: [
+          roleDescriptionHint(deps.agentDescription),
+          languageHint(getUserLanguage(conv.userId)),
+          systemMemoryHint,
+        ]
+          .filter(Boolean)
+          .join('\n\n').length,
+        memoryHintChars: systemMemoryHint.length,
+      })
     } catch (err) {
       reportError('orchestrator:start', err, cid)
       cleanupEntry(cid)
       return null
     }
-    return entry
+    return { entry, started: true }
+  }
+
+  async function resolveSystemMemoryHint(cid: ConversationId): Promise<string> {
+    try {
+      return await getSystemMemoryHint()
+    } catch (err) {
+      reportError('orchestrator:memoryRecall', err, cid)
+      return ''
+    }
+  }
+
+  function scheduleTurnTimeout(cid: ConversationId, entry: AdapterEntry, inputChars: number) {
+    clearTurnTimer(entry)
+    if (!debugDiagnostics || turnTimeoutMs <= 0) return
+    entry.turnTimer = setTimeout(() => {
+      if (entries.get(cid) !== entry) return
+      diag('turnTimeout', {
+        conversationId: cid,
+        userId: entry.userId,
+        timeoutMs: turnTimeoutMs,
+        inputChars,
+        adapterState: entry.adapter.getState(),
+      })
+    }, turnTimeoutMs)
+  }
+
+  async function withRecentConversationContext(conversationId: ConversationId, currentText: string): Promise<string> {
+    try {
+      const messages = await repos.messages.listByConversation(conversationId)
+      const previousMessages = dropCurrentUserMessage(messages, currentText).slice(-RECENT_CONTEXT_LIMIT)
+      if (previousMessages.length === 0) return currentText
+
+      const contextLines = previousMessages.map(m => {
+        const role = m.role === 'assistant' ? '助手' : m.role === 'system' ? '系统' : '用户'
+        return `- ${role}：${truncateForRecentContext(m.content)}`
+      })
+      return ['[最近对话上下文 · 供延续当前会话]', ...contextLines, '---', '[本次用户输入]', currentText].join('\n')
+    } catch (err) {
+      reportError('orchestrator:recentContext', err, conversationId)
+      return currentText
+    }
   }
 
   /** 落一条 assistant 消息（本轮全文），失败只报错不阻塞。 */
@@ -224,19 +333,33 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   )
   globalUnsubs.push(
     bus.on('UserLanguageChanged', p => {
-      const cids = Array.from(entries.entries())
-        .filter(([, entry]) => entry.userId === p.userId)
-        .map(([cid]) => cid)
-      void Promise.all(cids.map(cid => stopEntry(cid)))
+      void stopEntriesForUser(p.userId)
+    }),
+  )
+  globalUnsubs.push(
+    bus.on('MemoryUpdated', p => {
+      if (!p.operatorUserId) return
+      void stopEntriesForUser(p.operatorUserId)
     }),
   )
 
   const handler: MessageHandler = {
     async onMessage(text, conversationId) {
-      const entry = await ensureAdapter(conversationId)
-      if (!entry) throw new Error(`会话 ${conversationId} 的 CLI adapter 启动失败`)
-      resetIdleTimer(conversationId, entry)
-      entry.adapter.sendUserInput(text)
+      const result = await ensureAdapter(conversationId)
+      if (!result) throw new Error(`会话 ${conversationId} 的 CLI adapter 启动失败`)
+      resetIdleTimer(conversationId, result.entry)
+      const input = result.started ? await withRecentConversationContext(conversationId, text) : text
+      diag('sendUserInput', {
+        conversationId,
+        userId: result.entry.userId,
+        started: result.started,
+        originalTextChars: text.length,
+        inputChars: input.length,
+        recentContextIncluded: input !== text,
+        adapterState: result.entry.adapter.getState(),
+      })
+      scheduleTurnTimeout(conversationId, result.entry, input.length)
+      result.entry.adapter.sendUserInput(input)
       return '' // 输出经聚合器异步流出，不经 handler 返回值
     },
   }
@@ -250,6 +373,28 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       await Promise.all(cids.map(cid => stopEntry(cid)))
     },
   }
+}
+
+function roleDescriptionHint(description: string | undefined): string {
+  const trimmed = description?.trim()
+  if (!trimmed) return ''
+  return ['[Agent 职责定位]', trimmed].join('\n')
+}
+
+function dropCurrentUserMessage(
+  messages: Awaited<ReturnType<Repositories['messages']['listByConversation']>>,
+  currentText: string,
+) {
+  const copy = [...messages]
+  const last = copy[copy.length - 1]
+  if (last?.role === 'user' && last.content === currentText) copy.pop()
+  return copy
+}
+
+function truncateForRecentContext(content: string): string {
+  const normalized = content.trim()
+  if (normalized.length <= RECENT_CONTEXT_MESSAGE_MAX_CHARS) return normalized
+  return `${normalized.slice(0, RECENT_CONTEXT_MESSAGE_MAX_CHARS - 3)}...`
 }
 
 function languageHint(lang: UserLanguage): string {

@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-06 · 阶段：**M8（记忆模型文档调整完成，待实现）**
+> 最后更新：2026-07-07 · 阶段：**M8（全局记忆基础完成，待真机复测）**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **M8 — 全局记忆基础**（设计已调整，代码待实现） |
-| 代码 | ✅ M8 记忆数据模型/Repository/迁移已同步；命令与注入待开发 |
+| 当前里程碑 | **M8 — 全局记忆基础**（代码完成，待真机复测） |
+| 代码 | ✅ 环境快照 upsert / 全局记忆注入 / `/remember` `/memory` `/forget` / 记忆变更实时生效已完成 |
 | 文档 | ✅ M8 记忆归属模型已改为实例级 `namespace` 全局共享 |
 | 阻塞项 | 无 |
-| 下一步 | 进入 **M8 全局记忆基础**：先做 M8-A 环境快照记忆 |
+| 下一步 | 真机复测 M8；随后进入 **M9 媒体/文件处理 + OCR/Vision** |
 
 ---
 
@@ -32,7 +32,7 @@
 | M6 | Telegram Transport | ✅ 完成 | 首个端到端。真机验证通过(见会话日志). **M6b 为质量闭环, 不单独列里程碑** |
 | M6b | 会话管理命令 & 生产级加固 | ✅ 完成 | `/new` `/cwd` `/status` `/sessions` `/lang`、状态流转、SDK 输出源、TG 展示与审批回归均已真机复测 |
 | M7 | Audit 落地 | ✅ 完成 | Human Approval 审计 + `/audit [conversationId]` 查看 |
-| M8 | 全局记忆基础 | ⬜ | M8-A 环境快照记忆优先落地；随后做 adapter 注入、`/remember`、`/memory`/`/forget` |
+| M8 | 全局记忆基础 | ✅ | 环境快照记忆、adapter start 全局注入、`/remember`、`/memory`/`/forget`、记忆变更后下一条消息实时加载已落地；待真机复测 |
 | M9 | 媒体/文件处理 + OCR/Vision | ⬜ | emoji 归一化、sticker metadata、文件/图片/PDF/Office 解析、OCR 默认开启，Vision 可选增强 |
 | M10 | 加固与交付 | ⬜ | 优雅关闭 / 故障隔离 / 部署 |
 | V1.5 | 记忆增强（pgvector） | ⬜ | 非 V1 阻塞项 |
@@ -83,6 +83,7 @@
 | D34 | **M9 媒体理解分层**：Unicode emoji 是文本语义归一化，不走 OCR；Telegram sticker/custom emoji 先解析 metadata（`emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`），不靠 OCR；OCR 只负责图片/PDF/截图中的文字；动态 sticker 视觉语义属于 Vision/抽帧增强，作为 M9-D 可选能力。 | 2026-07-06 |
 | D35 | **M7 审计范围收口为 Human Approval 审计 + 可查看**：`audit/` 订阅 `ApprovalRequested` 缓存请求详情，订阅 `ApprovalApproved/Rejected` 写 `audit_logs`；`/audit [conversationId]` 查看当前或指定会话最近审批记录。M7 不做完整操作日志，不改变 conversation status；审批 `detail` 以可读文本折入现有 `audit_logs.command` 字段，暂不新增迁移。 | 2026-07-06 |
 | D36 | **长期记忆归属实例级 `namespace`，不按 Transport `user_id` 隔离**：`user_id` 只用于鉴权、会话路由和审批操作者；Telegram/QQ/WebSocket 上的同一个个人 VPS AI Hub 共享同一套环境事实、全局偏好和跨会话回放。`memories.namespace='global'` 为默认共享池；`conversation_id=NULL` 表示全局事实/偏好/环境，填值表示某会话产出的情节摘要但仍可在同 namespace 内召回。M8 全局事实全量注入；`MEMORY_RECALL_TOP_K` 只限制后续关键词/向量检索召回。 | 2026-07-06 |
+| D37 | **记忆变更后实时生效但不丢最近语境**：`/remember`、`/forget` 后停止当前用户已启动 adapter，conversation 不关闭；下一条普通消息重新 start adapter，system hint 注入最新全局记忆与 `AGENT_DESCRIPTION`，user message 前缀携带当前 conversation 最近 10 条历史消息（不含当前消息本身），不做完整 messages replay。 | 2026-07-06 |
 
 ---
 
@@ -159,11 +160,28 @@
 
 - 自动验收：`bun run format` ✅ · `bun run typecheck` ✅ · `bun run lint` ✅ · `bun test` ✅（163 pass / 6 skip / 0 fail）
 
-**M8 — 全局记忆基础**（M7 之后）：
-- **M8-A 环境快照记忆**：启动时按 `namespace + tag` 幂等 upsert OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、可用 CLI、平台路径风格等环境事实
-- **M8-B 全局记忆注入**：Adapter start 全量注入实例级全局记忆（环境事实 + `/remember` + 偏好）；conversation messages 当前不做完整回放
-- **M8-C `/remember <text>`**：写入实例级全局持久记忆（默认 `namespace='global'`、`conversation_id=NULL`）；不做隐式猜测抽取
-- **M8-D `/memory` / `/forget <id>`**：查看与删除实例级全局记忆；命令权限仍由 Transport 白名单控制
+**M8 — 全局记忆基础**：
+
+状态：**M8 代码完成；待真机复测**。
+
+### 变更清单
+
+1. 新增真实 `memory/` 模块：启动时按稳定 `tag` 幂等 upsert 环境快照，默认 `namespace='global'`
+2. 环境快照包含 OS、hostname、shell 推断、服务 cwd、`DEFAULT_CWD`、Bun、Node、PowerShell、Bash、已接入 CLI、路径风格
+3. `main.ts` 启动时创建 MemoryModule；`SessionOrchestrator` 在 adapter start 前注入全局记忆上下文
+4. 全局记忆注入只取 `conversation_id IS NULL` 的实例级全局记忆；`MEMORY_RECALL_TOP_K` 不限制这部分
+5. 新增 `/remember <text>`：显式写入实例级全局记忆；默认 semantic，支持 `preference:` / `偏好:` 前缀写 preference
+6. 新增 `/memory`：查看实例级全局记忆；Markdown 列表每条仅展示短 ID、namespace 与 content
+7. 新增 `/forget <id>`：删除实例级全局记忆；支持唯一短前缀，不唯一时拒绝删除
+8. Telegram `/help` 增加 `/remember`、`/memory`、`/forget`
+9. `/remember` 或 `/forget` 后通过 `MemoryUpdated.operatorUserId` 停止该用户已启动 adapter；conversation 不关闭，下一条普通消息重新启动并注入最新记忆
+10. Adapter 刚启动时，下一条 user message 前缀携带当前 conversation 最近 10 条历史消息，避免 `/remember` 后重启导致上一轮语境丢失
+11. 新增 `AGENT_DESCRIPTION` 环境变量，用于 system hint 中的 Agent 职责定位
+12. `DEBUG_AGENT_SDK_JSON=true` 时同时开启 orchestrator 诊断日志：`adapterStarted`、`sendUserInput`、`turnTimeout`，用于定位 SDK init 后无输出/无审批/无错误的卡住点
+
+### 验收
+
+- 自动验收：`bun run format` ✅ · `bun run typecheck` ✅ · `bun run lint` ✅ · `bun run format:check` ✅ · `bun test` ✅（178 pass / 6 skip / 0 fail）
 
 **M9 — 媒体/文件处理 + OCR/Vision**（M8 之后）：
 - **M9-A emoji 文本归一化**：识别 Unicode emoji，补充 short name/keywords 作为文本上下文；不走 OCR
@@ -217,6 +235,11 @@
 | 2026-07-06 | **M7 完成**：新增 Human Approval 审计模块与 `/audit [conversationId]` 查看命令；审批请求详情折入 `audit_logs.command`，不新增迁移、不改变 conversation status；补依赖矩阵与命令 UX 文档；同时在 AGENTS/CLAUDE 记录 Windows 大小写不敏感导致 `progress.md`/`process.md` 可能撞 `PROGRESS.md` 的注意事项。自动验收：format/typecheck/lint/test 全绿，163 pass / 6 skip / 0 fail。 |
 | 2026-07-06 | **M8 记忆归属模型文档调整**：按新拍板将长期记忆从按 Transport 用户身份隔离改为实例级 `namespace` 全局共享；`memories.user_id` 文档改为 `namespace`，环境快照按 `namespace+tag` 幂等 upsert；全局事实全量注入，`MEMORY_RECALL_TOP_K` 仅限制后续检索召回。新增 D36；代码实现待 M8 开发。 |
 | 2026-07-06 | **M8 记忆数据模型与迁移同步**：代码层 `memories.userId` 改为 `namespace`；`MemoryRepository` 改为 `upsertByTag/listGlobal/findById/searchByKeyword(namespace)/delete`；`MemoryUpdated` 改为携带 `namespace` 与可选 `operatorUserId`；新增并已应用 `drizzle/0001_memory_namespace.sql`（旧记忆统一进入 `global`，新增 `idx_mem_namespace` 与 `uniq_mem_tag`）。自动验收：format/typecheck/lint/test 通过；`bun run db:migrate` 已成功。 |
+| 2026-07-06 | **M8 全局记忆基础代码完成（待真机复测）**：新增 MemoryModule 启动环境快照 upsert（OS/shell/cwd/default cwd/hostname/Bun/Node/PowerShell/Bash/CLI/路径风格），orchestrator adapter start 全量注入 `namespace='global'` 的实例级全局记忆；新增 `/remember` `/memory` `/forget` 与 Telegram help，并同步命令 UX 文档；保持 V1 不做隐式抽取、embedding、向量召回或 conversation messages 回放。自动验收：format/typecheck/lint/test 全绿，170 pass / 6 skip / 0 fail。 |
+| 2026-07-06 | **M8 记忆实时生效修正**：`/remember` 与 `/forget` 发出的 `MemoryUpdated` 带 `operatorUserId`，orchestrator 订阅后停止该用户当前已启动 adapter；不关闭 conversation，不改持久状态，下一条普通消息会重新 start adapter 并注入最新全局记忆，避免“刚记住、下一句还不知道”。自动验收：format/typecheck/lint/format:check/test 全绿，172 pass / 6 skip / 0 fail。 |
+| 2026-07-06 | **M8 最近上下文与角色定位补强**：修正 `/remember` 后重启 adapter 会丢上一句语境的问题；adapter 刚启动时将当前 conversation 最近 10 条历史消息拼入 user message（不进 system message，且不重复当前输入）；新增 `AGENT_DESCRIPTION` env，作为 system hint 注入 Agent 职责定位；同步 `.env.example`、接口契约、命令 UX、记忆设计与实施计划。自动验收：format/typecheck/lint/format:check/test 全绿，175 pass / 6 skip / 0 fail。 |
+| 2026-07-07 | **M8 SDK 卡住诊断点补充**：复盘真机日志中 Agent SDK raw `system init` 后没有 `MessageGenerated`/`ApprovalRequested`/`ErrorOccurred` 的卡住形态；复用 `DEBUG_AGENT_SDK_JSON` 开关，开启后输出 orchestrator `adapterStarted`、`sendUserInput` 与 60s `turnTimeout` 诊断，记录 conversation/user/cwd/input chars/adapter state，便于区分 adapter 已启动但 query 无结果、输入未发送或审批未冒泡。自动验收：format/typecheck/lint/format:check/test 全绿，178 pass / 6 skip / 0 fail。 |
+| 2026-07-07 | **M8 `/memory` 展示精简**：按真机反馈将 `/memory` 从 type/importance/tag/content 混排改为 Markdown 列表，每条仅展示短 ID、namespace 与 content，降低长期记忆查看噪音。自动验收：format/typecheck/lint/format:check/test 全绿，178 pass / 6 skip / 0 fail。 |
 
 ---
 

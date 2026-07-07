@@ -97,7 +97,7 @@ flowchart LR
 ### M8 — 全局记忆基础（V1：实例级环境快照 + 命令式记忆）
 
 - **M8-A 环境快照记忆（优先）**：启动时 upsert 当前运行环境事实，包含 OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、可用 CLI、平台路径风格。
-- **M8-B 全局记忆注入**：Adapter start 时全量注入实例级全局记忆（环境事实 + `/remember` + 偏好）；conversation 历史 messages 不做完整回放。
+- **M8-B 全局记忆注入**：Adapter start 时全量注入实例级全局记忆（环境事实 + `/remember` + 偏好）；conversation 历史 messages 不做完整回放，但 adapter 重启后的下一条 user message 携带最近 10 条轻量上下文。
 - **M8-C `/remember <text>`**：显式写入实例级全局持久记忆（默认 `namespace='global'`、`conversation_id=NULL`）；不做隐式猜测抽取。
 - **M8-D `/memory` / `/forget <id>`**：查看、删除实例级全局记忆；命令权限仍由 Transport 白名单控制。
 - **验收**：新会话首轮上下文自动带上当前系统/目录/shell 等环境事实；用户写入“所有软件都放在 softs 文件夹”后，新会话也带上该事实；服务重启后两类记忆仍存在。

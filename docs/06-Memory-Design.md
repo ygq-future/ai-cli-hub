@@ -9,7 +9,7 @@
 ## 1. 设计原则
 
 1. **异步、不阻塞**：记忆的写入（抽取/摘要/嵌入）全部在对话回复之后后台进行，失败重试，绝不拖慢用户收发。
-2. **归属解耦**：Transport 的 `user_id` 只用于鉴权、会话隔离和审批操作者；长期记忆属于当前个人 VPS / AI Hub 实例的共享 `namespace`，不按 Telegram/QQ/WebSocket 用户 ID 切分。V1 先做实例级显式记忆与环境事实；conversation messages 当前不做完整回放。
+2. **归属解耦**：Transport 的 `user_id` 只用于鉴权、会话隔离和审批操作者；长期记忆属于当前个人 VPS / AI Hub 实例的共享 `namespace`，不按 Telegram/QQ/WebSocket 用户 ID 切分。V1 先做实例级显式记忆与环境事实；conversation messages 当前不做完整回放，只在 adapter 重启后的下一条 user message 中补最近 10 条轻量上下文。
 3. **可解释、可遗忘**：每条记忆可溯源（`source_message_id`），并带重要度/访问统计，支持衰减清理，避免无限膨胀。
 4. **嵌入走 API**：不在 VPS 跑本地模型；批量调用降低成本与延迟影响。
 
@@ -22,7 +22,7 @@
 | **Global / instance-level** | `namespace='global'` | NULL | 环境事实、全局偏好、手工 `/remember` 事实 | V1 启动时全量注入 |
 | **Conversation-derived** | `namespace='global'` + `conversation_id` | 填值 | 某次会话产出的情节摘要、项目/任务局部事实 | 后续按关键词/向量 Top-K 召回 |
 
-**V1 注入** = `conversation_id IS NULL` 的实例级全局记忆 + environment 记忆，拼为上下文前缀注入新会话，且这部分**全量注入，不受 `MEMORY_RECALL_TOP_K` 限制**。conversation-derived 摘要后续用于归档回顾和相关召回，不做完整 messages replay。
+**V1 注入** = `conversation_id IS NULL` 的实例级全局记忆 + environment 记忆，拼为 system hint 注入 adapter start，且这部分**全量注入，不受 `MEMORY_RECALL_TOP_K` 限制**。adapter 因 `/remember`、`/forget`、`/lang` 或 idle timeout 重启后，下一条 user message 会携带当前 conversation 最近 10 条历史消息，避免丢失上一轮语境；这不是完整 messages replay。
 
 > 因为这是个人 VPS 上的 AI Hub，同一个操作者可能来自 Telegram、QQ 或 WebSocket；这些渠道的 `user_id` 不应制造多套记忆。若未来需要多套人格/工作区，可扩展 `namespace`（如 `personal` / `work` / `client-a`），而不是复用平台用户 ID。
 
@@ -98,16 +98,26 @@ flowchart LR
     INJ --> TOUCH[命中记忆 touch:<br/>access_count++ / last_accessed_at]
 ```
 
-### 5.1 注入格式（拼进 adapter system prompt 或首轮前缀）
+### 5.1 全局记忆注入格式（拼进 adapter system hint）
 ```text
 [长期记忆 · 供参考]
 - 偏好：回答简洁，用中文
 - 项目事实：本仓库使用 Postgres + Drizzle
 - 环境：当前运行在 Windows + PowerShell，默认目录 D:/...，路径风格为 Windows drive path
 ---
-（以下为用户本次输入）
+```
+
+### 5.1.1 最近上下文补偿（拼进重启后的首条 user message）
+```text
+[最近对话上下文 · 供延续当前会话]
+- 用户：上一条问题
+- 助手：上一条回答
+---
+[本次用户输入]
 {user text}
 ```
+
+该上下文只在 adapter 刚启动时拼入 user message；adapter 已运行时，普通消息不重复携带历史。
 
 ### 5.2 参数
 - `MEMORY_RECALL_TOP_K`（默认 6）：只限制关键词/向量检索出来的跨会话召回条数，防上下文膨胀。
