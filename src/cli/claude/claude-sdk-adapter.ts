@@ -25,6 +25,7 @@ import type {
   OutputDelta,
   SpawnOptions,
 } from '../base'
+import { sanitizeVisibleText } from '../format-output'
 
 /** 只读工具名单：这些自动 allow，不触发审批。 */
 const READONLY_TOOLS = new Set([
@@ -65,6 +66,8 @@ const OPERATION_RESULT_GUARDRAIL = [
   '- Never claim a filesystem or shell operation succeeded unless you received a successful tool result in this turn.',
   '- If a required tool was not called, was denied, or failed, say the operation was not completed.',
 ].join('\n')
+
+const EMPTY_VISIBLE_RESULT_MESSAGE = '本轮没有生成可见回复，请重试。'
 
 /** 异步输入队列。 */
 function createInputQueue() {
@@ -182,7 +185,12 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
   function redactResultMessage(msg: SDKMessage): SDKMessage {
     const result = msg as unknown as Record<string, unknown>
     if (typeof result.result !== 'string') return msg
-    return { ...result, result: '[redacted: result.result omitted from raw debug log]' } as unknown as SDKMessage
+    return {
+      ...result,
+      result: sanitizeVisibleText(result.result),
+      result_raw_omitted: true,
+      result_raw_chars: result.result.length,
+    } as unknown as SDKMessage
   }
 
   function emitRawMessage(msg: SDKMessage) {
@@ -208,7 +216,12 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
           : Array.isArray(result.errors)
             ? result.errors.filter((x): x is string => typeof x === 'string').join('\n')
             : ''
-      emit(outputHandlers, { kind: 'text', text, final: true })
+      const visibleText = sanitizeVisibleText(text)
+      emit(outputHandlers, {
+        kind: 'text',
+        text: visibleText.trim() ? visibleText : EMPTY_VISIBLE_RESULT_MESSAGE,
+        final: true,
+      })
     }
   }
 

@@ -43,7 +43,13 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
   }
 
   async function currentConversation(payload: EventMap['MessageReceived']): Promise<Conversation | null> {
-    return repos.conversations.findActive(payload.userId, payload.cli, payload.cwd)
+    const currentId = await sessionManager.findCurrent({
+      userId: payload.userId,
+      platform: payload.platform,
+      cli: payload.cli,
+      cwd: payload.cwd,
+    })
+    return currentId ? repos.conversations.findById(currentId) : null
   }
 
   return {
@@ -126,7 +132,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
         }
 
         case 'audit': {
-          const resolved = await resolveAuditConversation(parsed.args, payload, repos)
+          const resolved = await resolveAuditConversation(parsed.args, payload, repos, currentConversation)
           if (!resolved.ok) {
             reply(payload, resolved.message)
             return true
@@ -282,10 +288,11 @@ async function resolveAuditConversation(
   args: string[],
   payload: EventMap['MessageReceived'],
   repos: Repositories,
+  currentConversation: (payload: EventMap['MessageReceived']) => Promise<Conversation | null>,
 ): Promise<{ ok: true; conversation: Conversation } | { ok: false; message: string }> {
   const target = args[0]?.trim()
   if (!target) {
-    const conv = await repos.conversations.findActive(payload.userId, payload.cli, payload.cwd)
+    const conv = await currentConversation(payload)
     if (!conv) {
       return {
         ok: false,

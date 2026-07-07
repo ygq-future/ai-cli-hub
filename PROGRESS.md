@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-07 · 阶段：**M8（全局记忆基础完成，待真机复测）**
+> 最后更新：2026-07-07 · 阶段：**M8（全局记忆基础完成，待真机复测；会话 idle 复用兜底已修复）**
 
 ---
 
@@ -84,6 +84,7 @@
 | D35 | **M7 审计范围收口为 Human Approval 审计 + 可查看**：`audit/` 订阅 `ApprovalRequested` 缓存请求详情，订阅 `ApprovalApproved/Rejected` 写 `audit_logs`；`/audit [conversationId]` 查看当前或指定会话最近审批记录。M7 不做完整操作日志，不改变 conversation status；审批 `detail` 以可读文本折入现有 `audit_logs.command` 字段，暂不新增迁移。 | 2026-07-06 |
 | D36 | **长期记忆归属实例级 `namespace`，不按 Transport `user_id` 隔离**：`user_id` 只用于鉴权、会话路由和审批操作者；Telegram/QQ/WebSocket 上的同一个个人 VPS AI Hub 共享同一套环境事实、全局偏好和跨会话回放。`memories.namespace='global'` 为默认共享池；`conversation_id=NULL` 表示全局事实/偏好/环境，填值表示某会话产出的情节摘要但仍可在同 namespace 内召回。M8 全局事实全量注入；`MEMORY_RECALL_TOP_K` 只限制后续关键词/向量检索召回。 | 2026-07-06 |
 | D37 | **记忆变更后实时生效但不丢最近语境**：`/remember`、`/forget` 后停止当前用户已启动 adapter，conversation 不关闭；下一条普通消息重新 start adapter，system hint 注入最新全局记忆与 `AGENT_DESCRIPTION`，user message 前缀携带当前 conversation 最近 10 条历史消息（不含当前消息本身），不做完整 messages replay。 | 2026-07-06 |
+| D38 | **会话当前态以“用户最新可复用会话”为准并带新建兜底**：普通消息、`/status`、`/close`、`/cwd` 优先回查该用户最新 `idle/starting/running` 会话，恢复 `cli/cwd` 后复用，解决 Transport 重启或内存目标丢失后看不到最新 idle 的问题；每次新建 conversation 前必须关闭该用户所有非 `closed` 历史会话（含卡在 `closing` 的记录），保证同一用户至多一条未关闭会话。 | 2026-07-07 |
 
 ---
 
@@ -240,6 +241,10 @@
 | 2026-07-06 | **M8 最近上下文与角色定位补强**：修正 `/remember` 后重启 adapter 会丢上一句语境的问题；adapter 刚启动时将当前 conversation 最近 10 条历史消息拼入 user message（不进 system message，且不重复当前输入）；新增 `AGENT_DESCRIPTION` env，作为 system hint 注入 Agent 职责定位；同步 `.env.example`、接口契约、命令 UX、记忆设计与实施计划。自动验收：format/typecheck/lint/format:check/test 全绿，175 pass / 6 skip / 0 fail。 |
 | 2026-07-07 | **M8 SDK 卡住诊断点补充**：复盘真机日志中 Agent SDK raw `system init` 后没有 `MessageGenerated`/`ApprovalRequested`/`ErrorOccurred` 的卡住形态；复用 `DEBUG_AGENT_SDK_JSON` 开关，开启后输出 orchestrator `adapterStarted`、`sendUserInput` 与 60s `turnTimeout` 诊断，记录 conversation/user/cwd/input chars/adapter state，便于区分 adapter 已启动但 query 无结果、输入未发送或审批未冒泡。自动验收：format/typecheck/lint/format:check/test 全绿，178 pass / 6 skip / 0 fail。 |
 | 2026-07-07 | **M8 `/memory` 展示精简**：按真机反馈将 `/memory` 从 type/importance/tag/content 混排改为 Markdown 列表，每条仅展示短 ID、namespace 与 content，降低长期记忆查看噪音。自动验收：format/typecheck/lint/format:check/test 全绿，178 pass / 6 skip / 0 fail。 |
+| 2026-07-07 | **会话 idle 复用与历史兜底关闭修复**：修复 Transport 内存目标丢失时 `/status` 看不到数据库最新 idle、普通消息误建新 idle 的问题；SessionManager/CommandRouter 改为优先使用用户最新可复用会话并发 `UserTargetChanged` 恢复目标；新建会话前兜底关闭该用户所有非 closed 历史会话，含 closing 残留。自动验收：format/typecheck/lint/test 全绿，180 pass / 6 skip / 0 fail。 |
+| 2026-07-07 | **Claude Code 宿主 system-role 泄露清洗**：真机出现 `/close` 后首条 `hello` 把 `Do not launch two agents...`、`IMPORTANT SYSTEM-ROLE / CROSS-CUTTING INSTRUCTIONS`、全局技能/斜杠命令清单作为最终回复发到 Telegram；判断为 Agent SDK `result.result` 内部提示泄露，不是 DB 历史消息串入。`formatOutputDelta` 增加宿主 system-role/技能清单前缀清洗并补回归测试。自动验收：format/typecheck/lint/format:check/test 全绿，181 pass / 6 skip / 0 fail。 |
+| 2026-07-07 | **Agent SDK result 调试与缺头 system-reminder 清理补强**：确认 raw debug 中 `result:"[redacted...]"` 是 adapter 日志层主动脱敏，不代表 SDK 未返回 result；Telegram 仍取原始 `result.result` 再经展示层清洗。调整 debug raw result 为“清洗后的可见 result + result_raw_omitted/result_raw_chars”，便于排查且不泄露原始内部提示；`formatOutputDelta` 增加任意缺头 `...</system-reminder>` 前缀清理，覆盖 `If they are not independent... </system-reminder> 你好` 形态。自动验收：format/typecheck/lint/format:check/test 全绿，182 pass / 6 skip / 0 fail。 |
+| 2026-07-07 | **Agent SDK 空 result 兜底**：真机日志确认一轮 `hello` 中 SDK 连续返回 assistant thinking blocks，并插入 synthetic continue，最终 `type=result` 的原始 `result` 为 `""`（`result_raw_chars=0`），不是清洗导致。`ClaudeSdkAdapter` 对成功结束但 `result.result` 为空或清洗后无可见内容的情况输出固定兜底文案“本轮没有生成可见回复，请重试。”，避免 Telegram 静默无响应；补 adapter 单测。自动验收：format/typecheck/lint/format:check/test 全绿，183 pass / 6 skip / 0 fail。 |
 
 ---
 

@@ -64,7 +64,7 @@ export type Conversation    = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 ```
 
-> 边界规则：`findActive(userId, cli, cwd)` 只检查该边界下最新一条会话；若最新会话未 `closing/closed` 则复用，若最新已关闭则返回空并让下一条普通消息新建，避免 `/close`、`/new`、`/cwd` 后翻出更旧的 `idle` 会话。`/new` 关闭旧会话后插入新 `idle` 记录；`/cwd <path>` 只切目标目录并关闭当前会话，不插入新记录。
+> 边界规则：普通消息优先复用该用户最新可复用会话（`idle/starting/running`），即使 Transport 重启丢失内存目标，也会用该会话的 `cli/cwd` 恢复目标并复用 `idle`。新建会话前必须兜底关闭该用户所有非 `closed` 历史会话，保证同一用户至多一条未关闭会话；`/cwd <path>` 只切目标目录并关闭当前会话，不插入新记录。
 
 ---
 

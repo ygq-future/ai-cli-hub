@@ -2,7 +2,7 @@
  * ConversationRepository —— Drizzle 实现（docs/03 §5 / docs/04 §3）。
  * 唯一允许出现 SQL/Drizzle 查询的层。
  */
-import { and, desc, eq, lt } from 'drizzle-orm'
+import { and, desc, eq, lt, ne } from 'drizzle-orm'
 import type { Db } from '../storage'
 import { conversations } from '../storage/schema'
 import type {
@@ -33,9 +33,33 @@ export function createConversationRepository(db: Db): ConversationRepository {
       return row ?? null
     },
 
+    async findLatestOpenByUser(userId: string): Promise<Conversation | null> {
+      const [row] = await db
+        .select()
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.userId, userId),
+            ne(conversations.status, 'closed'),
+            ne(conversations.status, 'closing'),
+          ),
+        )
+        .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
+        .limit(1)
+      return row ?? null
+    },
+
     async findById(id: ConversationId): Promise<Conversation | null> {
       const [row] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1)
       return row ?? null
+    },
+
+    async listOpenByUser(userId: string): Promise<Conversation[]> {
+      return db
+        .select()
+        .from(conversations)
+        .where(and(eq(conversations.userId, userId), ne(conversations.status, 'closed')))
+        .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
     },
 
     async listRecentByUser(userId: string, limit: number): Promise<Conversation[]> {

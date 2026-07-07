@@ -91,6 +91,44 @@ For the Workflow tool, available workflow names are: code-review, comprehensive-
     expect(formatOutputDelta(d)).toBe('你好！我是 Claude Code，Anthropic 官方 CLI 工具。')
   })
 
+  test('清理任意缺头 system-reminder 残片', () => {
+    const d: OutputDelta = {
+      kind: 'text',
+      final: true,
+      text: ` If they are not independent (e.g. agent B depends on agent A's output), launch them sequentially.
+</system-reminder> 你好！今天有什么可以帮你的？`,
+    }
+
+    expect(formatOutputDelta(d)).toBe('你好！今天有什么可以帮你的？')
+  })
+
+  test('清理 Claude Code 宿主 system-role 与全局技能清单泄露', () => {
+    const d: OutputDelta = {
+      kind: 'text',
+      final: true,
+      text: `Do not launch two agents on the same scope of work or with the same instruction unless you need independent diverse results (panel check, tournament). One agent per scope or answer dimension.
+
+Use \`SendMessage\` to communicate with background agents.
+
+IMPORTANT SYSTEM-ROLE / CROSS-CUTTING INSTRUCTIONS:
+# Output Standards
+
+## 文件变更输出规范
+
+## 可用的全局技能
+
+- \`memory:memory\` — 记忆处理。
+
+## Available slash commands (skills) and their descriptions
+
+- /memory — 读取或更新长期记忆。
+
+你好！我是 Claude Code，你的 AI CLI 远程会话管理助手。有什么可以帮你的吗？`,
+    }
+
+    expect(formatOutputDelta(d)).toBe('你好！我是 Claude Code，你的 AI CLI 远程会话管理助手。有什么可以帮你的吗？')
+  })
+
   test('tool_use 不展示给用户', () => {
     const d: OutputDelta = {
       kind: 'tool_use',

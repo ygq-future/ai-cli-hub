@@ -86,6 +86,30 @@ describe('ClaudeSdkAdapter (real message flow)', () => {
     expect(out).toEqual([{ kind: 'text', text: 'done', final: true }])
   })
 
+  test('result.result 为空或清洗后为空时输出可见兜底消息', async () => {
+    const a = createClaudeSdkAdapter({
+      queryFn: fakeQuery([
+        { type: 'result', subtype: 'success', result: '', is_error: false } as unknown as SDKMessage,
+        {
+          type: 'result',
+          subtype: 'success',
+          result: '<system-reminder>hidden</system-reminder>',
+          is_error: false,
+        } as unknown as SDKMessage,
+      ]),
+    })
+    const out: OutputDelta[] = []
+    a.onOutput(d => out.push(d))
+
+    await a.start(SPAWN)
+    await tick()
+
+    expect(out).toEqual([
+      { kind: 'text', text: '本轮没有生成可见回复，请重试。', final: true },
+      { kind: 'text', text: '本轮没有生成可见回复，请重试。', final: true },
+    ])
+  })
+
   test('审批策略：只读工具自动 allow，写工具弹审批', async () => {
     let canUse: CanUseTool | null = null
     const a = createClaudeSdkAdapter({ queryFn: fakeQuery([], fn => (canUse = fn)) })
@@ -219,9 +243,10 @@ describe('ClaudeSdkAdapter (real message flow)', () => {
     expect(JSON.parse(rawMessages[0]!) as Record<string, unknown>).toMatchObject({ type: 'assistant' })
     expect(JSON.parse(rawMessages[1]!) as Record<string, unknown>).toMatchObject({
       type: 'result',
-      result: '[redacted: result.result omitted from raw debug log]',
+      result: 'done',
+      result_raw_omitted: true,
+      result_raw_chars: 4,
     })
-    expect(rawMessages[1]).not.toContain('done')
   })
 
   test('debugRawJson 过滤高频 thinking_tokens 系统消息', async () => {

@@ -2,7 +2,7 @@
  * SessionManager —— 会话生命周期管理（docs/02-Architecture.md §5）。
  *
  * 职责：
- *  - 会话边界定位：findActive(userId, cli, cwd) → 复用最新可用会话/新建
+ *  - 会话边界定位：优先复用用户最新未关闭会话，目标丢失时恢复 cli/cwd
  *  - 状态迁移（委托 SessionMachine）
  *  - 处理 /new（旧活跃会话关闭）、/close（转 closing）
  *  - 归档扫描 listStaleIdle
@@ -16,7 +16,7 @@ import type { Repositories } from '../repository'
 import { transition, type SessionEvent } from './session-machine'
 
 export interface SessionManager {
-  /** 定位活跃会话：最新同边界会话可用则复用；若最新已 closed/closing 则新建。 */
+  /** 定位活跃会话：复用用户最新未关闭会话；没有则新建。 */
   findOrCreate(opts: {
     userId: string
     platform: Platform
@@ -24,6 +24,9 @@ export interface SessionManager {
     cwd: string
     text: string
   }): Promise<ConversationId>
+
+  /** 当前可复用会话：先按用户最新未关闭兜底，供命令查询/关闭使用。 */
+  findCurrent(opts: { userId: string; platform: Platform; cli: CliType; cwd: string }): Promise<ConversationId | null>
 
   /** 强制 /new：关闭同边界旧活跃会话 → 新建并返回会话 ID。 */
   forceNew(opts: {
@@ -46,7 +49,7 @@ export interface SessionManager {
   /** 归档扫描：返回所有超期 idle 会话。 */
   listStaleIdle(): Promise<{ id: ConversationId; updatedAt: number }[]>
 
-  /** 保留接口占位；当前 /new 直接关闭旧会话，不做 idle 批量迁移。 */
+  /** 关闭除指定会话外的用户历史未 closed 会话。 */
   setIdleExcept(conversationId: ConversationId): Promise<void>
 
   /** 停止监听事件。 */
@@ -61,16 +64,13 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
     async findOrCreate(opts) {
       const { userId, platform, cli, cwd, text: _text } = opts
 
-      // 尝试复用现有活跃会话
-      const active = await repos.conversations.findActive(userId, cli, cwd)
-      if (active) {
-        bus.emit('SessionMapped', {
-          conversationId: active.id as ConversationId,
-          platform,
-          userId,
-        })
-        return active.id as ConversationId
+      const current = await resolveCurrentConversation({ userId, platform, cli, cwd })
+      if (current) {
+        await closeOpenConversations(userId, current.id as ConversationId)
+        return current.id as ConversationId
       }
+
+      await closeOpenConversations(userId)
 
       // 新建
       const id = crypto.randomUUID() as ConversationId
@@ -98,15 +98,16 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
       return conv.id as ConversationId
     },
 
+    async findCurrent(opts) {
+      const current = await resolveCurrentConversation(opts)
+      return current ? (current.id as ConversationId) : null
+    },
+
     async forceNew(opts) {
       const { userId, platform, cli, cwd, text: _text } = opts
 
-      // /new 语义：旧同边界会话关闭，新会话 idle，下一条普通消息懒启动 CLI。
-      const active = await repos.conversations.findActive(userId, cli, cwd)
-      if (active) {
-        const oldConversationId = active.id as ConversationId
-        await closeConversation(oldConversationId, 'user')
-      }
+      // /new 语义：历史未关闭会话全部关闭，新会话 idle，下一条普通消息懒启动 CLI。
+      await closeOpenConversations(userId)
 
       // 再新建
       const id = crypto.randomUUID() as ConversationId
@@ -159,8 +160,10 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
       return stale.map(c => ({ id: c.id as ConversationId, updatedAt: c.updatedAt }))
     },
 
-    async setIdleExcept(_conversationId) {
-      // /new 已改为关闭旧会话；此接口暂不执行批量 idle 迁移。
+    async setIdleExcept(conversationId) {
+      const conv = await repos.conversations.findById(conversationId)
+      if (!conv) return
+      await closeOpenConversations(conv.userId, conversationId)
     },
 
     destroy() {
@@ -173,13 +176,45 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
 
   return sm
 
+  async function resolveCurrentConversation(opts: { userId: string; platform: Platform; cli: CliType; cwd: string }) {
+    const latest = await repos.conversations.findLatestOpenByUser(opts.userId)
+    if (!latest) return null
+    const conversationId = latest.id as ConversationId
+    bus.emit('SessionMapped', {
+      conversationId,
+      platform: opts.platform,
+      userId: opts.userId,
+    })
+    if (latest.cli !== opts.cli || latest.cwd !== opts.cwd) {
+      bus.emit('UserTargetChanged', {
+        userId: opts.userId,
+        cli: latest.cli as CliType,
+        cwd: latest.cwd,
+      })
+    }
+    return latest
+  }
+
+  async function closeOpenConversations(userId: string, exceptConversationId?: ConversationId) {
+    const open = await repos.conversations.listOpenByUser(userId)
+    for (const conv of open) {
+      const conversationId = conv.id as ConversationId
+      if (exceptConversationId && conversationId === exceptConversationId) continue
+      await closeConversation(conversationId, 'user')
+    }
+  }
+
   async function closeConversation(conversationId: ConversationId, reason: 'user' | 'archiveTimeout') {
     const current = await repos.conversations.findById(conversationId)
     if (!current) {
       throw new Error(`SessionManager.close: 会话 ${conversationId} 不存在`)
     }
-    if (current.status === 'closed' || current.status === 'closing') {
+    if (current.status === 'closed') {
       return // 已关闭或正在关闭，幂等
+    }
+    if (current.status === 'closing') {
+      await repos.conversations.updateStatus(conversationId, 'closed')
+      return
     }
 
     await repos.conversations.updateStatus(conversationId, 'closing')

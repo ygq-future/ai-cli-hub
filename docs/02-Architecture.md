@@ -360,12 +360,12 @@ flowchart TD
     REUSE --> RUN
 ```
 
-- **默认复用**：以 `(user_id, cli, cwd)` 三元组定位最新同边界会话；最新未 `closing/closed` 则复用，否则新建。
-- **`/new`**：强制开新会话，旧会话直接 `closed`，新会话初始 `idle`。
+- **默认复用**：普通消息优先复用该用户最新可复用会话（`idle/starting/running`）；若 Transport 重启丢失内存目标，用该会话的 `cli/cwd` 恢复目标并继续复用 `idle`。
+- **`/new`**：强制开新会话；新建前兜底关闭该用户所有非 `closed` 历史会话，新会话初始 `idle`。
 - **`/cwd`**：无参数显示当前目标 cwd；带路径时关闭当前会话、更新目标 cwd，不创建 conversation，下一条普通消息再新建。
 - **`/close`**：显式结束，触发归档并生成 episodic 摘要（见 §7）。
 - **自动归档**：超过 `SESSION_ARCHIVE_DAYS` 无活动的 `idle` 会话自动转 `closed` 并生成摘要。
-- **cwd 隔离**：不同项目目录天然分属不同会话；长期记忆不按平台用户隔离，项目/任务局部事实由 `conversation_id` 标注来源，后续通过 namespace 内召回共享。
+- **cwd 归属**：`cwd` 仍记录会话工作目录；切换目录必须走 `/cwd` 关闭当前会话并更新目标，避免多个目录同时留下 `idle`。
 
 ### 5.2 会话状态机
 

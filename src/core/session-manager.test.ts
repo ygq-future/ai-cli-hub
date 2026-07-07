@@ -51,8 +51,20 @@ function createMockRepos() {
       async findActive(userId: string, cli: string, cwd: string) {
         return findActive(userId, cli, cwd)
       },
+      async findLatestOpenByUser(userId: string) {
+        return (
+          Object.values(conversations)
+            .filter(c => c.userId === userId && c.status !== 'closed' && c.status !== 'closing')
+            .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)[0] ?? null
+        )
+      },
       async findById(id: string) {
         return conversations[id] ?? null
+      },
+      async listOpenByUser(userId: string) {
+        return Object.values(conversations)
+          .filter(c => c.userId === userId && c.status !== 'closed')
+          .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)
       },
       async listRecentByUser(userId: string, limit: number) {
         return Object.values(conversations)
@@ -217,14 +229,17 @@ describe('SessionManager', () => {
     expect(mapped).toEqual([{ conversationId: cid1, platform: 'telegram', userId: 'u1' }])
   })
 
-  test('不同 cwd 建不同会话', async () => {
+  test('普通消息复用用户最新未关闭会话，不因 cwd 目标丢失新建', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()
     const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const targetChanges: unknown[] = []
+    bus.on('UserTargetChanged', p => targetChanges.push(p))
 
     const cid1 = await sm.findOrCreate({ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/a', text: 'hi' })
     const cid2 = await sm.findOrCreate({ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/b', text: 'hi' })
-    expect(cid1).not.toBe(cid2)
+    expect(cid2).toBe(cid1)
+    expect(targetChanges).toEqual([{ userId: 'u1', cli: 'claude', cwd: '/a' }])
   })
 
   test('forceNew 关闭旧活跃会话再新建', async () => {
@@ -247,6 +262,74 @@ describe('SessionManager', () => {
     expect((await repos.conversations.findById(cid1))?.status).toBe('closed')
     expect((await repos.conversations.findById(cid2))?.status).toBe('idle')
     expect(closed).toEqual([{ conversationId: cid1, reason: 'user' }])
+  })
+
+  test('forceNew 新建前兜底关闭该用户所有历史未 closed 会话', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const closed: unknown[] = []
+    bus.on('SessionClosed', p => closed.push(p))
+
+    const staleA = await repos.conversations.create({
+      id: 'stale-a',
+      platform: 'telegram',
+      userId: 'u1',
+      cli: 'claude',
+      cwd: '/a',
+      status: 'idle',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    const staleB = await repos.conversations.create({
+      id: 'stale-b',
+      platform: 'telegram',
+      userId: 'u1',
+      cli: 'claude',
+      cwd: '/b',
+      status: 'running',
+      createdAt: 2,
+      updatedAt: 2,
+    })
+
+    const cid = await sm.forceNew({ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/c', text: '/new' })
+
+    expect((await repos.conversations.findById(staleA.id as ConversationId))?.status).toBe('closed')
+    expect((await repos.conversations.findById(staleB.id as ConversationId))?.status).toBe('closed')
+    expect((await repos.conversations.findById(cid))?.status).toBe('idle')
+    expect(closed).toEqual([
+      { conversationId: 'stale-b', reason: 'user' },
+      { conversationId: 'stale-a', reason: 'user' },
+    ])
+  })
+
+  test('findOrCreate 新建前兜底关闭卡在 closing 的历史会话', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+
+    await repos.conversations.create({
+      id: 'stale-closing',
+      platform: 'telegram',
+      userId: 'u1',
+      cli: 'claude',
+      cwd: '/old',
+      status: 'closing',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+
+    const cid = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/new',
+      text: 'hello',
+    })
+
+    expect(cid).not.toBe('stale-closing')
+    expect((await repos.conversations.findById('stale-closing' as ConversationId))?.status).toBe('closed')
+    expect((await repos.conversations.findById(cid))?.status).toBe('idle')
   })
 
   test('findOrCreate 不在最新会话 closed 后翻出更旧 idle，会新建会话', async () => {

@@ -24,11 +24,12 @@ export function formatOutputDelta(delta: OutputDelta): string {
   }
 }
 
-function sanitizeVisibleText(text: string): string {
+export function sanitizeVisibleText(text: string): string {
   const cleaned = text
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/<system-role>[\s\S]*?<\/system-role>/gi, '')
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '')
+    .replace(/^\s*[\s\S]*?<\/system-reminder>\s*/i, '')
     .replace(/^\s*Wait for all results before deciding next steps\.[\s\S]*?<\/system-reminder>\s*/i, '')
     .replace(
       /IMPORTANT: Skills are loaded into the conversation separately via the 'Skill' tool[\s\S]*?(?:<\/think>|(?=\n\S))/gi,
@@ -39,6 +40,14 @@ function sanitizeVisibleText(text: string): string {
       '',
     )
     .replace(/^\s*# Safety[\s\S]*?<\/think>/i, '')
+    .replace(
+      /^\s*Do not launch two agents on the same scope of work[\s\S]*?(?=(?:你好|您好|Hello|Hi|I'm|I am|我是|有什么可以帮|$))/i,
+      '',
+    )
+    .replace(
+      /^\s*IMPORTANT SYSTEM-ROLE \/ CROSS-CUTTING INSTRUCTIONS:[\s\S]*?(?=(?:你好|您好|Hello|Hi|I'm|I am|我是|有什么可以帮|$))/i,
+      '',
+    )
     .replace(/<\/?(?:think|system-role|system-reminder)>/gi, '')
     .replace(
       /If you see the message "This tool does not support running in the background"[\s\S]*?TaskList at the start of each turn\.\s*/gi,

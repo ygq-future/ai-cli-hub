@@ -263,7 +263,12 @@ export interface ConversationRepository {
   create(c: NewConversation): Promise<Conversation>;
   // 仅最新同边界会话未 closing/closed 时复用；/close、/new、/cwd 后不会翻出更旧 idle。
   findActive(userId: string, cli: CliType, cwd: string): Promise<Conversation | null>;
+  // 用户最新可复用会话；用于重启后恢复内存目标并复用 idle，不返回 closing/closed。
+  findLatestOpenByUser(userId: string): Promise<Conversation | null>;
   findById(id: ConversationId): Promise<Conversation | null>;
+  // 用户所有非 closed 会话；新建会话前兜底关闭历史残留。
+  listOpenByUser(userId: string): Promise<Conversation[]>;
+  listRecentByUser(userId: string, limit: number): Promise<Conversation[]>;
   updateStatus(id: ConversationId, status: SessionStatus): Promise<void>;
   listStaleIdle(beforeTs: number): Promise<Conversation[]>; // 归档扫描
 }
