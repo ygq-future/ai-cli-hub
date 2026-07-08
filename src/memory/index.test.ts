@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { loadConfig } from '../config'
 import { createEventBus } from '../event'
 import type { Memory, NewMemory, Repositories } from '../repository'
-import { createMemoryModule, formatGlobalMemoryContext } from './index'
+import { collectEnvironmentFacts, createMemoryModule, formatGlobalMemoryContext } from './index'
 
 const CONFIG = loadConfig({
   TELEGRAM_BOT_TOKEN: 'token',
@@ -64,11 +64,31 @@ describe('memory module', () => {
     const firstCount = memories.length
     await createMemoryModule({ bus, repos, config: CONFIG })
 
-    expect(firstCount).toBeGreaterThanOrEqual(10)
+    expect(firstCount).toBeGreaterThanOrEqual(8)
     expect(memories.length).toBe(firstCount)
     expect(memories.some(m => m.tag === 'env.os')).toBe(true)
     expect(memories.some(m => m.tag === 'env.default_cwd' && m.content.includes('D:/workspace/project'))).toBe(true)
+    expect(memories.some(m => m.tag === 'env.container')).toBe(true)
+    expect(memories.some(m => m.tag === 'env.service_manager')).toBe(true)
+    expect(memories.some(m => m.tag === 'env.media')).toBe(true)
     expect(updates.length).toBeGreaterThanOrEqual(firstCount * 2)
+  })
+
+  test('collectEnvironmentFacts 生成 VPS 运维画像并包含媒体目录', async () => {
+    const facts = await collectEnvironmentFacts(CONFIG)
+    const tags = facts.map(f => f.tag)
+    const content = facts.map(f => f.content).join('\n')
+
+    expect(tags).toContain('env.container')
+    expect(tags).toContain('env.service_manager')
+    expect(tags).toContain('env.media')
+    expect(content).toContain('docker=')
+    expect(content).toContain('pm2=')
+    expect(content).toContain('MEDIA_DOWNLOAD_DIR=')
+    if (process.platform !== 'win32') {
+      expect(tags).not.toContain('env.powershell')
+      expect(content).not.toContain('Windows PowerShell')
+    }
   })
 
   test('recallGlobalContext 格式化全局记忆并排除会话级记忆', async () => {

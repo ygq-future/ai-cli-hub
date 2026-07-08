@@ -25,6 +25,7 @@ export interface CommandRouterDeps {
   sessionManager: SessionManager
   getUserLanguage?: (userId: string) => UserLanguage
   resolveCwd?: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult
+  refreshEnvironmentSnapshot?: () => Promise<void>
 }
 
 type CwdResolveResult = { ok: true; cwd: string } | { ok: false; message: string }
@@ -186,6 +187,13 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
         case 'memory': {
           const memories = await repos.memories.listGlobal(DEFAULT_MEMORY_NAMESPACE)
           reply(payload, formatMemories(memories))
+          return true
+        }
+
+        case 'env': {
+          await deps.refreshEnvironmentSnapshot?.()
+          const memories = await repos.memories.listGlobal(DEFAULT_MEMORY_NAMESPACE)
+          reply(payload, formatEnvironmentMemories(memories))
           return true
         }
 
@@ -353,6 +361,15 @@ function formatMemories(memories: Memory[]): string {
       ].join('\n'),
     ),
   ].join('\n\n')
+}
+
+function formatEnvironmentMemories(memories: Memory[]): string {
+  const envMemories = memories
+    .filter(m => m.namespace === DEFAULT_MEMORY_NAMESPACE && m.conversationId === null && m.tag?.startsWith('env.'))
+    .sort((a, b) => (a.tag ?? '').localeCompare(b.tag ?? ''))
+  if (envMemories.length === 0) return '暂无环境快照。'
+
+  return ['**环境快照**', ...envMemories.map(m => `- **${m.tag}**\n${m.content.trim()}`)].join('\n\n')
 }
 
 function classifyManualMemory(rawText: string): { type: MemoryType; content: string } {

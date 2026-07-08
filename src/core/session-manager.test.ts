@@ -78,6 +78,7 @@ function createMockRepos() {
           conversations[id] = { ...c, status: status as Conversation['status'], updatedAt: Date.now() }
         }
       },
+      async reconcileRuntimeStatuses() {},
       async listStaleIdle(beforeTs: number) {
         return Object.values(conversations).filter(c => c.status === 'idle' && c.updatedAt < beforeTs)
       },
@@ -877,5 +878,45 @@ describe('CommandRouter', () => {
     expect((replies[0] as { content: string }).content).not.toContain('semantic')
     expect((replies[1] as { content: string }).content).toContain('已删除记忆')
     expect(await repos.memories.listGlobal('global')).toEqual([])
+  })
+
+  test('/env 刷新并展示环境快照记忆', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    let refreshed = false
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      refreshEnvironmentSnapshot: async () => {
+        refreshed = true
+        await repos.memories.upsertByTag('global', 'env.media', {
+          conversationId: null,
+          type: 'semantic',
+          content: '环境画像：[媒体目录]\nMEDIA_DOWNLOAD_DIR=/tmp/media\nwritable=true',
+          embedding: null,
+          sourceMessageId: null,
+          importance: 0.8,
+          accessCount: 0,
+          lastAccessedAt: null,
+        })
+      },
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/env',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    expect(refreshed).toBe(true)
+    expect((replies[0] as { content: string }).content).toContain('环境快照')
+    expect((replies[0] as { content: string }).content).toContain('MEDIA_DOWNLOAD_DIR=/tmp/media')
   })
 })

@@ -42,11 +42,12 @@
 
 V1 不做隐式抽取，避免误判用户随口表述。写入入口按优先级推进：
 
-- **M8-A 环境快照**：系统启动时 upsert 环境记忆，包含 OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、已接入 CLI、平台路径风格。
+- **M8-A 环境快照**：系统启动时 upsert 环境记忆。快照是按 OS 自适应的 VPS 运维画像：Linux 记录 OS/hostname/cwd、Bun/Node/Git、Shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、监听端口、默认工作目录、媒体目录状态与清理提示；Windows 仅在实际存在时记录 PowerShell。
 - **M8-C 命令式记忆**：`/remember <text>` 直接写入实例级全局持久记忆（默认 `namespace='global'`、`conversation_id=NULL`）。
+- **M8-D 环境刷新**：`/env` 手动刷新 `env.*` 稳定 tag 并展示当前环境快照，用于部署后补齐 PM2/Docker/媒体目录等运行态事实。
 - 后续归档：可生成 conversation-derived episodic 摘要，但不回放完整 messages。
 
-环境记忆必须按稳定 `tag` 幂等更新，不允许每次启动重复插入同一事实。
+环境记忆必须按稳定 `tag` 幂等更新，不允许每次启动或 `/env` 重复插入同一事实。所有 probe 必须有短超时，失败只记录 missing/unknown，不阻塞 Telegram 主链路。
 
 ## 4.1 后续异步管线（V1.5/增强）
 
@@ -103,7 +104,7 @@ flowchart LR
 [长期记忆 · 供参考]
 - 偏好：回答简洁，用中文
 - 项目事实：本仓库使用 Postgres + Drizzle
-- 环境：当前运行在 Windows + PowerShell，默认目录 D:/...，路径风格为 Windows drive path
+- 环境：当前运行在 Linux VPS，PM2 管理 ai-cli-hub，Docker 中有 pgvector/Postgres，媒体目录在 `/.../.data/media` 且可按时间清理
 ---
 ```
 

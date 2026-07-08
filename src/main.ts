@@ -92,6 +92,7 @@ async function main() {
     handler: orch.handler,
     getUserLanguage: telegram.getUserLanguage,
     resolveCwd,
+    refreshEnvironmentSnapshot: memory.refreshEnvironmentSnapshot,
   })
 
   // —— 注册优雅关闭 ——

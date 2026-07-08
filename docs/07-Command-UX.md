@@ -41,6 +41,7 @@ flowchart TD
 | `/audit` | `[conversationId]` | 查看审批审计 | 无参数查看当前会话；带完整或短会话 ID 查看指定会话最近审批记录 |
 | `/remember` | `<text>` | 写入实例级全局长期记忆 | 默认写入 `namespace='global'`、`conversation_id=NULL`；`preference:` / `偏好:` 前缀写入偏好；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 | `/memory` | — | 查看实例级全局长期记忆 | Markdown 列表；每条仅展示短 ID、namespace 与 content |
+| `/env` | — | 刷新并查看环境快照 | 重新探测 OS/运行时/PM2/Docker/DB/端口/默认目录/媒体目录；按稳定 `env.*` tag 幂等 upsert |
 | `/forget` | `<memoryId>` | 删除实例级全局长期记忆 | 支持唯一短前缀；前缀不唯一时拒绝删除；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 
 > 参数缺省：`/new` 不带参数则使用当前目标 `cli`、当前目标 `cwd`（若无则用 `DEFAULT_CWD`）。V1 当前只接入 `claude`，`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
@@ -140,6 +141,7 @@ Markdown 卡片 + 内联按钮：
 | `/forget` 缺少 ID | 用法：/forget <memoryId> |
 | `/forget` 前缀不唯一 | 记忆 ID 前缀不唯一：`{prefix}` |
 | `/remember` 或 `/forget` 后继续对话 | 下一条普通消息自动重启 adapter 并注入最新全局记忆，conversation 不关闭 |
+| `/env` 执行 | 立即刷新环境快照并返回 `env.*` 记忆；probe 失败项显示 `missing` 或 `unknown`，不阻塞服务 |
 | adapter 重启后继续同一会话 | 下一条 user message 会携带当前 conversation 最近 10 条历史消息，避免丢失上一轮语境 |
 | CLI 运行中 `/new` | ℹ️ 已关闭当前会话，已为你开启新会话 |
 | 进程被空闲回收后发消息 | （静默唤醒，重启进程，用户无感）|

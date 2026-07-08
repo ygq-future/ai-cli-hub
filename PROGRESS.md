@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-08 · 阶段：**M10（加固与交付进行中）**
+> 最后更新：2026-07-08 · 阶段：**V1 交付完成；环境画像增强完成**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **M10 — 加固与交付**（代码完成，待全量验收/真机重启验证） |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 flushAll+adapter stop+DB close / adapter crash 状态回 idle / 审批决议幂等 / PM2+systemd 示例 |
-| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约同步 |
+| 当前里程碑 | **V1 — 已交付**（宿主机 + PM2 部署已跑通；环境画像增强完成） |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境快照升级为 VPS 运维画像并新增 `/env` |
+| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步 |
 | 阻塞项 | 无 |
-| 下一步 | 真机验证 SIGTERM/PM2 或 systemd 重启无脏状态 |
+| 下一步 | 按需进入 V1.5 记忆增强（pgvector 语义召回）或实现受控自更新 `/update` |
 
 ---
 
@@ -32,9 +32,9 @@
 | M6 | Telegram Transport | ✅ 完成 | 首个端到端。真机验证通过(见会话日志). **M6b 为质量闭环, 不单独列里程碑** |
 | M6b | 会话管理命令 & 生产级加固 | ✅ 完成 | `/new` `/cwd` `/status` `/sessions` `/lang`、状态流转、SDK 输出源、TG 展示与审批回归均已真机复测 |
 | M7 | Audit 落地 | ✅ 完成 | Human Approval 审计 + `/audit [conversationId]` 查看 |
-| M8 | 全局记忆基础 | ✅ | 环境快照记忆、adapter start 全局注入、`/remember`、`/memory`/`/forget`、记忆变更后下一条消息实时加载已落地 |
+| M8 | 全局记忆基础 | ✅ | 环境画像记忆、adapter start 全局注入、`/remember`、`/memory`、`/env`、`/forget`、记忆变更后下一条消息实时加载已落地 |
 | M9 | 媒体/文件入站 + Light OCR 接入 | ✅ | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、PDF/Office 按需解析能力保留；Vision 暂缓 |
-| M10 | 加固与交付 | 🟡 | 启动状态对账、优雅关闭、adapter 故障隔离、审批幂等、PM2/systemd 部署示例已完成；自动验收通过，待真机重启验证 |
+| M10 | 加固与交付 | ✅ | 启动状态对账、优雅关闭、adapter 故障隔离、审批幂等、PM2/systemd 部署示例完成；用户已在 VPS 宿主机 + PM2 部署跑通 |
 | V1.5 | 记忆增强（pgvector） | ⬜ | 非 V1 阻塞项 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
@@ -92,31 +92,28 @@
 | D43 | **拒绝工具审批后丢弃当前 adapter 上下文**：Reject 表示当前工具路径不应继续，orchestrator 在 `interrupt()+resolve reject` 后停止该会话 adapter；下一条普通消息会重新 start，并通过最近上下文带回已入库的最新文件 metadata/local_path，避免 Claude 留在上一轮 `.doc`/工具失败语境里继续误判。 | 2026-07-08 |
 | D44 | **文件上传采用懒加载，只有图片即时 OCR**：上传文件只保存到 `MEDIA_DOWNLOAD_DIR` 并把 metadata/local_path 放入上下文；PDF/Word/Excel/text/audio/video 等非图片文件不在上传时提取正文、OCR、总结、转写、转换或移动，不消耗正文 prompt token，也不触发工具；用户明确要求读取/总结/转换/移动时才按 local_path 处理。图片/photo 仍可即时 OCR，因为其主要输入就是视觉文本。 | 2026-07-08 |
 | D45 | **进程重启后运行期状态不可恢复，必须对账回持久安全状态**：启动时将 `starting/running` conversation 复位为 `idle`，将残留 `closing` 收尾为 `closed`；审批挂起与 SDK query 都是内存态，不尝试跨进程恢复。优雅关闭顺序固定为停入站→flush 聚合草稿→停止 adapter→销毁模块→关闭 DB。 | 2026-07-08 |
+| D46 | **环境快照升级为按 OS 自适应的 VPS 运维画像**：Linux 不再记录 PowerShell 噪音，改为探测 OS/cwd/runtime/shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、监听端口、默认工作目录与媒体目录状态；`/env` 可手动刷新并查看 `env.*` 稳定 tag。所有 probe 短超时，失败只记 missing/unknown，不阻塞启动或对话。 | 2026-07-08 |
 
 ---
 
 ## 4. 下一步行动（Next Actions）
 
-**M10 — 加固与交付**（当前）：
+**V1 — 已交付；当前增强项：环境画像**
 
-状态：**代码完成；待最终全量验收与真机重启验证**。
+状态：**宿主机 + PM2 部署已跑通；环境画像增强已完成并通过自动验收**。
 
-### 变更清单
+### 本次增强清单
 
-1. `ConversationRepository.reconcileRuntimeStatuses(now)`：服务启动时将 `starting/running` 复位为 `idle`，将残留 `closing` 收尾为 `closed`。
-2. `main.ts` 启动阶段执行状态对账，避免进程重启后 DB 仍以为 adapter 存活。
-3. `MessageAggregator.flushAll()`：优雅关闭时先定稿所有会话草稿，再销毁定时器。
-4. `main.ts` shutdown 链路收口为：停 Transport 入站 → `flushAll()` → stop 全部 adapter → destroy memory/audit/aggregator/core → `closeDb()`；整体 15s 超时兜底。
-5. `storage.closeDb()` 调用 Bun SQL client `close()`，释放数据库连接池。
-6. adapter `onExit` 时 flush 当前会话、清理 entry，并把非 `closed/closing` conversation 标回 `idle`；单会话 crash 不影响其它会话。
-7. orchestrator 对 `conversationId:approvalId` 做审批决议幂等，重复 Approve/Reject 或混合重复回调只处理第一次。
-8. 新增 `deploy/pm2.config.cjs` 与 `deploy/ai-cli-hub.service`，README 增加本地运行、配置、PM2/systemd 部署与重启说明。
-9. 同步 `docs/03-Interface-Contracts.md` 的 Aggregator/Repository 契约。
+1. `collectEnvironmentFacts` 从基础跨平台列表升级为按 OS 自适应的 VPS 运维画像。
+2. Linux 侧记录 runtime/shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、监听端口、默认工作目录、媒体目录状态与清理提示。
+3. Linux 不再写入 PowerShell/Windows PowerShell 噪音；Windows 仅在实际存在时记录对应能力。
+4. 新增 `/env` 命令：刷新 `env.*` 稳定 tag 并返回当前环境快照。
+5. 媒体目录 `MEDIA_DOWNLOAD_DIR` 进入环境记忆，包含绝对路径、存在性、可写性、磁盘概况、文件大小/解析超时限制和清理提示。
 
-### 待验收
+### 下一步候选
 
-- 自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun test`。
-- 真机验证：PM2 或 systemd 下 `SIGTERM`/restart 后可继续对话；重启前 `running/starting/closing` 残留状态被正确对账；重复点击审批按钮不重复执行。
+- V1.5：pgvector 语义召回、记忆 embedding 回填、Top-K 召回重排。
+- 运维增强：受控 `/update` 自更新（后台脚本执行 `git pull --ff-only`、`bun install`、`db:migrate`、`pm2 restart`）。
 
 ---
 
@@ -180,6 +177,7 @@
 | 2026-07-08 | **文件上下文粘连修复**：针对真机出现“docx 已提取但 Claude 仍抓上一轮 .doc 不放”的问题，问题在 Reject 后 adapter 未重启导致坏工具/旧文件语境残留；改为审批 Reject 后停止当前 adapter，下一条消息重新 start 并带最近上下文。该阶段仍使用过 `extracted_text` 直入上下文，随后已由 D44 修正为非图片文件懒加载 metadata/local_path。自动验收：format/typecheck/lint/format:check 通过；`bun test src/orchestrator.test.ts src/media/preprocessor.test.ts` 通过，28 pass / 0 fail。 |
 | 2026-07-08 | **文件上传懒加载语义修正**：按用户确认，除图片可即时 OCR 外，PDF/Word/Excel/text/audio/video 等非图片文件上传时只保存并登记 metadata/local_path，不自动读取、解析、OCR、总结、转写、转换或移动；保留 PDF/Office 文本提取库作为后续用户明确下指令时的按需能力。顺手修复按需解析器在 Bun 下加载 CJS `mammoth`/`xlsx` 的问题。自动验收：format/typecheck/lint/format:check 通过；目标测试 58 pass / 0 fail；全量 `bun test` 非沙箱通过，206 pass / 6 skip / 0 fail。 |
 | 2026-07-08 | **M10 加固与交付代码完成（待真机重启验证）**：新增启动状态对账 `reconcileRuntimeStatuses`，重启后 `starting/running→idle`、`closing→closed`；优雅关闭改为停入站→`flushAll`→停止 adapters→销毁模块→关闭 Bun SQL client，并加 15s 超时兜底；adapter crash 后单会话清理并回 idle；审批决议按 `conversationId:approvalId` 幂等；新增 PM2/systemd 示例和 README 部署说明；同步接口契约与 PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；全量 `bun test` 沙箱内因 `mammoth/xlsx` 动态依赖用例失败，按策略非沙箱重跑通过，209 pass / 7 skip / 0 fail。 |
+| 2026-07-08 | **环境画像增强完成**：用户在 VPS 宿主机 + PM2 部署跑通后反馈原环境快照噪音高且缺 Docker/PM2/媒体目录等运维事实；`collectEnvironmentFacts` 改为按 OS 自适应的 VPS 运维画像，Linux 记录 runtime/shell、AI CLI、PM2、Docker/Compose、Postgres 工具、监听端口、默认目录、媒体目录状态与清理提示，不再写 PowerShell 噪音；新增 `/env` 刷新并查看 `env.*` 快照；同步记忆设计/命令 UX/实施计划/PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 均通过；沙箱内全量 `bun test` 受 `mammoth/xlsx` 动态依赖影响出现 2 个媒体解析用例失败，非沙箱全量 `bun test` 通过（211 pass / 7 skip / 0 fail）。 |
 
 ---
 

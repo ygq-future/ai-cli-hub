@@ -26,6 +26,7 @@ export interface CoreHubOptions {
   handler?: MessageHandler
   commandRouter?: CommandRouter
   getUserLanguage?: (userId: string) => 'zh' | 'en'
+  refreshEnvironmentSnapshot?: () => Promise<void>
   resolveCwd?: (
     cwd: string,
   ) =>
@@ -51,6 +52,7 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
       sessionManager,
       getUserLanguage: opts.getUserLanguage,
       resolveCwd: opts.resolveCwd,
+      refreshEnvironmentSnapshot: opts.refreshEnvironmentSnapshot,
     })
 
   // MessageRouter：消息路由 + handler 处理（M6 由 orchestrator 注入真实 adapter 驱动）
