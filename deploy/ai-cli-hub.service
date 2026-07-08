@@ -1,0 +1,18 @@
+[Unit]
+Description=AI CLI Remote Control Hub
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aihub
+WorkingDirectory=/opt/ai-cli-hub
+EnvironmentFile=/opt/ai-cli-hub/.env
+ExecStart=/usr/bin/env bun run start
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

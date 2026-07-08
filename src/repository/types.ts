@@ -31,6 +31,8 @@ export interface ConversationRepository {
   listOpenByUser(userId: string): Promise<Conversation[]>
   listRecentByUser(userId: string, limit: number): Promise<Conversation[]>
   updateStatus(id: ConversationId, status: SessionStatus): Promise<void>
+  /** 进程重启对账：starting/running 复位 idle，closing 收尾 closed；运行期 adapter 无法恢复。 */
+  reconcileRuntimeStatuses(now: number): Promise<void>
   /** 归档扫描：updatedAt < beforeTs 的 idle 会话。 */
   listStaleIdle(beforeTs: number): Promise<Conversation[]>
 }

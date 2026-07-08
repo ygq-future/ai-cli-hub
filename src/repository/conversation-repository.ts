@@ -2,7 +2,7 @@
  * ConversationRepository —— Drizzle 实现（docs/03 §5 / docs/04 §3）。
  * 唯一允许出现 SQL/Drizzle 查询的层。
  */
-import { and, desc, eq, lt, ne } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt, ne } from 'drizzle-orm'
 import type { Db } from '../storage'
 import { conversations } from '../storage/schema'
 import type {
@@ -74,6 +74,17 @@ export function createConversationRepository(db: Db): ConversationRepository {
     async updateStatus(id: ConversationId, status: SessionStatus): Promise<void> {
       // 状态变更即应用写入，同步 updatedAt —— 支撑归档扫描「idle 起始时间」语义。
       await db.update(conversations).set({ status, updatedAt: Date.now() }).where(eq(conversations.id, id))
+    },
+
+    async reconcileRuntimeStatuses(now: number): Promise<void> {
+      await db
+        .update(conversations)
+        .set({ status: 'idle', updatedAt: now })
+        .where(inArray(conversations.status, ['starting', 'running']))
+      await db
+        .update(conversations)
+        .set({ status: 'closed', updatedAt: now })
+        .where(eq(conversations.status, 'closing'))
     },
 
     async listStaleIdle(beforeTs: number): Promise<Conversation[]> {

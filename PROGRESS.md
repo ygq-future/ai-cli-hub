@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-08 · 阶段：**M9（文件懒加载 + 图片 Light OCR 接入完成；Vision 暂缓）**
+> 最后更新：2026-07-08 · 阶段：**M10（加固与交付进行中）**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **M9 — 媒体/文件入站 + Light OCR 接入**（代码完成，待真机复测） |
-| 代码 | ✅ emoji 归一化 / sticker metadata / Telegram 可下载文件保存 / 非图片文件懒加载 / 图片 Light OCR / 按需 PDF/Office 文本提取能力已保留 |
-| 文档 | ✅ M9-D Vision 标注为暂缓；文件懒加载语义、PDF/Office 按需解析库与 Light OCR API 配置已记录 |
+| 当前里程碑 | **M10 — 加固与交付**（代码完成，待全量验收/真机重启验证） |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 flushAll+adapter stop+DB close / adapter crash 状态回 idle / 审批决议幂等 / PM2+systemd 示例 |
+| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约同步 |
 | 阻塞项 | 无 |
-| 下一步 | 真机复测 M9；如需启用 OCR，配置 `OCR_API_BASE_URL` 指向 Light OCR 服务；Vision 放到 V1 后优化 |
+| 下一步 | 真机验证 SIGTERM/PM2 或 systemd 重启无脏状态 |
 
 ---
 
@@ -34,7 +34,7 @@
 | M7 | Audit 落地 | ✅ 完成 | Human Approval 审计 + `/audit [conversationId]` 查看 |
 | M8 | 全局记忆基础 | ✅ | 环境快照记忆、adapter start 全局注入、`/remember`、`/memory`/`/forget`、记忆变更后下一条消息实时加载已落地 |
 | M9 | 媒体/文件入站 + Light OCR 接入 | ✅ | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、PDF/Office 按需解析能力保留；Vision 暂缓 |
-| M10 | 加固与交付 | ⬜ | 优雅关闭 / 故障隔离 / 部署 |
+| M10 | 加固与交付 | 🟡 | 启动状态对账、优雅关闭、adapter 故障隔离、审批幂等、PM2/systemd 部署示例已完成；自动验收通过，待真机重启验证 |
 | V1.5 | 记忆增强（pgvector） | ⬜ | 非 V1 阻塞项 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
@@ -91,111 +91,32 @@
 | D42 | **Telegram 可下载文件/附件默认保存，不做文件类型白名单**：白名单用户已经是信任边界；Transport 对 Telegram `photo/document/audio/voice/video/video_note/animation` 均下载到 `MEDIA_DOWNLOAD_DIR` 并传入文件预处理；TG 任意普通文件统一走 `document`，跨 Transport/未知来源可归为 `other`。保留 `MEDIA_MAX_FILE_BYTES` 与 `MEDIA_PARSE_TIMEOUT_MS` 作为资源保护，不按扩展名或 MIME 拦截。音视频第一版只保存与记录 metadata，不做转写或内容理解。 | 2026-07-08 |
 | D43 | **拒绝工具审批后丢弃当前 adapter 上下文**：Reject 表示当前工具路径不应继续，orchestrator 在 `interrupt()+resolve reject` 后停止该会话 adapter；下一条普通消息会重新 start，并通过最近上下文带回已入库的最新文件 metadata/local_path，避免 Claude 留在上一轮 `.doc`/工具失败语境里继续误判。 | 2026-07-08 |
 | D44 | **文件上传采用懒加载，只有图片即时 OCR**：上传文件只保存到 `MEDIA_DOWNLOAD_DIR` 并把 metadata/local_path 放入上下文；PDF/Word/Excel/text/audio/video 等非图片文件不在上传时提取正文、OCR、总结、转写、转换或移动，不消耗正文 prompt token，也不触发工具；用户明确要求读取/总结/转换/移动时才按 local_path 处理。图片/photo 仍可即时 OCR，因为其主要输入就是视觉文本。 | 2026-07-08 |
+| D45 | **进程重启后运行期状态不可恢复，必须对账回持久安全状态**：启动时将 `starting/running` conversation 复位为 `idle`，将残留 `closing` 收尾为 `closed`；审批挂起与 SDK query 都是内存态，不尝试跨进程恢复。优雅关闭顺序固定为停入站→flush 聚合草稿→停止 adapter→销毁模块→关闭 DB。 | 2026-07-08 |
 
 ---
 
 ## 4. 下一步行动（Next Actions）
 
-**M6b — 会话管理命令 & 生产级加固**（当前）：
+**M10 — 加固与交付**（当前）：
 
-状态：**M6b 已完成；自动验收与真机复测均通过**。
-
-### 变更清单
-
-**会话管理命令**（`transport/telegram/telegram-transport.ts` + 新增 `core/commands.ts`）：
-1. 新增 `/close` —— 关闭当前会话（SessionClosed → db closed → 清理 adapter）
-2. 新增 `/new` —— 强制开新会话（旧 closed，新 idle → SessionCreated）
-3. 新增 `/status` —— 显示当前会话状态 + id + 存活时长
-4. 新增 `/sessions` —— 列出该用户最近 10 条历史会话（状态/日期/cwd）
-5. 新增 `/cwd` —— 查看或切换当前用户目标 cwd；切换时关闭当前会话，不创建新会话
-
-**重启映射修复**（`core/session-manager.ts` + `transport/telegram/telegram-transport.ts`）：
-6. `findOrCreate` 复用分支发射 `SessionMapped` 事件（D14）
-7. Transport 订阅 `SessionMapped` + `SessionCreated` 同一 handler 更新 convChat；订阅 `UserTargetChanged` 更新 `/cwd` 目标
-
-**审批整轮取消**（`core/commands.ts` + `orchestrator.ts` + `cli/base.ts`）：
-8. `CLIAdapter` 接口加 `interrupt(): void`
-9. `ClaudeSdkAdapter.start` 存 `query` 引用；`interrupt()`→ `query.interrupt()`
-10. orchestrator `ApprovalRejected` 订阅调 `adapter.interrupt()` 停止当前 query
-
-**语言偏好**（`transport/telegram/` + `orchestrator.ts` + `cli/base.ts`）：
-11. Transport 维持 `userLang: Map<userId, 'zh'|'en'>`；`/lang <zh|en>` 切换；默认 `zh`
-12. `CLIAdapter.StartOptions` 加 `systemLanguageHint?: string`
-13. orchestrator `ensureAdapter` 查 lang 并注入到 `adapter.start({ systemLanguageHint })`
-14. `ClaudeSdkAdapter.start` 将 `systemLanguageHint` 作为首条 system 消息喂入
-
-**后端逻辑**：
-15. 新增 `core/commands.ts` 导出 `CommandRouter`——区分系统命令与普通文本
-16. `MessageRouter` 处理 `/` 开头消息时先走 `CommandRouter`
-17. `main.ts` 装配 CommandRouter→注入 CoreHub/router；`resolveCwd` 在 Composition Root 做真实目录校验
-
-### 验收
-
-- 自动验收：`bun run format` ✅ · `bun run typecheck` ✅ · `bun run lint` ✅ · `bun test` ✅（158 pass / 6 skip / 0 fail）
-- 真机复测重点（已完成）：
-  ① `/status`→显示完整 conversationId 和目标 cwd → `/close`→会话 closed → 再发消息→新建会话 → `/new`→旧 closed、新 idle
-  ② 重启服务后发消息→回复正常落地（SessionMapped 修复）
-  ③ 审批点 Reject→整轮停止（不弹第二卡）
-  ④ `/lang zh`→中文回复；`/lang en`→英文回复
-  ⑤ Windows 路径显示保留反斜杠；thinking / `</think>` 不再出现在 Telegram
-  ⑥ 长回复不再触发 `message is too long`；`/status` 显示 Language；`/new [cwd]` 后普通消息进入新 cwd；内部 skill/system-role 文本不再泄露
-  ⑦ `ls -la /d/` 等只读 Bash 不弹审批；Markdown 表格不再以管道表原样显示；debug raw JSON 不再输出高频 `thinking_tokens`；Claude Code skill harness 泄露到 text block 时会清洗
-  ⑧ 含 Windows 路径的回复仍启用 MarkdownV2（粗体/行内代码正常渲染），路径展示为 `D:/...`
-  ⑨ 要求新建/修改文件时，未实际调用工具不得声称已完成
-  ⑩ 新开的 Claude SDK 会话复用宿主 Claude CLI 认证来源，但不加载宿主 plugins/skills/hooks/MCP；Ctrl+C/bun watch 重启时等待 adapter.stop 完成
-  ⑪ 查询/写入等工具调用不再把 `Bash(...)` / `Write(...)` / 工具返回原文发给 Telegram，只展示最终自然语言结果；审批卡照常显示
-  ⑫ `/new` 后旧会话 `closed` 且旧 Claude SDK 运行时经 `SessionClosed` 立即 stop；已启动 CLI/adapter 空闲 `AGENT_IDLE_TIMEOUT_MS`（默认 5 分钟）后自动 stop 并把当前会话标回 `idle`
-  ⑬ `/close` 后首条普通消息必须 `SessionCreated`，不得 `SessionMapped` 到更旧 idle；若 Claude Code 宿主 `# Safety/# Memory/# Active background agents` 前缀泄漏到 text block，展示层清洗后只保留最终回复
-  ⑭ `/cwd` 无参数只查看目标目录；`/cwd <path>` 校验绝对存在目录，关闭当前会话并切换目标，下一条消息在新 cwd 新建
-  ⑮ `/new codex ...` / `/new gemini ...` 在 Adapter 未接入前返回不支持；未知 cli 不得被静默当成 cwd
-  ⑯ `hello` 这类首轮回复不得在 TG 展示 `Wait for all results... </system-reminder>`；debug raw result 不打印完整 `result.result`
-
-**M7 — Audit 落地**：
-
-状态：**M7 已完成；自动验收通过**。
+状态：**代码完成；待最终全量验收与真机重启验证**。
 
 ### 变更清单
 
-1. 新增 `src/audit/`：订阅 `ApprovalRequested` 缓存 `command/detail`；订阅 `ApprovalApproved/Rejected` 写 `AuditRepository.record`
-2. 审计记录包含 `approvalId`、工具/命令名、请求详情、operator、approve/reject、createdAt；不改变 conversation status
-3. 新增 `/audit [conversationId]`：无参数查看当前会话；带完整 ID 或短前缀查看指定会话最近审批记录；仅允许查看当前用户自己的会话
-4. Telegram `/help` 增加 `/audit`
-5. 依赖矩阵新增 `audit/`：只允许依赖 `event/`、`repository/`、`shared/`
-6. `AGENTS.md` / `CLAUDE.md` 新增 Windows 大小写不敏感注意事项，禁止创建会撞 `PROGRESS.md` 的临时记录文件
+1. `ConversationRepository.reconcileRuntimeStatuses(now)`：服务启动时将 `starting/running` 复位为 `idle`，将残留 `closing` 收尾为 `closed`。
+2. `main.ts` 启动阶段执行状态对账，避免进程重启后 DB 仍以为 adapter 存活。
+3. `MessageAggregator.flushAll()`：优雅关闭时先定稿所有会话草稿，再销毁定时器。
+4. `main.ts` shutdown 链路收口为：停 Transport 入站 → `flushAll()` → stop 全部 adapter → destroy memory/audit/aggregator/core → `closeDb()`；整体 15s 超时兜底。
+5. `storage.closeDb()` 调用 Bun SQL client `close()`，释放数据库连接池。
+6. adapter `onExit` 时 flush 当前会话、清理 entry，并把非 `closed/closing` conversation 标回 `idle`；单会话 crash 不影响其它会话。
+7. orchestrator 对 `conversationId:approvalId` 做审批决议幂等，重复 Approve/Reject 或混合重复回调只处理第一次。
+8. 新增 `deploy/pm2.config.cjs` 与 `deploy/ai-cli-hub.service`，README 增加本地运行、配置、PM2/systemd 部署与重启说明。
+9. 同步 `docs/03-Interface-Contracts.md` 的 Aggregator/Repository 契约。
 
-### 验收
+### 待验收
 
-- 自动验收：`bun run format` ✅ · `bun run typecheck` ✅ · `bun run lint` ✅ · `bun test` ✅（163 pass / 6 skip / 0 fail）
-
-**M8 — 全局记忆基础**：
-
-状态：**M8 代码完成；待真机复测**。
-
-### 变更清单
-
-1. 新增真实 `memory/` 模块：启动时按稳定 `tag` 幂等 upsert 环境快照，默认 `namespace='global'`
-2. 环境快照包含 OS、hostname、shell 推断、服务 cwd、`DEFAULT_CWD`、Bun、Node、PowerShell、Bash、已接入 CLI、路径风格
-3. `main.ts` 启动时创建 MemoryModule；`SessionOrchestrator` 在 adapter start 前注入全局记忆上下文
-4. 全局记忆注入只取 `conversation_id IS NULL` 的实例级全局记忆；`MEMORY_RECALL_TOP_K` 不限制这部分
-5. 新增 `/remember <text>`：显式写入实例级全局记忆；默认 semantic，支持 `preference:` / `偏好:` 前缀写 preference
-6. 新增 `/memory`：查看实例级全局记忆；Markdown 列表每条仅展示短 ID、namespace 与 content
-7. 新增 `/forget <id>`：删除实例级全局记忆；支持唯一短前缀，不唯一时拒绝删除
-8. Telegram `/help` 增加 `/remember`、`/memory`、`/forget`
-9. `/remember` 或 `/forget` 后通过 `MemoryUpdated.operatorUserId` 停止该用户已启动 adapter；conversation 不关闭，下一条普通消息重新启动并注入最新记忆
-10. Adapter 刚启动时，下一条 user message 前缀携带当前 conversation 最近 10 条历史消息，避免 `/remember` 后重启导致上一轮语境丢失
-11. 新增 `AGENT_DESCRIPTION` 环境变量，用于 system hint 中的 Agent 职责定位
-12. `DEBUG_AGENT_SDK_JSON=true` 时同时开启 orchestrator 诊断日志：`adapterStarted`、`sendUserInput`、`turnTimeout`，用于定位 SDK init 后无输出/无审批/无错误的卡住点
-
-### 验收
-
-- 自动验收：`bun run format` ✅ · `bun run typecheck` ✅ · `bun run lint` ✅ · `bun run format:check` ✅ · `bun test` ✅（178 pass / 6 skip / 0 fail）
-
-**M9 — 媒体/文件入站 + Light OCR 接入**：
-- **M9-A emoji 文本归一化**：识别 Unicode emoji，补充 short name/keywords 作为文本上下文；不走 OCR
-- **M9-B Telegram sticker/custom emoji metadata**：解析 `emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`；第一版不做画面理解
-- **M9-C 文件/附件入站 + 懒加载/按需解析**：Telegram `photo/document/audio/voice/video/video_note/animation` 入站，任意普通文件统一走 `document`，未知来源可归为 `other`；下载到受控目录；记录 metadata/local_path、大小/类型/超时限制；除图片外，PDF/Word/Excel/text/audio/video 上传时不自动读取、解析、OCR、总结、转写、转换或移动；用户明确要求处理时，再按 local_path 使用 `pdf-parse`、`mammoth`、`xlsx` 等按需能力；旧 `.doc` 不支持并提示转换
-- **M9-C 图片 OCR**：图片/photo 上传时可调用 `OcrProvider` 抽象；配置 `OCR_API_BASE_URL` 后通过 Light OCR `POST /ocr/file` 识别；PDF 属于非图片文件，上传时不自动 OCR
-- **M9-D Vision 暂缓**：static sticker/thumbnail Vision、animated/video sticker 抽帧与画面理解全部移到 V1 后优化迭代
+- 自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun test`。
+- 真机验证：PM2 或 systemd 下 `SIGTERM`/restart 后可继续对话；重启前 `running/starting/closing` 残留状态被正确对账；重复点击审批按钮不重复执行。
 
 ---
 
@@ -258,6 +179,7 @@
 | 2026-07-08 | **M9 Telegram 音频未保存修复**：定位原因为 Transport 只处理 `photo/document`，Telegram `audio` 消息不在下载分支内；扩展共享附件 kind 与 Telegram 入站逻辑，对 `photo/document/audio/voice/video/video_note/animation` 均保存到 `MEDIA_DOWNLOAD_DIR`，并补 `other` 作为未知来源兜底；TG 任意普通文件仍由 `document` 承载；不做文件类型白名单，保留大小/超时资源限制。同步 PRD/实施计划/命令 UX/PROGRESS。自动验收：format/typecheck/lint/format:check 通过；`bun test src/transport/telegram/telegram-transport.test.ts` 通过，26 pass / 0 fail；全量 `bun test` 沙箱内仍因 `mammoth`/`xlsx` 动态 import 失败（203 pass / 6 skip / 2 fail），非沙箱重跑请求因审批通道异常未执行。 |
 | 2026-07-08 | **文件上下文粘连修复**：针对真机出现“docx 已提取但 Claude 仍抓上一轮 .doc 不放”的问题，问题在 Reject 后 adapter 未重启导致坏工具/旧文件语境残留；改为审批 Reject 后停止当前 adapter，下一条消息重新 start 并带最近上下文。该阶段仍使用过 `extracted_text` 直入上下文，随后已由 D44 修正为非图片文件懒加载 metadata/local_path。自动验收：format/typecheck/lint/format:check 通过；`bun test src/orchestrator.test.ts src/media/preprocessor.test.ts` 通过，28 pass / 0 fail。 |
 | 2026-07-08 | **文件上传懒加载语义修正**：按用户确认，除图片可即时 OCR 外，PDF/Word/Excel/text/audio/video 等非图片文件上传时只保存并登记 metadata/local_path，不自动读取、解析、OCR、总结、转写、转换或移动；保留 PDF/Office 文本提取库作为后续用户明确下指令时的按需能力。顺手修复按需解析器在 Bun 下加载 CJS `mammoth`/`xlsx` 的问题。自动验收：format/typecheck/lint/format:check 通过；目标测试 58 pass / 0 fail；全量 `bun test` 非沙箱通过，206 pass / 6 skip / 0 fail。 |
+| 2026-07-08 | **M10 加固与交付代码完成（待真机重启验证）**：新增启动状态对账 `reconcileRuntimeStatuses`，重启后 `starting/running→idle`、`closing→closed`；优雅关闭改为停入站→`flushAll`→停止 adapters→销毁模块→关闭 Bun SQL client，并加 15s 超时兜底；adapter crash 后单会话清理并回 idle；审批决议按 `conversationId:approvalId` 幂等；新增 PM2/systemd 示例和 README 部署说明；同步接口契约与 PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；全量 `bun test` 沙箱内因 `mammoth/xlsx` 动态依赖用例失败，按策略非沙箱重跑通过，209 pass / 7 skip / 0 fail。 |
 
 ---
 

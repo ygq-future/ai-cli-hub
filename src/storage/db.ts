@@ -16,3 +16,8 @@ export type Db = ReturnType<typeof createDb>
 export function createDb(url: string) {
   return drizzle(url, { schema })
 }
+
+/** 关闭 Bun SQL 连接池；优雅关闭链路最后调用。 */
+export async function closeDb(db: Db): Promise<void> {
+  await db.$client.close({ timeout: 1 })
+}

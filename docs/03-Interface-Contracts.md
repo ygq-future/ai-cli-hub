@@ -244,6 +244,10 @@ export interface MessageAggregator {
   push(conversationId: ConversationId, chunk: string): void;
   // 强制冲刷（会话结束/审批前）
   flush(conversationId: ConversationId): void;
+  // 优雅关闭前冲刷所有会话草稿
+  flushAll(): void;
+  // 清理定时器和内存状态；调用前应先 flushAll()
+  destroy(): void;
 }
 
 export interface AggregatorConfig {
@@ -271,6 +275,8 @@ export interface ConversationRepository {
   listOpenByUser(userId: string): Promise<Conversation[]>;
   listRecentByUser(userId: string, limit: number): Promise<Conversation[]>;
   updateStatus(id: ConversationId, status: SessionStatus): Promise<void>;
+  // 进程重启对账：starting/running 复位 idle，closing 收尾 closed。
+  reconcileRuntimeStatuses(now: number): Promise<void>;
   listStaleIdle(beforeTs: number): Promise<Conversation[]>; // 归档扫描
 }
 

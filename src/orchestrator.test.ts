@@ -184,6 +184,25 @@ describe('SessionOrchestrator', () => {
     agg.destroy()
   })
 
+  test('审批决议幂等：重复回调只处理第一次', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
+
+    await orch.handler.onMessage('do', CID)
+    bus.emit('ApprovalApproved', { conversationId: CID, approvalId: 'a1', operator: 'u1' })
+    bus.emit('ApprovalApproved', { conversationId: CID, approvalId: 'a1', operator: 'u1' })
+    bus.emit('ApprovalRejected', { conversationId: CID, approvalId: 'a1', operator: 'u1' })
+
+    expect(fake.calls.resolveApproval).toEqual([['a1', 'approve']])
+    expect(fake.calls.interrupt).toBe(0)
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
   test('ApprovalRejected 后下一条消息重启 adapter 并带最近上下文', async () => {
     const fake = createFakeAdapter()
     const bus = createEventBus()
@@ -429,6 +448,25 @@ describe('SessionOrchestrator', () => {
 
     expect(fake.calls.stop).toBe(1)
     expect(getStatus()).toBe('idle')
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('adapter 异常退出 → 清理本会话并把非关闭状态标回 idle', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos, getStatus } = createFakeRepos('/work', 'running')
+    const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
+
+    await orch.handler.onMessage('one', CID)
+    fake.emitExit({ code: 1, reason: 'crash' })
+    await tick()
+    await orch.handler.onMessage('two', CID)
+
+    expect(getStatus()).toBe('idle')
+    expect(fake.calls.start.length).toBe(2)
 
     await orch.destroy()
     agg.destroy()

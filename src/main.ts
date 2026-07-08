@@ -13,7 +13,7 @@ import path from 'node:path'
 import { createEventBus } from './event'
 import { loadConfig } from './config'
 import { createLogger, attachEventLogger } from './logger'
-import { createDb } from './storage'
+import { closeDb, createDb } from './storage'
 import { createRepositories } from './repository'
 import { createCoreHub } from './core'
 import { createMessageAggregator } from './core'
@@ -39,6 +39,7 @@ async function main() {
 
   // —— 4. Repositories ——
   const repos = createRepositories(db)
+  await repos.conversations.reconcileRuntimeStatuses(Date.now())
 
   // —— 5. Audit（审批事件旁路落库）——
   const approvalAudit = createApprovalAudit({ bus, audit: repos.audit })
@@ -100,13 +101,21 @@ async function main() {
     shuttingDown = true
     logger.info('收到关闭信号，优雅关闭...')
     try {
-      await transport.stop()
-      await orch.destroy()
-      memory.destroy()
-      approvalAudit.destroy()
-      await aggregator.destroy()
-      await coreHub.destroy()
-      detachLogger()
+      await withTimeout(
+        (async () => {
+          await transport.stop()
+          aggregator.flushAll()
+          await orch.destroy()
+          memory.destroy()
+          approvalAudit.destroy()
+          aggregator.destroy()
+          await coreHub.destroy()
+          await closeDb(db)
+          detachLogger()
+        })(),
+        15_000,
+        'shutdown',
+      )
       logger.info('已关闭')
       process.exit(0)
     } catch (err) {
@@ -123,6 +132,20 @@ async function main() {
 
   // 主进程保持存活（transport.start() 只启 bot，不阻塞；此处挂起防 main 退出）
   await new Promise(() => {})
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 function resolveCwd(raw: string): { ok: true; cwd: string } | { ok: false; message: string } {

@@ -185,6 +185,23 @@ describe('MessageAggregator', () => {
     agg.destroy()
   })
 
+  test('flushAll：优雅关闭前定稿所有会话草稿', () => {
+    const bus = createEventBus()
+    const events = capture(bus)
+    const agg = createMessageAggregator(bus, { debounceMs: 100, minEditIntervalMs: 0, maxChunkChars: 100 })
+    const c2 = 'conv-2' as ConversationId
+
+    agg.push(CID, 'A')
+    agg.push(c2, 'B')
+    agg.flushAll()
+
+    expect(events).toEqual([
+      { conversationId: CID, content: 'A', final: true },
+      { conversationId: c2, content: 'B', final: true },
+    ])
+    agg.destroy()
+  })
+
   test('destroy：清定时器，之后无迟到 emit', async () => {
     const bus = createEventBus()
     const events = capture(bus)

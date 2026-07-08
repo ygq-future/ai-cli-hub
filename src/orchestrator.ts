@@ -72,6 +72,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
 
   const entries = new Map<ConversationId, AdapterEntry>()
   const globalUnsubs: Unsubscribe[] = []
+  const resolvedApprovals = new Set<string>()
 
   function diag(event: string, data: Record<string, unknown>) {
     if (!debugDiagnostics) return
@@ -152,6 +153,21 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     }
   }
 
+  async function markConversationIdleAfterAdapterExit(cid: ConversationId) {
+    try {
+      const conv = await repos.conversations.findById(cid)
+      if (conv && conv.status !== 'closed' && conv.status !== 'closing') {
+        await repos.conversations.updateStatus(cid, 'idle')
+      }
+    } catch (err) {
+      reportError('orchestrator:adapterExit', err, cid)
+    }
+  }
+
+  function approvalKey(conversationId: ConversationId, approvalId: string): string {
+    return `${conversationId}:${approvalId}`
+  }
+
   /** 懒启动该会话的 adapter 并接线；已存在则复用。 */
   async function ensureAdapter(cid: ConversationId): Promise<EnsureAdapterResult | null> {
     const existing = entries.get(cid)
@@ -211,6 +227,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
         clearTurnTimer(entry)
         aggregator.flush(cid)
         cleanupEntry(cid)
+        void markConversationIdleAfterAdapterExit(cid)
       }),
     )
 
@@ -311,6 +328,9 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   // 审批决议：路由回对应会话的 adapter
   globalUnsubs.push(
     bus.on('ApprovalApproved', p => {
+      const key = approvalKey(p.conversationId, p.approvalId)
+      if (resolvedApprovals.has(key)) return
+      resolvedApprovals.add(key)
       const entry = entries.get(p.conversationId)
       if (!entry) return
       resetIdleTimer(p.conversationId, entry)
@@ -319,6 +339,9 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   )
   globalUnsubs.push(
     bus.on('ApprovalRejected', p => {
+      const key = approvalKey(p.conversationId, p.approvalId)
+      if (resolvedApprovals.has(key)) return
+      resolvedApprovals.add(key)
       const entry = entries.get(p.conversationId)
       if (!entry) return
       resetIdleTimer(p.conversationId, entry)

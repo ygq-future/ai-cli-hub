@@ -11,7 +11,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { migrate } from 'drizzle-orm/bun-sql/migrator'
 import { eq, inArray } from 'drizzle-orm'
-import { createDb, type Db } from '../src/storage'
+import { closeDb, createDb, type Db } from '../src/storage'
 import { auditLogs, conversations, memories } from '../src/storage/schema'
 import { createRepositories, type Repositories } from '../src/repository'
 import type { ConversationId } from '../src/shared'
@@ -19,6 +19,8 @@ import type { ConversationId } from '../src/shared'
 const url = process.env.TEST_DATABASE_URL
 
 const cid = crypto.randomUUID() as string as ConversationId
+const startingCid = crypto.randomUUID() as string as ConversationId
+const closingCid = crypto.randomUUID() as string as ConversationId
 const now = Date.now()
 const testNamespace = `test-${crypto.randomUUID()}`
 
@@ -36,7 +38,8 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     // 清理本测试插入的数据（audit 无级联，先删；其余随 conversation 级联/置空）。
     await db.delete(auditLogs).where(inArray(auditLogs.conversationId, [cid]))
     await db.delete(memories).where(inArray(memories.conversationId, [cid]))
-    await db.delete(conversations).where(inArray(conversations.id, [cid]))
+    await db.delete(conversations).where(inArray(conversations.id, [cid, startingCid, closingCid]))
+    await closeDb(db)
   })
 
   test('ConversationRepository：create → findById → findActive → updateStatus → listStaleIdle', async () => {
@@ -64,6 +67,34 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
 
     const stale = await repos.conversations.listStaleIdle(Date.now() + 1_000)
     expect(stale.some(c => c.id === cid)).toBe(true)
+  })
+
+  test('ConversationRepository：reconcileRuntimeStatuses 重启对账运行期状态', async () => {
+    await repos.conversations.create({
+      id: startingCid,
+      platform: 'telegram',
+      userId: 'u-int',
+      cli: 'claude',
+      cwd: '/tmp/reconcile-starting',
+      status: 'starting',
+      createdAt: now,
+      updatedAt: now,
+    })
+    await repos.conversations.create({
+      id: closingCid,
+      platform: 'telegram',
+      userId: 'u-int',
+      cli: 'claude',
+      cwd: '/tmp/reconcile-closing',
+      status: 'closing',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    await repos.conversations.reconcileRuntimeStatuses(now + 1_000)
+
+    expect((await repos.conversations.findById(startingCid))?.status).toBe('idle')
+    expect((await repos.conversations.findById(closingCid))?.status).toBe('closed')
   })
 
   test('MessageRepository：append → listByConversation（时间正序）', async () => {

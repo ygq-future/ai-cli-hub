@@ -30,6 +30,79 @@ This project acts as an intelligent "Session Manager", allowing you to interact 
 
 ---
 
+## 🚀 Run Locally
+
+```bash
+bun install
+bun run db:migrate
+bun run dev
+```
+
+Production start:
+
+```bash
+bun run start
+```
+
+Useful checks:
+
+```bash
+bun run format:check
+bun run typecheck
+bun run lint
+bun test
+```
+
+---
+
+## 🧩 Required Configuration
+
+Copy `.env.example` to `.env` and fill in at least:
+
+- `DATABASE_URL`: Postgres connection string.
+- `TELEGRAM_BOT_TOKEN`: Telegram bot token.
+- `WHITELIST_USER_IDS`: comma-separated Telegram user ids allowed to control the hub.
+- `DEFAULT_CWD`: default workspace directory for new sessions.
+- `AGENT_DESCRIPTION`: optional role hint injected when the adapter starts.
+- `OCR_API_BASE_URL`: optional Light OCR API base URL; leave empty to disable image OCR.
+
+All environment variables are parsed only by `src/config/`.
+
+---
+
+## 🏗 VPS Deployment
+
+### PM2
+
+```bash
+bun install
+bun run db:migrate
+pm2 start deploy/pm2.config.cjs
+pm2 logs ai-cli-hub
+pm2 save
+```
+
+Restart after updating code:
+
+```bash
+pm2 restart ai-cli-hub
+```
+
+### systemd
+
+The sample unit is in `deploy/ai-cli-hub.service`. Adjust `User`, `WorkingDirectory`, and `EnvironmentFile` for your VPS path, then install it:
+
+```bash
+sudo cp deploy/ai-cli-hub.service /etc/systemd/system/ai-cli-hub.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now ai-cli-hub
+sudo journalctl -u ai-cli-hub -f
+```
+
+The process handles `SIGTERM` by stopping Telegram ingress, flushing message drafts, stopping active adapters, destroying modules, and closing the Bun SQL client. On startup, runtime-only conversation states left by a previous process are reconciled back to persisted-safe states.
+
+---
+
 ## 📂 Project Structure
 
 The project strictly follows a decoupled architectural pattern:
