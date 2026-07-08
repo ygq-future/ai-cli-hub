@@ -64,7 +64,7 @@ describe('memory module', () => {
     const firstCount = memories.length
     await createMemoryModule({ bus, repos, config: CONFIG })
 
-    expect(firstCount).toBeGreaterThanOrEqual(8)
+    expect(firstCount).toBeGreaterThanOrEqual(7)
     expect(memories.length).toBe(firstCount)
     expect(memories.some(m => m.tag === 'env.os')).toBe(true)
     expect(memories.some(m => m.tag === 'env.default_cwd' && m.content.includes('D:/workspace/project'))).toBe(true)
@@ -82,9 +82,13 @@ describe('memory module', () => {
     expect(tags).toContain('env.container')
     expect(tags).toContain('env.service_manager')
     expect(tags).toContain('env.media')
+    expect(tags).not.toContain('env.network')
     expect(content).toContain('docker=')
     expect(content).toContain('pm2=')
     expect(content).toContain('MEDIA_DOWNLOAD_DIR=')
+    expect(content).not.toContain('docker containers=')
+    expect(content).not.toContain('listening tcp=')
+    expect(content).not.toContain(' disk=')
     if (process.platform !== 'win32') {
       expect(tags).not.toContain('env.powershell')
       expect(content).not.toContain('Windows PowerShell')

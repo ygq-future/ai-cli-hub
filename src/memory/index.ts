@@ -74,47 +74,23 @@ export async function upsertEnvironmentSnapshot(deps: MemoryModuleDeps, namespac
 export async function collectEnvironmentFacts(config: AppConfig): Promise<EnvironmentFact[]> {
   const isWindows = process.platform === 'win32'
   const mediaDir = path.resolve(config.MEDIA_DOWNLOAD_DIR)
-  const [
-    node,
-    bash,
-    zsh,
-    sh,
-    bunCli,
-    git,
-    claude,
-    codex,
-    gemini,
-    docker,
-    dockerCompose,
-    dockerPs,
-    pm2,
-    pm2Apps,
-    psql,
-    ss,
-    dfDefault,
-    dfMedia,
-    mediaInfo,
-  ] = await Promise.all([
-    probeCommand('node', ['--version']),
-    probeCommand('bash', ['--version'], firstLine),
-    probeCommand('zsh', ['--version'], firstLine),
-    probeCommand('sh', ['--version'], firstLine),
-    probeCommand('bun', ['--version']),
-    probeCommand('git', ['--version']),
-    probeCliAvailability('claude'),
-    probeCliAvailability('codex'),
-    probeCliAvailability('gemini'),
-    probeCommand('docker', ['--version']),
-    probeCommand('docker', ['compose', 'version']),
-    probeCommand('docker', ['ps', '--format', '{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'], summarizeLines),
-    probeCommand('pm2', ['--version']),
-    probeCommand('pm2', ['jlist'], summarizePm2Apps),
-    probeCommand('psql', ['--version']),
-    isWindows ? unavailable() : probeCommand('ss', ['-ltn'], summarizeListeningPorts),
-    isWindows ? unavailable() : probeCommand('df', ['-h', normalizePathForMemory(config.DEFAULT_CWD)], summarizeDf),
-    isWindows ? unavailable() : probeCommand('df', ['-h', mediaDir], summarizeDf),
-    inspectDirectory(mediaDir),
-  ])
+  const [node, bash, zsh, sh, bunCli, git, claude, codex, gemini, docker, dockerCompose, pm2, psql, mediaInfo] =
+    await Promise.all([
+      probeCommand('node', ['--version']),
+      probeCommand('bash', ['--version'], firstLine),
+      probeCommand('zsh', ['--version'], firstLine),
+      probeCommand('sh', ['--version'], firstLine),
+      probeCommand('bun', ['--version']),
+      probeCommand('git', ['--version']),
+      probeCliAvailability('claude'),
+      probeCliAvailability('codex'),
+      probeCliAvailability('gemini'),
+      probeCommand('docker', ['--version']),
+      probeCommand('docker', ['compose', 'version']),
+      probeCommand('pm2', ['--version']),
+      probeCommand('psql', ['--version']),
+      inspectDirectory(mediaDir),
+    ])
 
   const shells = [
     `bash=${bash.available ? bash.output : 'missing'}`,
@@ -150,11 +126,7 @@ export async function collectEnvironmentFacts(config: AppConfig): Promise<Enviro
     },
     {
       tag: 'env.default_cwd',
-      content: [
-        '环境画像：[工作目录]',
-        `DEFAULT_CWD=${normalizePathForMemory(config.DEFAULT_CWD)}`,
-        `DEFAULT_CWD disk=${dfDefault.available ? dfDefault.output : 'unknown'}`,
-      ].join('\n'),
+      content: ['环境画像：[工作目录]', `DEFAULT_CWD=${normalizePathForMemory(config.DEFAULT_CWD)}`].join('\n'),
     },
     {
       tag: 'env.cli',
@@ -165,7 +137,6 @@ export async function collectEnvironmentFacts(config: AppConfig): Promise<Enviro
       content: [
         '环境画像：[服务管理]',
         `pm2=${pm2.available ? `available (${pm2.output})` : 'missing'}`,
-        `pm2 apps=${pm2Apps.available ? pm2Apps.output : 'unknown'}`,
         isWindows
           ? 'systemd=not applicable on Windows'
           : 'systemd=available on most Linux hosts; current project prefers PM2 if pm2 exists',
@@ -177,14 +148,9 @@ export async function collectEnvironmentFacts(config: AppConfig): Promise<Enviro
         '环境画像：[容器与数据库]',
         `docker=${docker.available ? docker.output : 'missing'}`,
         `docker compose=${dockerCompose.available ? dockerCompose.output : 'missing'}`,
-        `docker containers=${dockerPs.available ? dockerPs.output : 'unknown'}`,
         `psql=${psql.available ? psql.output : 'missing'}`,
         `DATABASE_URL host=${summarizeDatabaseUrl(config.DATABASE_URL)}`,
       ].join('\n'),
-    },
-    {
-      tag: 'env.network',
-      content: ['环境画像：[网络与端口]', `listening tcp=${ss.available ? ss.output : 'unknown'}`].join('\n'),
     },
     {
       tag: 'env.media',
@@ -192,7 +158,6 @@ export async function collectEnvironmentFacts(config: AppConfig): Promise<Enviro
         '环境画像：[媒体目录]',
         `MEDIA_DOWNLOAD_DIR=${normalizePathForMemory(mediaDir)}`,
         `exists=${mediaInfo.exists}; writable=${mediaInfo.writable}; kind=${mediaInfo.kind}`,
-        `disk=${dfMedia.available ? dfMedia.output : 'unknown'}`,
         `limits=max_file_bytes=${config.MEDIA_MAX_FILE_BYTES}, parse_timeout_ms=${config.MEDIA_PARSE_TIMEOUT_MS}`,
         '清理提示：可按该目录 local_path 清理过久上传文件；清理前确认没有正在处理的会话引用。',
       ].join('\n'),
@@ -234,10 +199,6 @@ interface DirectoryProbe {
   exists: boolean
   writable: boolean
   kind: 'directory' | 'file' | 'missing' | 'other'
-}
-
-function unavailable(): Promise<ProbeResult> {
-  return Promise.resolve({ available: false, output: '' })
 }
 
 async function probeCliAvailability(name: string): Promise<ProbeResult> {
@@ -285,54 +246,6 @@ function firstLine(output: string): string {
   )
 }
 
-function summarizeLines(output: string): string {
-  const lines = output
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean)
-  if (lines.length === 0) return 'none'
-  return lines.slice(0, 8).join(' | ')
-}
-
-function summarizePm2Apps(output: string): string {
-  try {
-    const parsed = JSON.parse(output) as unknown
-    if (!Array.isArray(parsed)) return 'unrecognized'
-    if (parsed.length === 0) return 'none'
-    return parsed
-      .slice(0, 8)
-      .map(item => {
-        if (!isRecord(item)) return 'unknown'
-        const name = readString(item, 'name') ?? 'unknown'
-        const pid = readNumber(item, 'pid')
-        const pm2Env = isRecord(item.pm2_env) ? item.pm2_env : {}
-        const status = readString(pm2Env, 'status') ?? 'unknown'
-        const cwd = readString(pm2Env, 'pm_cwd')
-        return `${name}:${status}${pid !== undefined ? ` pid=${pid}` : ''}${cwd ? ` cwd=${normalizePathForMemory(cwd)}` : ''}`
-      })
-      .join(' | ')
-  } catch {
-    return firstLine(output)
-  }
-}
-
-function summarizeListeningPorts(output: string): string {
-  const ports = new Set<string>()
-  for (const line of output.split(/\r?\n/)) {
-    const match = line.match(/(?:\d+\.\d+\.\d+\.\d+|\[[^\]]+\]|\*|0\.0\.0\.0):(\d+)/)
-    if (match?.[1]) ports.add(match[1])
-  }
-  return ports.size > 0 ? Array.from(ports).slice(0, 20).join(',') : 'none'
-}
-
-function summarizeDf(output: string): string {
-  const lines = output
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean)
-  return lines[1] ?? lines[0] ?? ''
-}
-
 function summarizeDatabaseUrl(url: string): string {
   try {
     const parsed = new URL(url)
@@ -358,18 +271,4 @@ async function inspectDirectory(dir: string): Promise<DirectoryProbe> {
   } catch {
     return { exists: false, writable: false, kind: 'missing' }
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function readString(record: Record<string, unknown>, key: string): string | undefined {
-  const value = record[key]
-  return typeof value === 'string' ? value : undefined
-}
-
-function readNumber(record: Record<string, unknown>, key: string): number | undefined {
-  const value = record[key]
-  return typeof value === 'number' ? value : undefined
 }

@@ -92,7 +92,7 @@
 | D43 | **拒绝工具审批后丢弃当前 adapter 上下文**：Reject 表示当前工具路径不应继续，orchestrator 在 `interrupt()+resolve reject` 后停止该会话 adapter；下一条普通消息会重新 start，并通过最近上下文带回已入库的最新文件 metadata/local_path，避免 Claude 留在上一轮 `.doc`/工具失败语境里继续误判。 | 2026-07-08 |
 | D44 | **文件上传采用懒加载，只有图片即时 OCR**：上传文件只保存到 `MEDIA_DOWNLOAD_DIR` 并把 metadata/local_path 放入上下文；PDF/Word/Excel/text/audio/video 等非图片文件不在上传时提取正文、OCR、总结、转写、转换或移动，不消耗正文 prompt token，也不触发工具；用户明确要求读取/总结/转换/移动时才按 local_path 处理。图片/photo 仍可即时 OCR，因为其主要输入就是视觉文本。 | 2026-07-08 |
 | D45 | **进程重启后运行期状态不可恢复，必须对账回持久安全状态**：启动时将 `starting/running` conversation 复位为 `idle`，将残留 `closing` 收尾为 `closed`；审批挂起与 SDK query 都是内存态，不尝试跨进程恢复。优雅关闭顺序固定为停入站→flush 聚合草稿→停止 adapter→销毁模块→关闭 DB。 | 2026-07-08 |
-| D46 | **环境快照升级为按 OS 自适应的 VPS 运维画像**：Linux 不再记录 PowerShell 噪音，改为探测 OS/cwd/runtime/shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、监听端口、默认工作目录与媒体目录状态；`/env` 可手动刷新并查看 `env.*` 稳定 tag。所有 probe 短超时，失败只记 missing/unknown，不阻塞启动或对话。 | 2026-07-08 |
+| D46 | **环境快照升级为按 OS 自适应的 VPS 稳定画像**：Linux 不再记录 PowerShell 噪音，改为探测 OS/cwd/runtime/shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、默认工作目录与媒体目录可操作状态；不记录容器列表、端口、磁盘占用等高频变化状态，Agent 需要时自行实时查询。`/env` 可手动刷新并查看 `env.*` 稳定 tag。所有 probe 短超时，失败只记 missing/unknown，不阻塞启动或对话。 | 2026-07-08 |
 
 ---
 
@@ -105,10 +105,10 @@
 ### 本次增强清单
 
 1. `collectEnvironmentFacts` 从基础跨平台列表升级为按 OS 自适应的 VPS 运维画像。
-2. Linux 侧记录 runtime/shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、监听端口、默认工作目录、媒体目录状态与清理提示。
+2. Linux 侧记录 runtime/shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、默认工作目录、媒体目录可操作状态与清理提示。
 3. Linux 不再写入 PowerShell/Windows PowerShell 噪音；Windows 仅在实际存在时记录对应能力。
 4. 新增 `/env` 命令：刷新 `env.*` 稳定 tag 并返回当前环境快照。
-5. 媒体目录 `MEDIA_DOWNLOAD_DIR` 进入环境记忆，包含绝对路径、存在性、可写性、磁盘概况、文件大小/解析超时限制和清理提示。
+5. 媒体目录 `MEDIA_DOWNLOAD_DIR` 进入环境记忆，包含绝对路径、存在性、可写性、目录类型、文件大小/解析超时限制和清理提示；不缓存磁盘占用。
 
 ### 下一步候选
 
@@ -178,6 +178,7 @@
 | 2026-07-08 | **文件上传懒加载语义修正**：按用户确认，除图片可即时 OCR 外，PDF/Word/Excel/text/audio/video 等非图片文件上传时只保存并登记 metadata/local_path，不自动读取、解析、OCR、总结、转写、转换或移动；保留 PDF/Office 文本提取库作为后续用户明确下指令时的按需能力。顺手修复按需解析器在 Bun 下加载 CJS `mammoth`/`xlsx` 的问题。自动验收：format/typecheck/lint/format:check 通过；目标测试 58 pass / 0 fail；全量 `bun test` 非沙箱通过，206 pass / 6 skip / 0 fail。 |
 | 2026-07-08 | **M10 加固与交付代码完成（待真机重启验证）**：新增启动状态对账 `reconcileRuntimeStatuses`，重启后 `starting/running→idle`、`closing→closed`；优雅关闭改为停入站→`flushAll`→停止 adapters→销毁模块→关闭 Bun SQL client，并加 15s 超时兜底；adapter crash 后单会话清理并回 idle；审批决议按 `conversationId:approvalId` 幂等；新增 PM2/systemd 示例和 README 部署说明；同步接口契约与 PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；全量 `bun test` 沙箱内因 `mammoth/xlsx` 动态依赖用例失败，按策略非沙箱重跑通过，209 pass / 7 skip / 0 fail。 |
 | 2026-07-08 | **环境画像增强完成**：用户在 VPS 宿主机 + PM2 部署跑通后反馈原环境快照噪音高且缺 Docker/PM2/媒体目录等运维事实；`collectEnvironmentFacts` 改为按 OS 自适应的 VPS 运维画像，Linux 记录 runtime/shell、AI CLI、PM2、Docker/Compose、Postgres 工具、监听端口、默认目录、媒体目录状态与清理提示，不再写 PowerShell 噪音；新增 `/env` 刷新并查看 `env.*` 快照；同步记忆设计/命令 UX/实施计划/PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 均通过；沙箱内全量 `bun test` 受 `mammoth/xlsx` 动态依赖影响出现 2 个媒体解析用例失败，非沙箱全量 `bun test` 通过（211 pass / 7 skip / 0 fail）。 |
+| 2026-07-08 | **环境画像去动态状态**：真机 `/env` 显示容器列表、监听端口、磁盘占用会随时变化且污染长期记忆；移除 `docker ps`、`pm2 jlist`、`ss -ltn`、`df -h` 采样，`env.container` 只记录 Docker/Compose/psql 与 `DATABASE_URL` host，删除 `env.network`，默认工作目录和媒体目录不再写 disk 行；同步测试、记忆设计、实施计划与 PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；`bun test src/memory/index.test.ts src/core/session-manager.test.ts` 26 pass / 0 fail。 |
 
 ---
 

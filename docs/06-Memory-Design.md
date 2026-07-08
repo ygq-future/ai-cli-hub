@@ -42,7 +42,7 @@
 
 V1 不做隐式抽取，避免误判用户随口表述。写入入口按优先级推进：
 
-- **M8-A 环境快照**：系统启动时 upsert 环境记忆。快照是按 OS 自适应的 VPS 运维画像：Linux 记录 OS/hostname/cwd、Bun/Node/Git、Shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、监听端口、默认工作目录、媒体目录状态与清理提示；Windows 仅在实际存在时记录 PowerShell。
+- **M8-A 环境快照**：系统启动时 upsert 环境记忆。快照是按 OS 自适应的 VPS 运维画像：Linux 记录 OS/hostname/cwd、Bun/Node/Git、Shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、默认工作目录、媒体目录可操作状态与清理提示；不写入容器列表、端口、磁盘占用等易漂移状态，Agent 需要时自行执行实时命令查询。Windows 仅在实际存在时记录 PowerShell。
 - **M8-C 命令式记忆**：`/remember <text>` 直接写入实例级全局持久记忆（默认 `namespace='global'`、`conversation_id=NULL`）。
 - **M8-D 环境刷新**：`/env` 手动刷新 `env.*` 稳定 tag 并展示当前环境快照，用于部署后补齐 PM2/Docker/媒体目录等运行态事实。
 - 后续归档：可生成 conversation-derived episodic 摘要，但不回放完整 messages。

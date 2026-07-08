@@ -96,7 +96,7 @@ flowchart LR
 
 ### M8 — 全局记忆基础（V1：实例级环境快照 + 命令式记忆）
 
-- **M8-A 环境快照记忆（优先）**：启动时 upsert 当前运行环境事实。快照按 OS 自适应探测，Linux/VPS 侧记录 OS/hostname/cwd、Bun/Node/Git、Shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、监听端口、默认工作目录、媒体目录状态与资源限制；Windows 侧才记录 PowerShell。环境命令失败不阻塞启动。
+- **M8-A 环境快照记忆（优先）**：启动时 upsert 当前运行环境事实。快照按 OS 自适应探测，Linux/VPS 侧记录 OS/hostname/cwd、Bun/Node/Git、Shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、默认工作目录、媒体目录可操作状态与资源限制；不记录容器列表、端口、磁盘占用等高频变化状态，Agent 需要时自行执行 `docker ps`/`ss`/`df` 查询。Windows 侧才记录 PowerShell。环境命令失败不阻塞启动。
 - **M8-B 全局记忆注入**：Adapter start 时全量注入实例级全局记忆（环境事实 + `/remember` + 偏好）；conversation 历史 messages 不做完整回放，但 adapter 重启后的下一条 user message 携带最近 10 条轻量上下文。
 - **M8-C `/remember <text>`**：显式写入实例级全局持久记忆（默认 `namespace='global'`、`conversation_id=NULL`）；不做隐式猜测抽取。
 - **M8-D `/memory` / `/env` / `/forget <id>`**：查看长期记忆、刷新并查看环境快照、删除实例级全局记忆；命令权限仍由 Transport 白名单控制。
