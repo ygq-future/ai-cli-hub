@@ -65,6 +65,7 @@ export interface EventMap {
 
   // —— 消息 ——
   MessageReceived:  { userId: string; platform: Platform; cli: CliType; cwd: string; text: string; ref: MessageRef };
+  // M9: emoji/sticker/file/photo 在 Transport 层预处理后仍折入 text；Core 不感知平台媒体结构。
   MessageGenerated: { conversationId: ConversationId; content: string; final: boolean }; // final=false 为流式增量
   CommandReply:     { ref: MessageRef; content: string };
   UserLanguageChanged: { userId: string; language: 'zh' | 'en' };
@@ -327,8 +328,20 @@ export const ConfigSchema = z.object({
 
   AGENT_DESCRIPTION: z.string().default(''),       // Agent 职责定位；注入 system hint
 
+  MEDIA_DOWNLOAD_DIR: z.string().default('.data/media'),
+  MEDIA_MAX_FILE_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
+  MEDIA_MAX_TEXT_CHARS: z.coerce.number().int().positive().default(20000),
+  MEDIA_PARSE_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+
+  OCR_API_BASE_URL: z.string().default(''),       // Light OCR HTTP API；留空则禁用 OCR
+  OCR_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
+
+// M9 文件入站语义：除图片外，上传文件只登记 metadata/local_path，不自动读取、解析、OCR 或注入正文。
+// 用户明确要求处理文件时，再按需使用 FileTextExtractor：文字型 PDF 用 pdf-parse，.docx 用 mammoth，.xls/.xlsx 用 xlsx。
+// 上传时只有图片调用 OcrProvider；默认接 Light OCR API 的 POST /ocr/file，base url 为空时禁用。
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
 

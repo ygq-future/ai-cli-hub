@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-07 · 阶段：**M8（全局记忆基础完成，待真机复测；会话 idle 复用兜底已修复）**
+> 最后更新：2026-07-08 · 阶段：**M9（文件懒加载 + 图片 Light OCR 接入完成；Vision 暂缓）**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **M8 — 全局记忆基础**（代码完成，待真机复测） |
-| 代码 | ✅ 环境快照 upsert / 全局记忆注入 / `/remember` `/memory` `/forget` / 记忆变更实时生效已完成 |
-| 文档 | ✅ M8 记忆归属模型已改为实例级 `namespace` 全局共享 |
+| 当前里程碑 | **M9 — 媒体/文件入站 + Light OCR 接入**（代码完成，待真机复测） |
+| 代码 | ✅ emoji 归一化 / sticker metadata / Telegram 可下载文件保存 / 非图片文件懒加载 / 图片 Light OCR / 按需 PDF/Office 文本提取能力已保留 |
+| 文档 | ✅ M9-D Vision 标注为暂缓；文件懒加载语义、PDF/Office 按需解析库与 Light OCR API 配置已记录 |
 | 阻塞项 | 无 |
-| 下一步 | 真机复测 M8；随后进入 **M9 媒体/文件处理 + OCR/Vision** |
+| 下一步 | 真机复测 M9；如需启用 OCR，配置 `OCR_API_BASE_URL` 指向 Light OCR 服务；Vision 放到 V1 后优化 |
 
 ---
 
@@ -32,8 +32,8 @@
 | M6 | Telegram Transport | ✅ 完成 | 首个端到端。真机验证通过(见会话日志). **M6b 为质量闭环, 不单独列里程碑** |
 | M6b | 会话管理命令 & 生产级加固 | ✅ 完成 | `/new` `/cwd` `/status` `/sessions` `/lang`、状态流转、SDK 输出源、TG 展示与审批回归均已真机复测 |
 | M7 | Audit 落地 | ✅ 完成 | Human Approval 审计 + `/audit [conversationId]` 查看 |
-| M8 | 全局记忆基础 | ✅ | 环境快照记忆、adapter start 全局注入、`/remember`、`/memory`/`/forget`、记忆变更后下一条消息实时加载已落地；待真机复测 |
-| M9 | 媒体/文件处理 + OCR/Vision | ⬜ | emoji 归一化、sticker metadata、文件/图片/PDF/Office 解析、OCR 默认开启，Vision 可选增强 |
+| M8 | 全局记忆基础 | ✅ | 环境快照记忆、adapter start 全局注入、`/remember`、`/memory`/`/forget`、记忆变更后下一条消息实时加载已落地 |
+| M9 | 媒体/文件入站 + Light OCR 接入 | ✅ | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、PDF/Office 按需解析能力保留；Vision 暂缓 |
 | M10 | 加固与交付 | ⬜ | 优雅关闭 / 故障隔离 / 部署 |
 | V1.5 | 记忆增强（pgvector） | ⬜ | 非 V1 阻塞项 |
 
@@ -80,11 +80,17 @@
 | D31 | **当前只支持 `claude` CLI**：`/new [cli] [cwd]` 严格校验，`codex/gemini` 在 Adapter 未接入前返回“不支持”，未知 cli 不再静默当作 cwd。 | 2026-07-06 |
 | D32 | **M8/M9 重新切分**：M8 做全局记忆基础；M9 做媒体/文件处理与 OCR。M8 顺序由 D33 细化，M9 媒体分层由 D34 细化。 | 2026-07-06 |
 | D33 | **环境快照记忆是 M8 第一子任务**：VPS 运维 AI 必须先知道当前运行环境；M8 拆为 M8-A 环境快照 upsert、M8-B adapter start 注入、M8-C `/remember`、M8-D `/memory`/`/forget`。环境快照包括 OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、可用 CLI 与平台路径风格。 | 2026-07-06 |
-| D34 | **M9 媒体理解分层**：Unicode emoji 是文本语义归一化，不走 OCR；Telegram sticker/custom emoji 先解析 metadata（`emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`），不靠 OCR；OCR 只负责图片/PDF/截图中的文字；动态 sticker 视觉语义属于 Vision/抽帧增强，作为 M9-D 可选能力。 | 2026-07-06 |
+| D34 | **M9 媒体理解分层**：Unicode emoji 是文本语义归一化，不走 OCR；Telegram sticker/custom emoji 先解析 metadata（`emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`），不靠 OCR；OCR 原设计覆盖图片/PDF/截图文字，后由 D44 收口为上传时仅图片即时 OCR；动态 sticker 视觉语义属于 Vision/抽帧增强，作为 M9-D 可选能力。 | 2026-07-06 |
 | D35 | **M7 审计范围收口为 Human Approval 审计 + 可查看**：`audit/` 订阅 `ApprovalRequested` 缓存请求详情，订阅 `ApprovalApproved/Rejected` 写 `audit_logs`；`/audit [conversationId]` 查看当前或指定会话最近审批记录。M7 不做完整操作日志，不改变 conversation status；审批 `detail` 以可读文本折入现有 `audit_logs.command` 字段，暂不新增迁移。 | 2026-07-06 |
 | D36 | **长期记忆归属实例级 `namespace`，不按 Transport `user_id` 隔离**：`user_id` 只用于鉴权、会话路由和审批操作者；Telegram/QQ/WebSocket 上的同一个个人 VPS AI Hub 共享同一套环境事实、全局偏好和跨会话回放。`memories.namespace='global'` 为默认共享池；`conversation_id=NULL` 表示全局事实/偏好/环境，填值表示某会话产出的情节摘要但仍可在同 namespace 内召回。M8 全局事实全量注入；`MEMORY_RECALL_TOP_K` 只限制后续关键词/向量检索召回。 | 2026-07-06 |
 | D37 | **记忆变更后实时生效但不丢最近语境**：`/remember`、`/forget` 后停止当前用户已启动 adapter，conversation 不关闭；下一条普通消息重新 start adapter，system hint 注入最新全局记忆与 `AGENT_DESCRIPTION`，user message 前缀携带当前 conversation 最近 10 条历史消息（不含当前消息本身），不做完整 messages replay。 | 2026-07-06 |
 | D38 | **会话当前态以“用户最新可复用会话”为准并带新建兜底**：普通消息、`/status`、`/close`、`/cwd` 优先回查该用户最新 `idle/starting/running` 会话，恢复 `cli/cwd` 后复用，解决 Transport 重启或内存目标丢失后看不到最新 idle 的问题；每次新建 conversation 前必须关闭该用户所有非 `closed` 历史会话（含卡在 `closing` 的记录），保证同一用户至多一条未关闭会话。 | 2026-07-07 |
+| D39 | **M9 收口为媒体入站基础 + OCR 抽象，Vision 暂缓**：OCR 方案尚未定稿，M9 先定义 `OcrProvider` 抽象；原设想包含图片/PDF 路径调用，后由 D44 收口为上传时仅图片即时 OCR。PDF/Office 具体文本提取 adapter 后续接入，并仅在用户明确要求时按需调用。M9-D Vision（图片语义理解、static sticker/thumbnail Vision、animated/video sticker 抽帧）明确移到项目 V1 完成后的优化迭代。 | 2026-07-07 |
+| D40 | **M9 PDF/Office 文本提取库定稿**：文字型 PDF 用 `pdf-parse`；`.docx` 用 `mammoth.extractRawText`；`.xls/.xlsx` 用 `xlsx` 读取工作表并转 CSV 文本；旧 `.doc` 不支持，提示用户转 `.docx`/PDF/text。D44 已收口：这些库只作为用户明确要求后的按需解析能力，不在上传时自动调用。 | 2026-07-08 |
+| D41 | **OCR provider 采用 Light OCR HTTP API 可配置接入**：继续保留 `OcrProvider` 抽象；默认实现通过 `OCR_API_BASE_URL` + `OCR_API_TIMEOUT_MS` 调用 `POST /ocr/file`，multipart/form-data 字段 `file`，解析返回 `{ text, lines }`；`OCR_API_BASE_URL` 为空时保持未配置状态，不阻塞媒体入站。 | 2026-07-08 |
+| D42 | **Telegram 可下载文件/附件默认保存，不做文件类型白名单**：白名单用户已经是信任边界；Transport 对 Telegram `photo/document/audio/voice/video/video_note/animation` 均下载到 `MEDIA_DOWNLOAD_DIR` 并传入文件预处理；TG 任意普通文件统一走 `document`，跨 Transport/未知来源可归为 `other`。保留 `MEDIA_MAX_FILE_BYTES` 与 `MEDIA_PARSE_TIMEOUT_MS` 作为资源保护，不按扩展名或 MIME 拦截。音视频第一版只保存与记录 metadata，不做转写或内容理解。 | 2026-07-08 |
+| D43 | **拒绝工具审批后丢弃当前 adapter 上下文**：Reject 表示当前工具路径不应继续，orchestrator 在 `interrupt()+resolve reject` 后停止该会话 adapter；下一条普通消息会重新 start，并通过最近上下文带回已入库的最新文件 metadata/local_path，避免 Claude 留在上一轮 `.doc`/工具失败语境里继续误判。 | 2026-07-08 |
+| D44 | **文件上传采用懒加载，只有图片即时 OCR**：上传文件只保存到 `MEDIA_DOWNLOAD_DIR` 并把 metadata/local_path 放入上下文；PDF/Word/Excel/text/audio/video 等非图片文件不在上传时提取正文、OCR、总结、转写、转换或移动，不消耗正文 prompt token，也不触发工具；用户明确要求读取/总结/转换/移动时才按 local_path 处理。图片/photo 仍可即时 OCR，因为其主要输入就是视觉文本。 | 2026-07-08 |
 
 ---
 
@@ -184,11 +190,12 @@
 
 - 自动验收：`bun run format` ✅ · `bun run typecheck` ✅ · `bun run lint` ✅ · `bun run format:check` ✅ · `bun test` ✅（178 pass / 6 skip / 0 fail）
 
-**M9 — 媒体/文件处理 + OCR/Vision**（M8 之后）：
+**M9 — 媒体/文件入站 + Light OCR 接入**：
 - **M9-A emoji 文本归一化**：识别 Unicode emoji，补充 short name/keywords 作为文本上下文；不走 OCR
 - **M9-B Telegram sticker/custom emoji metadata**：解析 `emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`；第一版不做画面理解
-- **M9-C 文件/图片/PDF/Office 解析 + OCR**：Telegram document/photo 入站；PDF/Word/Excel/文本解析；图片和扫描 PDF 走可插拔 OCR，默认开启
-- **M9-D Vision 可选增强**：static sticker/thumbnail 可走图片理解；animated/video sticker 后续抽帧再走 Vision，不归入 OCR
+- **M9-C 文件/附件入站 + 懒加载/按需解析**：Telegram `photo/document/audio/voice/video/video_note/animation` 入站，任意普通文件统一走 `document`，未知来源可归为 `other`；下载到受控目录；记录 metadata/local_path、大小/类型/超时限制；除图片外，PDF/Word/Excel/text/audio/video 上传时不自动读取、解析、OCR、总结、转写、转换或移动；用户明确要求处理时，再按 local_path 使用 `pdf-parse`、`mammoth`、`xlsx` 等按需能力；旧 `.doc` 不支持并提示转换
+- **M9-C 图片 OCR**：图片/photo 上传时可调用 `OcrProvider` 抽象；配置 `OCR_API_BASE_URL` 后通过 Light OCR `POST /ocr/file` 识别；PDF 属于非图片文件，上传时不自动 OCR
+- **M9-D Vision 暂缓**：static sticker/thumbnail Vision、animated/video sticker 抽帧与画面理解全部移到 V1 后优化迭代
 
 ---
 
@@ -245,6 +252,12 @@
 | 2026-07-07 | **Claude Code 宿主 system-role 泄露清洗**：真机出现 `/close` 后首条 `hello` 把 `Do not launch two agents...`、`IMPORTANT SYSTEM-ROLE / CROSS-CUTTING INSTRUCTIONS`、全局技能/斜杠命令清单作为最终回复发到 Telegram；判断为 Agent SDK `result.result` 内部提示泄露，不是 DB 历史消息串入。`formatOutputDelta` 增加宿主 system-role/技能清单前缀清洗并补回归测试。自动验收：format/typecheck/lint/format:check/test 全绿，181 pass / 6 skip / 0 fail。 |
 | 2026-07-07 | **Agent SDK result 调试与缺头 system-reminder 清理补强**：确认 raw debug 中 `result:"[redacted...]"` 是 adapter 日志层主动脱敏，不代表 SDK 未返回 result；Telegram 仍取原始 `result.result` 再经展示层清洗。调整 debug raw result 为“清洗后的可见 result + result_raw_omitted/result_raw_chars”，便于排查且不泄露原始内部提示；`formatOutputDelta` 增加任意缺头 `...</system-reminder>` 前缀清理，覆盖 `If they are not independent... </system-reminder> 你好` 形态。自动验收：format/typecheck/lint/format:check/test 全绿，182 pass / 6 skip / 0 fail。 |
 | 2026-07-07 | **Agent SDK 空 result 兜底**：真机日志确认一轮 `hello` 中 SDK 连续返回 assistant thinking blocks，并插入 synthetic continue，最终 `type=result` 的原始 `result` 为 `""`（`result_raw_chars=0`），不是清洗导致。`ClaudeSdkAdapter` 对成功结束但 `result.result` 为空或清洗后无可见内容的情况输出固定兜底文案“本轮没有生成可见回复，请重试。”，避免 Telegram 静默无响应；补 adapter 单测。自动验收：format/typecheck/lint/format:check/test 全绿，183 pass / 6 skip / 0 fail。 |
+| 2026-07-07 | **M9 媒体/文件入站基础完成（OCR 抽象，Vision 暂缓）**：新增共享媒体类型与 `MediaPreprocessor`/`OcrProvider` 抽象；Telegram 入站统一处理文本/emoji/sticker/custom emoji/photo/document，白名单校验后才下载附件；文件下载到 `MEDIA_DOWNLOAD_DIR`，受 `MEDIA_MAX_FILE_BYTES`/`MEDIA_PARSE_TIMEOUT_MS` 限制；文本类附件提取并按 `MEDIA_MAX_TEXT_CHARS` 截断；图片/PDF 路径调用默认未配置 OCR provider；Vision 与动态 sticker 抽帧明确移到 V1 后优化。同步 PRD/实施计划/接口契约/命令 UX/`.env.example`。自动验收：format/typecheck/lint/format:check/test 全绿，193 pass / 6 skip / 0 fail。 |
+| 2026-07-08 | **M9 PDF/Office 文本解析完成（OCR 仍抽象）**：新增 `FileTextExtractor` 与默认实现；文字型 PDF 通过 `pdf-parse` 提取，`.docx` 通过 `mammoth.extractRawText` 提取，`.xls/.xlsx` 通过 `xlsx` 转工作表 CSV 文本；PDF 提取不到文字时再走 `OcrProvider` 抽象；旧 `.doc` 明确不支持并提示转换。新增依赖 `pdf-parse`、`mammoth`、`xlsx`，同步 PRD/实施计划/接口契约/命令 UX/PROGRESS。自动验收：format/typecheck/lint/format:check 通过；`bun test` 在沙箱因新依赖 EPERM 失败，按策略非沙箱重跑通过，199 pass / 6 skip / 0 fail。 |
+| 2026-07-08 | **M9 OCR 实现完成（Light OCR API）**：按用户提供的 OpenAPI 契约实现 `createLightOcrProvider`，通过 `POST /ocr/file` 上传 multipart `file`，解析 `{ text, lines }`；新增 `OCR_API_BASE_URL`/`OCR_API_TIMEOUT_MS` 配置并在 `main.ts` 注入媒体预处理；`OCR_API_BASE_URL` 为空时保持未配置占位；同步 PRD/实施计划/接口契约/命令 UX/`.env.example`/PROGRESS。自动验收：format/typecheck/lint/format:check 通过；`bun test` 沙箱内因动态 import 解析不到 `mammoth`/`xlsx` 失败，非沙箱重跑通过，204 pass / 6 skip / 0 fail。 |
+| 2026-07-08 | **M9 Telegram 音频未保存修复**：定位原因为 Transport 只处理 `photo/document`，Telegram `audio` 消息不在下载分支内；扩展共享附件 kind 与 Telegram 入站逻辑，对 `photo/document/audio/voice/video/video_note/animation` 均保存到 `MEDIA_DOWNLOAD_DIR`，并补 `other` 作为未知来源兜底；TG 任意普通文件仍由 `document` 承载；不做文件类型白名单，保留大小/超时资源限制。同步 PRD/实施计划/命令 UX/PROGRESS。自动验收：format/typecheck/lint/format:check 通过；`bun test src/transport/telegram/telegram-transport.test.ts` 通过，26 pass / 0 fail；全量 `bun test` 沙箱内仍因 `mammoth`/`xlsx` 动态 import 失败（203 pass / 6 skip / 2 fail），非沙箱重跑请求因审批通道异常未执行。 |
+| 2026-07-08 | **文件上下文粘连修复**：针对真机出现“docx 已提取但 Claude 仍抓上一轮 .doc 不放”的问题，问题在 Reject 后 adapter 未重启导致坏工具/旧文件语境残留；改为审批 Reject 后停止当前 adapter，下一条消息重新 start 并带最近上下文。该阶段仍使用过 `extracted_text` 直入上下文，随后已由 D44 修正为非图片文件懒加载 metadata/local_path。自动验收：format/typecheck/lint/format:check 通过；`bun test src/orchestrator.test.ts src/media/preprocessor.test.ts` 通过，28 pass / 0 fail。 |
+| 2026-07-08 | **文件上传懒加载语义修正**：按用户确认，除图片可即时 OCR 外，PDF/Word/Excel/text/audio/video 等非图片文件上传时只保存并登记 metadata/local_path，不自动读取、解析、OCR、总结、转写、转换或移动；保留 PDF/Office 文本提取库作为后续用户明确下指令时的按需能力。顺手修复按需解析器在 Bun 下加载 CJS `mammoth`/`xlsx` 的问题。自动验收：format/typecheck/lint/format:check 通过；目标测试 58 pass / 0 fail；全量 `bun test` 非沙箱通过，206 pass / 6 skip / 0 fail。 |
 
 ---
 

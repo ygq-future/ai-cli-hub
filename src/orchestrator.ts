@@ -324,6 +324,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       resetIdleTimer(p.conversationId, entry)
       entry.adapter.interrupt()
       entry.adapter.resolveApproval(p.approvalId, 'reject')
+      void stopEntry(p.conversationId)
     }),
   )
   globalUnsubs.push(

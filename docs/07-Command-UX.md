@@ -23,7 +23,7 @@ flowchart TD
 - **非白名单**：Transport 层直接丢弃，**不回任何提示**（避免暴露存在性）。
 - **命令**：以 `/` 开头，由 Transport 解析后转 Core 对应动作（多数不进 CLI）。
 - **普通文本**：`emit('MessageReceived')`，走会话路由 → CLI。
-- **emoji / sticker / 文件**：先做媒体预处理。Unicode emoji 做文本归一化；sticker/custom emoji 第一版只解析 metadata；图片/PDF/Office 走文件解析和 OCR pipeline。
+- **emoji / sticker / 文件**：先做文件预处理。Unicode emoji 做文本归一化；sticker/custom emoji 第一版只解析 metadata；Telegram 可下载附件（`photo/document/audio/voice/video/video_note/animation`；任意普通文件走 `document`，未知来源可归为 `other`）下载到受控目录并记录 metadata/local_path。只有图片/photo 上传时可立即 OCR；PDF/Word/Excel/text/audio/video 等非图片文件全部懒加载，用户明确要求后才读取、解析、OCR、转写、转换或移动。
 
 ---
 
@@ -115,12 +115,15 @@ Markdown 卡片 + 内联按钮：
 |---|---|---|
 | Unicode emoji | 从文本中识别 emoji，补充 short name/keywords 到上下文 | 否 |
 | Telegram sticker/custom emoji | 解析 `emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id` 等 metadata | 否 |
-| 图片/photo | 下载到受控目录，记录 metadata；图片文字走 OCR | 是 |
-| PDF/扫描 PDF | 优先文本提取；扫描页走 OCR | 视内容 |
-| Word/Excel/文本文件 | 结构化文本提取，作为本轮上下文 | 否 |
-| 动态/video sticker | 第一版只记录 metadata；后续可抽帧走 Vision | 否，属于 Vision |
+| 图片/photo | 下载到受控目录，记录 metadata；调用 `OcrProvider`，配置 `OCR_API_BASE_URL` 后走 Light OCR `POST /ocr/file` | 是 |
+| PDF/扫描 PDF | 下载并记录 metadata/local_path；上传时不提取文本、不 OCR；用户明确要求处理时，文字型 PDF 可用 `pdf-parse`，扫描页再按需调用 OCR | 按需 |
+| Word/Excel 文件 | 下载并记录 metadata/local_path；上传时不提取文本；用户明确要求处理时，`.docx` 可用 `mammoth`，`.xls/.xlsx` 可用 `xlsx`，旧 `.doc` 不支持并提示转换 | 否 |
+| 文本文件 | 下载并记录 metadata/local_path；上传时不读取正文、不作为本轮上下文 | 否 |
+| 其它普通文件 | 作为 `document` 或 `other` 保存到受控目录，记录 metadata/local_path；不做自动处理 | 否 |
+| 音频/语音/video/animation | 下载到受控目录，记录 metadata；暂不做转写或内容理解 | 否 |
+| 动态/video sticker | 第一版只记录 metadata；Vision/抽帧暂不实现 | 否，属于后续 Vision |
 
-> OCR 只负责识别图片/PDF/截图中的文字。动态 sticker 的画面含义属于 Vision/抽帧增强，不用 OCR 兜底。
+> 上传文件不等于处理文件。除图片可立即 OCR 外，非图片文件只保存并登记路径，正文不会自动进入 prompt；当用户说“读取/总结/转换/移动刚才那个文件”时，才按 `local_path` 执行对应操作。OCR 当前提供 Light OCR HTTP provider：`POST /ocr/file`，multipart 字段 `file`，返回 `{ text, lines }`。动态 sticker 的画面含义属于 Vision/抽帧增强，已明确延后到 V1 后优化。
 
 ---
 
@@ -167,6 +170,16 @@ MEMORY_RECALL_TOP_K=6
 
 # ── Agent 职责定位（可选，注入 system hint）──
 AGENT_DESCRIPTION=你是运行在个人 VPS 上的 AI CLI 远程会话管理助手，负责协助用户安全、高效地管理本机项目、命令执行、审批和长期记忆。
+
+# ── 媒体/文件入站（M9）──
+MEDIA_DOWNLOAD_DIR=.data/media
+MEDIA_MAX_FILE_BYTES=10485760
+MEDIA_MAX_TEXT_CHARS=20000
+MEDIA_PARSE_TIMEOUT_MS=30000
+
+# ── OCR（Light OCR API，可选；留空则禁用）──
+OCR_API_BASE_URL=http://localhost:8000
+OCR_API_TIMEOUT_MS=30000
 
 # ── 生命周期超时 ──
 # 已启动的 CLI/adapter 空闲超过该时间后自动关闭；conversation 保持 idle，可再次唤醒

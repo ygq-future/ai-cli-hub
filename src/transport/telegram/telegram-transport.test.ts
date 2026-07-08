@@ -18,6 +18,10 @@ function fakeConfig(): AppConfig {
     MEMORY_RECALL_TOP_K: 6,
     AGENT_IDLE_TIMEOUT_MS: 300000,
     SESSION_ARCHIVE_DAYS: 7,
+    MEDIA_DOWNLOAD_DIR: '.data/media',
+    MEDIA_MAX_FILE_BYTES: 10 * 1024 * 1024,
+    MEDIA_MAX_TEXT_CHARS: 20_000,
+    MEDIA_PARSE_TIMEOUT_MS: 30_000,
     LOG_LEVEL: 'info',
   } as AppConfig
 }
@@ -71,7 +75,7 @@ function createMockBot(opts?: { failOnParseMode?: boolean }) {
 }
 
 describe('TelegramTransport 入站', () => {
-  test('白名单文本 → emit MessageReceived（不含 conversationId，D13）', () => {
+  test('白名单文本 → emit MessageReceived（不含 conversationId，D13）', async () => {
     const bus = createEventBus()
     const mock = createMockBot()
     createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
@@ -80,6 +84,7 @@ describe('TelegramTransport 入站', () => {
     bus.on('MessageReceived', p => received.push(p))
 
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 1000 }, message: { text: 'hello', message_id: 5 } })
+    await tick()
 
     expect(received).toEqual([
       {
@@ -175,7 +180,7 @@ describe('TelegramTransport 入站', () => {
     expect(replies).toEqual(['Language switched to English.'])
   })
 
-  test('SessionCreated 后更新当前目标 cwd，后续普通消息沿用新 cwd', () => {
+  test('SessionCreated 后更新当前目标 cwd，后续普通消息沿用新 cwd', async () => {
     const bus = createEventBus()
     const mock = createMockBot()
     createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
@@ -188,6 +193,7 @@ describe('TelegramTransport 入站', () => {
       chat: { id: 42 },
       message: { text: '/new /tmp/other-project', message_id: 1 },
     })
+    await tick()
     bus.emit('SessionCreated', {
       conversationId: CID,
       platform: 'telegram',
@@ -196,12 +202,13 @@ describe('TelegramTransport 入站', () => {
       cwd: '/tmp/other-project',
     })
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: 'hello', message_id: 2 } })
+    await tick()
 
     expect((received[0] as Record<string, unknown>).cwd).toBe('/w')
     expect((received[1] as Record<string, unknown>).cwd).toBe('/tmp/other-project')
   })
 
-  test('UserTargetChanged 后更新当前目标 cwd，后续普通消息沿用新 cwd', () => {
+  test('UserTargetChanged 后更新当前目标 cwd，后续普通消息沿用新 cwd', async () => {
     const bus = createEventBus()
     const mock = createMockBot()
     createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
@@ -210,11 +217,205 @@ describe('TelegramTransport 入站', () => {
     bus.on('MessageReceived', p => received.push(p))
 
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: '/cwd /srv/app', message_id: 1 } })
+    await tick()
     bus.emit('UserTargetChanged', { userId: '42', cwd: '/srv/app' })
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: 'hello', message_id: 2 } })
+    await tick()
 
     expect((received[0] as Record<string, unknown>).cwd).toBe('/w')
     expect((received[1] as Record<string, unknown>).cwd).toBe('/srv/app')
+  })
+
+  test('Unicode emoji 文本经媒体预处理后再 emit', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({
+      bus,
+      config: fakeConfig(),
+      bot: mock.bot,
+      mediaPreprocessor: {
+        async preprocess(input) {
+          return { text: `${input.text}\nemoji-context`, warnings: [] }
+        },
+      },
+    })
+
+    const received: unknown[] = []
+    bus.on('MessageReceived', p => received.push(p))
+
+    mock.handlers.text!({ from: { id: 42 }, chat: { id: 1000 }, message: { text: '今天好累 😭', message_id: 5 } })
+    await tick()
+
+    expect((received[0] as Record<string, unknown>).text).toBe('今天好累 😭\nemoji-context')
+  })
+
+  test('Sticker metadata 经媒体预处理进入 MessageReceived', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    const seen: unknown[] = []
+    createTelegramTransport({
+      bus,
+      config: fakeConfig(),
+      bot: mock.bot,
+      mediaPreprocessor: {
+        async preprocess(input) {
+          seen.push(input.stickers?.[0])
+          return { text: 'sticker context', warnings: [] }
+        },
+      },
+    })
+
+    const received: unknown[] = []
+    bus.on('MessageReceived', p => received.push(p))
+
+    mock.handlers.text!({
+      from: { id: 42 },
+      chat: { id: 1000 },
+      message: {
+        message_id: 6,
+        sticker: {
+          file_id: 'sf1',
+          file_unique_id: 'su1',
+          emoji: '👍',
+          set_name: 'ok_set',
+          is_animated: true,
+          is_video: false,
+          width: 512,
+          height: 512,
+        },
+      },
+    })
+    await tick()
+
+    expect(seen[0]).toMatchObject({
+      fileId: 'sf1',
+      fileUniqueId: 'su1',
+      emoji: '👍',
+      setName: 'ok_set',
+      isAnimated: true,
+      isVideo: false,
+    })
+    expect((received[0] as Record<string, unknown>).text).toBe('sticker context')
+  })
+
+  test('Photo 下载到受控路径后作为附件上下文传入预处理', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    const seen: unknown[] = []
+    createTelegramTransport({
+      bus,
+      config: fakeConfig(),
+      bot: mock.bot,
+      downloadTelegramFile: async file => `D:/media/${file.fileId}.jpg`,
+      mediaPreprocessor: {
+        async preprocess(input) {
+          seen.push(input.attachments?.[0])
+          return { text: 'photo context', warnings: [] }
+        },
+      },
+    })
+
+    const received: unknown[] = []
+    bus.on('MessageReceived', p => received.push(p))
+
+    mock.handlers.text!({
+      from: { id: 42 },
+      chat: { id: 1000 },
+      message: {
+        message_id: 7,
+        caption: '识别这张图',
+        photo: [
+          { file_id: 'small', file_unique_id: 's', file_size: 10 },
+          { file_id: 'large', file_unique_id: 'l', file_size: 100 },
+        ],
+      },
+    })
+    await tick()
+
+    expect(seen[0]).toMatchObject({
+      kind: 'photo',
+      fileId: 'large',
+      fileUniqueId: 'l',
+      fileSize: 100,
+      mimeType: 'image/jpeg',
+      localPath: 'D:/media/large.jpg',
+    })
+    expect((received[0] as Record<string, unknown>).text).toBe('photo context')
+  })
+
+  test('Audio 作为可下载附件保存并传入预处理', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    const seen: unknown[] = []
+    createTelegramTransport({
+      bus,
+      config: fakeConfig(),
+      bot: mock.bot,
+      downloadTelegramFile: async file => `D:/media/${file.fileName ?? file.fileId}`,
+      mediaPreprocessor: {
+        async preprocess(input) {
+          seen.push(input.attachments?.[0])
+          return { text: 'audio context', warnings: [] }
+        },
+      },
+    })
+
+    const received: unknown[] = []
+    bus.on('MessageReceived', p => received.push(p))
+
+    mock.handlers.text!({
+      from: { id: 42 },
+      chat: { id: 1000 },
+      message: {
+        message_id: 8,
+        audio: {
+          file_id: 'audio-file',
+          file_unique_id: 'audio-unique',
+          file_name: '稳稳的幸福（DJ）.mp3',
+          mime_type: 'audio/mpeg',
+          file_size: 2048,
+          title: '稳稳的幸福（DJ）',
+          performer: '未知艺术家',
+          duration: 422,
+        },
+      },
+    })
+    await tick()
+
+    expect(seen[0]).toMatchObject({
+      kind: 'audio',
+      fileId: 'audio-file',
+      fileUniqueId: 'audio-unique',
+      fileName: '稳稳的幸福（DJ）.mp3',
+      mimeType: 'audio/mpeg',
+      fileSize: 2048,
+      localPath: 'D:/media/稳稳的幸福（DJ）.mp3',
+    })
+    expect((received[0] as Record<string, unknown>).text).toBe('audio context')
+  })
+
+  test('非白名单媒体消息不会触发下载', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    let downloaded = false
+    createTelegramTransport({
+      bus,
+      config: fakeConfig(),
+      bot: mock.bot,
+      downloadTelegramFile: async () => {
+        downloaded = true
+        return 'x'
+      },
+    })
+
+    mock.handlers.text!({
+      from: { id: 999 },
+      chat: { id: 999 },
+      message: { message_id: 1, photo: [{ file_id: 'p', file_size: 1 }] },
+    })
+    await tick()
+
+    expect(downloaded).toBe(false)
   })
 })
 

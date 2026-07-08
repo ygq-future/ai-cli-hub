@@ -160,7 +160,7 @@ describe('SessionOrchestrator', () => {
     agg.destroy()
   })
 
-  test('ApprovalApproved/Rejected → adapter.resolveApproval；Reject 额外 interrupt', async () => {
+  test('ApprovalApproved/Rejected → adapter.resolveApproval；Reject 中断并停止 adapter', async () => {
     const fake = createFakeAdapter()
     const bus = createEventBus()
     const agg = createMessageAggregator(bus)
@@ -177,6 +177,38 @@ describe('SessionOrchestrator', () => {
     ])
     expect(fake.calls.interrupt).toBe(1)
     expect(fake.calls.callOrder).toEqual(['resolve:approve', 'interrupt', 'resolve:reject'])
+    await tick()
+    expect(fake.calls.stop).toBe(1)
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('ApprovalRejected 后下一条消息重启 adapter 并带最近上下文', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos, messages } = createFakeRepos()
+    messages.push({
+      id: 'docx',
+      conversationId: CID,
+      role: 'user',
+      content:
+        '[File preprocessing context]\nCurrent message file/attachment context:\n- kind=document, name=report.docx, local_path=D:/media/report.docx\n  content_status: saved_only_lazy_load',
+      createdAt: 1,
+    })
+    const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
+
+    await orch.handler.onMessage('read file', CID)
+    bus.emit('ApprovalRejected', { conversationId: CID, approvalId: 'a1', operator: 'u1' })
+    await tick()
+    await orch.handler.onMessage('直接告诉我最新文件内容', CID)
+
+    expect(fake.calls.stop).toBe(1)
+    expect(fake.calls.start.length).toBe(2)
+    expect(fake.calls.sendUserInput[1]).toContain('local_path=D:/media/report.docx')
+    expect(fake.calls.sendUserInput[1]).toContain('content_status: saved_only_lazy_load')
+    expect(fake.calls.sendUserInput[1]).toContain('[本次用户输入]\n直接告诉我最新文件内容')
 
     await orch.destroy()
     agg.destroy()

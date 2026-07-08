@@ -147,7 +147,7 @@ src/
 ✅ 永久 Audit Log 审计记录机制
 ✅ 会话边界管理（cwd 目标切换 / `/new` / `/close` / `/cwd` / 自动归档）
 ✅ 长期记忆基础：实例级命令式全局记忆 + 环境记忆注入（`embedding` 列预留待 V1.5 启用向量）
-✅ 媒体/文件基础：emoji 文本归一化、sticker metadata、文件/图片/PDF/Office 解析、OCR 默认开启（Vision 可选增强）
+✅ 媒体/文件基础：emoji 文本归一化、sticker metadata、Telegram 可下载媒体入站保存、非图片文件懒加载 metadata/local_path、按需文本/PDF/DOCX/XLS/XLSX 解析能力、图片 Light OCR HTTP provider 接入（音视频转写与 Vision 后续迭代）
 
 ---
 

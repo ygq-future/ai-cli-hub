@@ -47,6 +47,20 @@ export const ConfigSchema = z.object({
   // —— Agent 职责定位（注入 system hint）——
   AGENT_DESCRIPTION: z.string().default(''),
 
+  // —— 媒体/文件入站（M9）——
+  MEDIA_DOWNLOAD_DIR: z.string().min(1).default('.data/media'),
+  MEDIA_MAX_FILE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(10 * 1024 * 1024),
+  MEDIA_MAX_TEXT_CHARS: z.coerce.number().int().positive().default(20_000),
+  MEDIA_PARSE_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
+  // —— OCR（Light OCR HTTP API；留空表示禁用 OCR）——
+  OCR_API_BASE_URL: z.string().default(''),
+  OCR_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
   // —— 日志 ——
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 

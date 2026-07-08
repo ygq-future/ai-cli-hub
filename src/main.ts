@@ -20,6 +20,7 @@ import { createMessageAggregator } from './core'
 import { createClaudeSdkAdapter } from './cli'
 import { createApprovalAudit } from './audit'
 import { createMemoryModule } from './memory'
+import { createLightOcrProvider, createMediaPreprocessor } from './media'
 import { createSessionOrchestrator } from './orchestrator'
 import { createTelegramTransport } from './transport'
 import type { Transport } from './shared'
@@ -52,8 +53,16 @@ async function main() {
     maxChunkChars: 4096,
   })
 
-  // —— 8. Telegram Transport ——
-  const telegram = createTelegramTransport({ bus, config })
+  // —— 8. Media + Telegram Transport ——
+  const ocrProvider = createLightOcrProvider({
+    baseUrl: config.OCR_API_BASE_URL,
+    timeoutMs: config.OCR_API_TIMEOUT_MS,
+  })
+  const mediaPreprocessor = createMediaPreprocessor({
+    maxTextChars: config.MEDIA_MAX_TEXT_CHARS,
+    ocrProvider,
+  })
+  const telegram = createTelegramTransport({ bus, config, mediaPreprocessor })
   const transport: Transport = telegram
 
   // —— 9. Orchestrator（adapter 编排，每会话一个 adapter）——

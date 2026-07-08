@@ -17,6 +17,12 @@ describe('loadConfig', () => {
     expect(c.AGENT_IDLE_TIMEOUT_MS).toBe(300_000)
     expect(c.SESSION_ARCHIVE_DAYS).toBe(7)
     expect(c.AGENT_DESCRIPTION).toBe('')
+    expect(c.MEDIA_DOWNLOAD_DIR).toBe('.data/media')
+    expect(c.MEDIA_MAX_FILE_BYTES).toBe(10 * 1024 * 1024)
+    expect(c.MEDIA_MAX_TEXT_CHARS).toBe(20_000)
+    expect(c.MEDIA_PARSE_TIMEOUT_MS).toBe(30_000)
+    expect(c.OCR_API_BASE_URL).toBe('')
+    expect(c.OCR_API_TIMEOUT_MS).toBe(30_000)
     expect(c.LOG_LEVEL).toBe('info')
     expect(c.DEBUG_AGENT_SDK_JSON).toBe(false)
   })
@@ -30,6 +36,30 @@ describe('loadConfig', () => {
     const c = loadConfig({ ...VALID, MEMORY_RECALL_TOP_K: '10', AGENT_IDLE_TIMEOUT_MS: '60000' })
     expect(c.MEMORY_RECALL_TOP_K).toBe(10)
     expect(c.AGENT_IDLE_TIMEOUT_MS).toBe(60000)
+  })
+
+  test('媒体限制 env 字符串被强制转换', () => {
+    const c = loadConfig({
+      ...VALID,
+      MEDIA_DOWNLOAD_DIR: 'D:/hub-media',
+      MEDIA_MAX_FILE_BYTES: '1024',
+      MEDIA_MAX_TEXT_CHARS: '2048',
+      MEDIA_PARSE_TIMEOUT_MS: '5000',
+    })
+    expect(c.MEDIA_DOWNLOAD_DIR).toBe('D:/hub-media')
+    expect(c.MEDIA_MAX_FILE_BYTES).toBe(1024)
+    expect(c.MEDIA_MAX_TEXT_CHARS).toBe(2048)
+    expect(c.MEDIA_PARSE_TIMEOUT_MS).toBe(5000)
+  })
+
+  test('OCR API 配置从 env 读取并转换超时', () => {
+    const c = loadConfig({
+      ...VALID,
+      OCR_API_BASE_URL: 'http://localhost:8000',
+      OCR_API_TIMEOUT_MS: '15000',
+    })
+    expect(c.OCR_API_BASE_URL).toBe('http://localhost:8000')
+    expect(c.OCR_API_TIMEOUT_MS).toBe(15000)
   })
 
   test('缺失必填项时 fail-fast 抛错', () => {

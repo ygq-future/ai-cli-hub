@@ -10,8 +10,9 @@
  * conversationId ↔ chatId 映射（纯内存）：入站记 userChat；订阅 SessionCreated 建 convChat。
  * 依赖矩阵：transport/ 只依赖 event/shared/config + 平台 SDK，禁 core/storage。
  */
+import { mkdir } from 'node:fs/promises'
+import path from 'node:path'
 import { Telegraf } from 'telegraf'
-import { message } from 'telegraf/filters'
 import telegramify from 'telegramify-markdown'
 import type { AppConfig } from '../../config'
 import type { EventBus } from '../../event'
@@ -19,6 +20,10 @@ import type {
   ApprovalCard,
   CliType,
   ConversationId,
+  InboundAttachment,
+  InboundCustomEmoji,
+  InboundSticker,
+  MediaPreprocessor,
   MessageRef,
   Transport,
   Unsubscribe,
@@ -29,10 +34,93 @@ import type {
 interface TgCtx {
   from?: { id: number | string }
   chat?: { id: number | string }
-  message?: { text?: string; message_id?: number }
+  message?: TgMessage
   match?: RegExpExecArray | null
   reply(text: string, extra?: unknown): Promise<unknown>
   answerCbQuery(text?: string): Promise<unknown>
+}
+interface TgMessageEntity {
+  type: string
+  offset: number
+  length: number
+  custom_emoji_id?: string
+}
+interface TgPhotoSize {
+  file_id: string
+  file_unique_id?: string
+  width?: number
+  height?: number
+  file_size?: number
+}
+interface TgDocument {
+  file_id: string
+  file_unique_id?: string
+  file_name?: string
+  mime_type?: string
+  file_size?: number
+}
+interface TgDownloadableMedia {
+  file_id: string
+  file_unique_id?: string
+  file_name?: string
+  mime_type?: string
+  file_size?: number
+}
+interface TgAudio extends TgDownloadableMedia {
+  title?: string
+  performer?: string
+  duration?: number
+}
+interface TgVoice extends TgDownloadableMedia {
+  duration?: number
+}
+interface TgVideo extends TgDownloadableMedia {
+  width?: number
+  height?: number
+  duration?: number
+}
+interface TgVideoNote extends TgDownloadableMedia {
+  length?: number
+  duration?: number
+}
+interface TgAnimation extends TgDownloadableMedia {
+  width?: number
+  height?: number
+  duration?: number
+}
+interface TgSticker {
+  file_id: string
+  file_unique_id?: string
+  type?: string
+  width?: number
+  height?: number
+  emoji?: string
+  set_name?: string
+  custom_emoji_id?: string
+  is_animated?: boolean
+  is_video?: boolean
+  file_size?: number
+}
+interface TgMessage {
+  text?: string
+  caption?: string
+  message_id?: number
+  entities?: TgMessageEntity[]
+  caption_entities?: TgMessageEntity[]
+  photo?: TgPhotoSize[]
+  document?: TgDocument
+  audio?: TgAudio
+  voice?: TgVoice
+  video?: TgVideo
+  video_note?: TgVideoNote
+  animation?: TgAnimation
+  sticker?: TgSticker
+}
+interface TgFileInfo {
+  file_id: string
+  file_unique_id?: string
+  file_size?: number
+  file_path?: string
 }
 interface TgApi {
   sendMessage(chatId: string | number, text: string, extra?: unknown): Promise<{ message_id: number }>
@@ -44,6 +132,8 @@ interface TgApi {
     extra?: unknown,
   ): Promise<unknown>
   deleteMessage(chatId: string | number, messageId: number): Promise<unknown>
+  getFile?(fileId: string): Promise<TgFileInfo>
+  getFileLink?(fileId: string): Promise<URL | string>
 }
 export interface TelegramBotLike {
   telegram: TgApi
@@ -60,6 +150,10 @@ export interface TelegramTransportDeps {
   config: AppConfig
   /** 注入的 bot（测试用假 bot）；缺省用真 Telegraf。 */
   bot?: TelegramBotLike
+  /** 媒体预处理器（Composition Root 注入具体实现；缺省为原文透传）。 */
+  mediaPreprocessor?: MediaPreprocessor
+  /** 测试注入：绕过真实 Telegram 文件下载。 */
+  downloadTelegramFile?: (file: TelegramDownloadRequest) => Promise<string>
 }
 
 export interface TelegramTransport extends Transport {
@@ -69,9 +163,17 @@ export interface TelegramTransport extends Transport {
 const START_TEXT =
   '👋 AI CLI Hub 已就绪。直接发消息即可与 Claude 对话；写操作会弹出授权卡片，请 Approve / Reject。\n发送 /help 查看帮助。'
 const HELP_TEXT =
-  '可用命令：\n/start — 欢迎与状态\n/help — 本帮助\n/new [cli] [cwd] — 开新会话，可指定工作目录\n/cwd [path] — 查看或切换工作目录\n/close — 关闭当前会话\n/status — 当前会话状态\n/sessions — 最近会话\n/audit [conversationId] — 审批审计\n/remember <text> — 写入长期记忆\n/memory — 查看长期记忆\n/forget <memoryId> — 删除长期记忆\n/lang zh|en — 切换回复语言\n\n直接发送文本即可对话。'
+  '可用命令：\n/start — 欢迎与状态\n/help — 本帮助\n/new [cli] [cwd] — 开新会话，可指定工作目录\n/cwd [path] — 查看或切换工作目录\n/close — 关闭当前会话\n/status — 当前会话状态\n/sessions — 最近会话\n/audit [conversationId] — 审批审计\n/remember <text> — 写入长期记忆\n/memory — 查看长期记忆\n/forget <memoryId> — 删除长期记忆\n/lang zh|en — 切换回复语言\n\n直接发送文本、emoji、sticker、图片或文件即可对话；附件只解析为文本上下文，不会执行。'
 
 const TELEGRAM_SAFE_TEXT_LIMIT = 3800
+interface TelegramDownloadRequest {
+  fileId: string
+  fileUniqueId?: string
+  fileName?: string
+  fileSize?: number
+  mimeType?: string
+  kind: InboundAttachment['kind']
+}
 
 function isNotModified(err: unknown): boolean {
   return String(err).includes('message is not modified')
@@ -156,6 +258,13 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   const { bus, config } = deps
   const bot = deps.bot ?? (new Telegraf(config.TELEGRAM_BOT_TOKEN) as unknown as TelegramBotLike)
   const whitelist = new Set(config.WHITELIST_USER_IDS)
+  const mediaPreprocessor =
+    deps.mediaPreprocessor ??
+    ({
+      async preprocess(input) {
+        return { text: input.text, warnings: [] }
+      },
+    } satisfies MediaPreprocessor)
 
   const userChat = new Map<string, string>() // userId → chatId
   const userLang = new Map<string, UserLanguage>() // userId → lang
@@ -186,6 +295,75 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
 
   function targetCwd(userId: string): string {
     return userCwd.get(userId) ?? config.DEFAULT_CWD
+  }
+
+  function sanitizeFileName(name: string): string {
+    const forbidden = new Set(['<', '>', ':', '"', '/', '\\', '|', '?', '*'])
+    const cleaned = [...name]
+      .map(ch => {
+        const code = ch.codePointAt(0) ?? 0
+        return code < 32 || forbidden.has(ch) ? '_' : ch
+      })
+      .join('')
+      .trim()
+    return cleaned || 'telegram-file'
+  }
+
+  function inferExt(file: TelegramDownloadRequest, url?: string): string {
+    const fromName = path.extname(file.fileName ?? '')
+    if (fromName) return fromName
+    const fromUrl = url ? path.extname(new URL(url).pathname) : ''
+    if (fromUrl) return fromUrl
+    if (file.mimeType?.startsWith('image/')) return `.${file.mimeType.slice('image/'.length).replace('jpeg', 'jpg')}`
+    if (file.mimeType?.startsWith('audio/')) return `.${file.mimeType.slice('audio/'.length).replace('mpeg', 'mp3')}`
+    if (file.mimeType?.startsWith('video/')) return `.${file.mimeType.slice('video/'.length)}`
+    return file.kind === 'photo' ? '.jpg' : ''
+  }
+
+  async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+        }),
+      ])
+    } finally {
+      if (timeout) clearTimeout(timeout)
+    }
+  }
+
+  async function defaultDownloadTelegramFile(file: TelegramDownloadRequest): Promise<string> {
+    if (file.fileSize && file.fileSize > config.MEDIA_MAX_FILE_BYTES) {
+      throw new Error(`文件过大：${file.fileSize} bytes，限制 ${config.MEDIA_MAX_FILE_BYTES} bytes。`)
+    }
+    if (!bot.telegram.getFileLink) throw new Error('Telegram getFileLink API is unavailable.')
+
+    const link = await bot.telegram.getFileLink(file.fileId)
+    const url = String(link)
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`Telegram 文件下载失败：HTTP ${response.status}`)
+
+    const bytes = await response.arrayBuffer()
+    if (bytes.byteLength > config.MEDIA_MAX_FILE_BYTES) {
+      throw new Error(`文件过大：${bytes.byteLength} bytes，限制 ${config.MEDIA_MAX_FILE_BYTES} bytes。`)
+    }
+
+    const baseName = file.fileName ?? `${file.fileUniqueId ?? file.fileId}${inferExt(file, url)}`
+    const dir = path.resolve(config.MEDIA_DOWNLOAD_DIR)
+    await mkdir(dir, { recursive: true })
+    const localPath = path.join(dir, `${Date.now()}-${sanitizeFileName(baseName)}`)
+    await Bun.write(localPath, bytes)
+    return localPath
+  }
+
+  async function downloadTelegramFile(file: TelegramDownloadRequest): Promise<string> {
+    return withTimeout(
+      (deps.downloadTelegramFile ?? defaultDownloadTelegramFile)(file),
+      config.MEDIA_PARSE_TIMEOUT_MS,
+      'Telegram file download',
+    )
   }
 
   /** 白名单闸门：非白名单静默丢弃（不回任何提示）。 */
@@ -307,9 +485,93 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     }
   }
 
-  // —— 入站 handlers ——
-  function onText(ctx: TgCtx) {
-    const text = ctx.message?.text ?? ''
+  function extractCustomEmojis(message: TgMessage, sourceText: string): InboundCustomEmoji[] {
+    const entities = [...(message.entities ?? []), ...(message.caption_entities ?? [])]
+    return entities
+      .filter(e => e.type === 'custom_emoji' && e.custom_emoji_id)
+      .map(e => ({
+        customEmojiId: e.custom_emoji_id!,
+        text: sourceText.slice(e.offset, e.offset + e.length),
+      }))
+  }
+
+  function extractSticker(message: TgMessage): InboundSticker[] {
+    const sticker = message.sticker
+    if (!sticker) return []
+    return [
+      {
+        emoji: sticker.emoji,
+        setName: sticker.set_name,
+        customEmojiId: sticker.custom_emoji_id,
+        isAnimated: sticker.is_animated ?? false,
+        isVideo: sticker.is_video ?? false,
+        fileId: sticker.file_id,
+        fileUniqueId: sticker.file_unique_id,
+        width: sticker.width,
+        height: sticker.height,
+        fileSize: sticker.file_size,
+      },
+    ]
+  }
+
+  function chooseLargestPhoto(photos: TgPhotoSize[] | undefined): TgPhotoSize | null {
+    if (!photos?.length) return null
+    return [...photos].sort((a, b) => (b.file_size ?? 0) - (a.file_size ?? 0))[0] ?? null
+  }
+
+  async function extractAttachments(message: TgMessage): Promise<InboundAttachment[]> {
+    const attachments: InboundAttachment[] = []
+
+    async function addDownloadable(kind: InboundAttachment['kind'], file: TgDownloadableMedia): Promise<void> {
+      const localPath = await downloadTelegramFile({
+        kind,
+        fileId: file.file_id,
+        fileUniqueId: file.file_unique_id,
+        fileName: file.file_name,
+        fileSize: file.file_size,
+        mimeType: file.mime_type,
+      })
+      attachments.push({
+        kind,
+        fileId: file.file_id,
+        fileUniqueId: file.file_unique_id,
+        fileName: file.file_name,
+        mimeType: file.mime_type,
+        fileSize: file.file_size,
+        localPath,
+      })
+    }
+
+    const photo = chooseLargestPhoto(message.photo)
+    if (photo) {
+      const localPath = await downloadTelegramFile({
+        kind: 'photo',
+        fileId: photo.file_id,
+        fileUniqueId: photo.file_unique_id,
+        fileSize: photo.file_size,
+        mimeType: 'image/jpeg',
+      })
+      attachments.push({
+        kind: 'photo',
+        fileId: photo.file_id,
+        fileUniqueId: photo.file_unique_id,
+        fileSize: photo.file_size,
+        mimeType: 'image/jpeg',
+        localPath,
+      })
+    }
+
+    if (message.document) await addDownloadable('document', message.document)
+    if (message.audio) await addDownloadable('audio', message.audio)
+    if (message.voice) await addDownloadable('voice', message.voice)
+    if (message.video) await addDownloadable('video', message.video)
+    if (message.video_note) await addDownloadable('video_note', message.video_note)
+    if (message.animation) await addDownloadable('animation', message.animation)
+
+    return attachments
+  }
+
+  async function emitIncoming(ctx: TgCtx, text: string): Promise<void> {
     const userId = String(ctx.from?.id ?? '')
     const chatId = String(ctx.chat?.id ?? '')
     if (!userId || !chatId) return
@@ -346,6 +608,41 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     })
   }
 
+  async function onIncoming(ctx: TgCtx): Promise<void> {
+    const message = ctx.message
+    if (!message) return
+
+    const userId = String(ctx.from?.id ?? '')
+    const chatId = String(ctx.chat?.id ?? '')
+    if (!userId || !chatId) return
+    userChat.set(userId, chatId)
+
+    const text = message.text ?? message.caption ?? ''
+    const commandName = message.text ? parseCommandName(message.text) : null
+    if (commandName) {
+      await emitIncoming(ctx, message.text ?? '')
+      return
+    }
+
+    try {
+      const attachments = await extractAttachments(message)
+      const result = await withTimeout(
+        mediaPreprocessor.preprocess({
+          text,
+          customEmojis: extractCustomEmojis(message, text),
+          stickers: extractSticker(message),
+          attachments,
+        }),
+        config.MEDIA_PARSE_TIMEOUT_MS,
+        'Media preprocessing',
+      )
+      await emitIncoming(ctx, result.text)
+    } catch (err) {
+      reportError('telegram:media', err)
+      void ctx.reply(`附件处理失败：${err instanceof Error ? err.message : String(err)}`).catch(() => {})
+    }
+  }
+
   function onAction(ctx: TgCtx) {
     const m = ctx.match
     const decision = m?.[1]
@@ -374,7 +671,10 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   // 注册 bot handlers（创建期注册；launch 在 start()）
   bot.start(guarded(ctx => ctx.reply(START_TEXT)))
   bot.help(guarded(ctx => ctx.reply(HELP_TEXT)))
-  bot.on(message('text'), guarded(onText))
+  bot.on(
+    'message',
+    guarded(ctx => void onIncoming(ctx).catch(err => reportError('telegram:incoming', err))),
+  )
   bot.action(/^(approve|reject):(.+)$/, guarded(onAction))
 
   // —— 出站订阅 ——
