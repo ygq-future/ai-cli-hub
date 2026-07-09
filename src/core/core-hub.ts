@@ -7,6 +7,7 @@
 import type { AppConfig } from '../config'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
+import type { MessageRef } from '../shared'
 import { createAuth, type Auth } from './auth'
 import { createCommandRouter, type CommandRouter } from './commands'
 import { createSessionManager, type SessionManager } from './session-manager'
@@ -27,6 +28,11 @@ export interface CoreHubOptions {
   commandRouter?: CommandRouter
   getUserLanguage?: (userId: string) => 'zh' | 'en'
   refreshEnvironmentSnapshot?: () => Promise<void>
+  getHealthReport?: () => Promise<string>
+  getUpdatePreview?: () => string
+  performUpdate?: (ref: MessageRef) => Promise<string>
+  getRestartPreview?: () => string
+  performRestart?: (ref: MessageRef) => Promise<string>
   resolveCwd?: (
     cwd: string,
   ) =>
@@ -53,6 +59,11 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
       getUserLanguage: opts.getUserLanguage,
       resolveCwd: opts.resolveCwd,
       refreshEnvironmentSnapshot: opts.refreshEnvironmentSnapshot,
+      getHealthReport: opts.getHealthReport,
+      getUpdatePreview: opts.getUpdatePreview,
+      performUpdate: opts.performUpdate,
+      getRestartPreview: opts.getRestartPreview,
+      performRestart: opts.performRestart,
     })
 
   // MessageRouter：消息路由 + handler 处理（M6 由 orchestrator 注入真实 adapter 驱动）

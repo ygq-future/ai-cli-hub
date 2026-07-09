@@ -80,6 +80,23 @@ export const ConfigSchema = z.object({
   // —— 环境画像探测 ——
   ENV_PROBE_TIMEOUT_MS: z.coerce.number().int().positive().default(1500),
 
+  // —— 运维自更新（V2-R2）——
+  UPDATE_WORKDIR: z.string().min(1).default(process.cwd()),
+  UPDATE_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  UPDATE_REQUIRE_CLEAN_WORKTREE: EnvBooleanSchema.default(true),
+  UPDATE_RESTART_COMMAND: z.string().default('pm2'),
+  UPDATE_RESTART_ARGS: z
+    .string()
+    .default('restart,ai-cli-hub')
+    .transform(s =>
+      s
+        .split(',')
+        .map(x => x.trim())
+        .filter(Boolean),
+    ),
+  UPDATE_RESTART_DELAY_MS: z.coerce.number().int().positive().default(1500),
+  UPDATE_RESTART_NOTICE_FILE: z.string().min(1).default('.data/update-restart-notice.json'),
+
   // —— 日志 ——
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 

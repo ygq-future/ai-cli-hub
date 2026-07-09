@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-09 · 阶段：**V2-R1 优化和 Bug 修复进行中**
+> 最后更新：2026-07-09 · 阶段：**V2-R2 运维自更新 / 自检测 / 自动拉起进行中**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V2-R1 — 优化和 Bug 修复进行中**（V2 分三轮推进：先做一轮优化和 bug 修复，再做运维自更新/自检测/自动拉起，最后扩展 Transport 与 CLI） |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 首批常量配置化、审批参数修复、PTY approval 说明、async/import 清理已落地；`SessionClosed` 自动摘录已移除；SDK raw JSON 与消息链路 debug 已拆分；低信息量问候跳过语义召回，新增 Agent SDK host 指令泄漏清洗 |
-| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步；V2-R1 配置语义与阶段状态已同步 |
+| 当前里程碑 | **V2-R2 — 运维自更新 / 自检测 / 自动拉起进行中**（V2 分三轮推进：R1 优化和 bug 修复已完成首批，R2 做运维自更新/自检测/自动拉起，R3 扩展 Transport 与 CLI） |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 首批优化修复已落地；V2-R2 `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启测试入口（Windows 直接拒绝）、重启后主动通知已接入 |
+| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步；V2-R1 配置语义与阶段状态已同步；V2-R2 `/health`、`/update`、`/restart`、重启通知、`UPDATE_WORKDIR` 默认语义与阶段切片已同步 |
 | 阻塞项 | 无 |
-| 下一步 | 继续 V2-R1：基于真机反馈继续修复体验问题、稳定性问题和小型代码/文档债务；暂不提前做自更新守护或新 Transport/CLI |
+| 下一步 | 继续 V2-R2：补部署自检与 PM2/systemd 恢复验证，真机确认 `/update confirm` 后重启链路 |
 
 ---
 
@@ -36,8 +36,8 @@
 | M9 | 媒体/文件入站 + Light OCR 接入 | ✅ | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、PDF/Office 按需解析能力保留；Vision 暂缓 |
 | M10 | 加固与交付 | ✅ | 启动状态对账、优雅关闭、adapter 故障隔离、审批幂等、PM2/systemd 部署示例完成；用户已在 VPS 宿主机 + PM2 部署跑通 |
 | V1.5 | 记忆增强（pgvector） | ✅ 完成 | 默认 BAAI/bge-m3/1024 维/Top-K 10；embedding provider、HNSW 迁移、向量召回注入、自然语言记忆 LLM 摘要已落地 |
-| V2-R1 | 优化和 Bug 修复 | 🟡 进行中 | 首批已完成：常量配置化、记忆摘要窗口语义收口、移除 `SessionClosed` 非 LLM 自动摘录、Claude SDK 审批 approve 保留原始 tool input、PTY approval 目录说明、async/import 清理、SDK raw JSON 与消息链路 debug 拆分、短问候跳过语义召回、Agent SDK host 指令泄漏清洗；继续按真机反馈推进 |
-| V2-R2 | 运维自更新 / 自检测 / 自动拉起 | ⬜ 未开始 | 受控自更新、健康检查、自检测、进程异常退出后的自动拉起与恢复验证 |
+| V2-R1 | 优化和 Bug 修复 | ✅ 首批完成 | 常量配置化、记忆摘要窗口语义收口、移除 `SessionClosed` 非 LLM 自动摘录、Claude SDK 审批 approve 保留原始 tool input、PTY approval 目录说明、async/import 清理、SDK raw JSON 与消息链路 debug 拆分、短问候跳过语义召回、Agent SDK host 指令泄漏清洗 |
+| V2-R2 | 运维自更新 / 自检测 / 自动拉起 | 🟡 进行中 | `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启链路测试入口（Windows 直接拒绝）、重启后主动通知已接入；下一步补部署自检、进程异常退出后的自动拉起与恢复验证 |
 | V2-R3 | Transport 和 CLI 扩展 | ⬜ 未开始 | 在现有架构稳定后，再接入新的 Transport 与 CLI Adapter，保持 Core 零侵入 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
@@ -110,7 +110,7 @@
 
 **V2 — 优化维护与扩展，三轮推进**
 
-状态：**V1.5 已完成；V2-R1 进行中**。
+状态：**V1.5 已完成；V2-R1 首批完成；V2-R2 进行中**。
 
 ### 三轮顺序
 
@@ -120,8 +120,7 @@
 
 ### 下一步候选
 
-- V2-R1：继续基于真机反馈和现有代码债务，挑选低风险、高收益的优化/bug 修复进入实现；首批配置化、审批参数、PTY approval 说明、async/import 清理已完成。
-- V2-R2 预留：受控 `/update` 自更新（后台脚本执行 `git pull --ff-only`、`bun install`、`db:migrate`、`pm2 restart`）和进程健康恢复。
+- V2-R2：在 `/health` 与 `/update` 基础上补部署自检，并做 PM2/systemd 自动拉起与恢复验证。
 - V2-R3 预留：新增 Transport 与 CLI Adapter，扩展时不改 Core 分层。
 
 ---
@@ -201,6 +200,12 @@
 | 2026-07-09 | **Agent/Claude 规范同步规划目录规则**：将 `.planning/<plan-id>/` 临时规划目录约定同步到 `AGENTS.md` 与 `CLAUDE.md`；根目录继续禁止创建 `task_plan.md`/`progress.md`/`process.md` 等易与 `PROGRESS.md` 混淆的文件。 |
 | 2026-07-09 | **V2-R1 消息链路 debug 拆分完成**：新增 `DEBUG_MESSAGE_FLOW`，将 orchestrator/memory 的消息链路日志从 `DEBUG_AGENT_SDK_JSON` 中拆出；raw JSON 开关只保留给 Agent SDK 原始输出。链路日志覆盖用户输入、上下文注入、system memory hint、相关记忆召回排序、adapter 输出、assistant 落库、主动记忆摘要与环境快照。 |
 | 2026-07-09 | **V2-R1 hello 链路修复**：针对真机 `hello` 链路分析结果，orchestrator 对低信息量问候跳过相关长期记忆召回并在 `DEBUG_MESSAGE_FLOW` 中记录 `skipped: true/reason: lowSignalQuery`；`formatOutputDelta` 增加 `When you launch a single agent...` host 指令泄漏清洗，避免污染 Telegram 输出和 assistant 落库。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试 `bun test src/orchestrator.test.ts src/cli/format-output.test.ts` 均通过；沙箱全量 `bun test` 仍因 `mammoth/xlsx` 动态依赖失败 2 项，非沙箱两次输出均显示 232 pass / 0 fail，但命令包装器在测试完成后超时返回 124。 |
+| 2026-07-09 | **V2-R2 `/health` 首批自检测接入**：新增 `ops/health` live self-check，Core 通过注入函数响应 `/health`，检查 Postgres ping、默认工作目录、媒体目录、Claude CLI 可用性与进程 uptime；Telegram `/help`、命令 UX、实施计划与依赖矩阵同步，`ops/` 被 depcruise 纳入架构约束。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS 动态依赖问题失败 2 项，非沙箱非登录全量 `bun test` 通过，235 pass / 0 fail。 |
+| 2026-07-09 | **V2-R2 `/update` 受控自更新接入**：新增 `ops/update`，`/update` 只展示自更新计划，`/update confirm` 才执行；默认要求 git 工作树干净，依次执行 `git pull --ff-only`、`bun install --frozen-lockfile`、`bun run db:migrate`、`bun run format:check`、`bun run typecheck`、`bun run lint`，成功后按 `UPDATE_RESTART_COMMAND`/`UPDATE_RESTART_ARGS` 延迟交给 PM2/systemd 重启；新增 `UPDATE_*` 配置、Telegram help、命令 UX、接口契约与架构配置摘要。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS 动态依赖问题失败 2 项，非沙箱非登录全量 `bun test` 通过，241 pass / 0 fail。 |
+| 2026-07-09 | **V2-R2 重启后主动通知接入**：`/update confirm` 成功安排重启前写入 `UPDATE_RESTART_NOTICE_FILE`，记录原 Telegram chat；新进程启动并 `transport.start()` 后读取 marker，主动发送“服务已重启完成，可以继续发送消息。”，随后删除 marker；若 marker 写入失败则停止更新且不安排重启，避免无通知重启。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS node_modules EPERM 失败 2 项，非沙箱非登录全量 `bun test` 通过，243 pass / 0 fail。 |
+| 2026-07-09 | **V2-R2 `/restart` 重启测试入口接入**：新增 `ops/restart` 与 `/restart` 两步命令；`/restart` 只展示重启计划，`/restart confirm` 不拉代码、不安装依赖、不跑迁移/检查，只写入同一 `UPDATE_RESTART_NOTICE_FILE` 并按 `UPDATE_RESTART_COMMAND`/`UPDATE_RESTART_ARGS` 延迟重启，用于真机验证“重启后主动通知”链路；Telegram help、命令 UX、接口契约、架构摘要、实施计划同步。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS node_modules EPERM 失败 2 项，非沙箱非登录全量 `bun test` 通过，248 pass / 0 fail。 |
+| 2026-07-09 | **V2-R2 `/update` Windows 禁用与工作目录默认语义收口**：`ops/update` 新增平台 guard，Windows 上 `/update` 预览与确认都会返回“自更新不可用”，不执行 git/bun/migrate/check，也不安排重启；`UPDATE_WORKDIR` 保持默认 `process.cwd()`，`.env.example` 改为注释掉的可选生产覆盖项，避免误以为必须写死 `/srv/ai-cli-hub`。同步命令 UX、接口契约、架构摘要与实施计划。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS node_modules EPERM 失败 2 项，非沙箱非登录全量 `bun test` 通过，249 pass / 0 fail。 |
+| 2026-07-09 | **V2-R2 `/restart` Windows 禁用补齐**：`ops/restart` 新增平台 guard，Windows 上 `/restart` 预览与确认都会返回“重启不可用”，不写入 `UPDATE_RESTART_NOTICE_FILE`，不执行 `UPDATE_RESTART_COMMAND`，不安排重启；与 `/update` 的 Linux/VPS 部署边界保持一致。同步 `.env.example`、命令 UX、接口契约、架构摘要与实施计划。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS node_modules EPERM 失败 2 项，非沙箱非登录全量 `bun test` 通过，250 pass / 0 fail。 |
 
 ---
 

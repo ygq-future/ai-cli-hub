@@ -26,6 +26,11 @@ export interface CommandRouterDeps {
   getUserLanguage?: (userId: string) => UserLanguage
   resolveCwd?: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult
   refreshEnvironmentSnapshot?: () => Promise<void>
+  getHealthReport?: () => Promise<string>
+  getUpdatePreview?: () => string
+  performUpdate?: (ref: EventMap['MessageReceived']['ref']) => Promise<string>
+  getRestartPreview?: () => string
+  performRestart?: (ref: EventMap['MessageReceived']['ref']) => Promise<string>
 }
 
 type CwdResolveResult = { ok: true; cwd: string } | { ok: false; message: string }
@@ -199,6 +204,49 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           await deps.refreshEnvironmentSnapshot?.()
           const memories = await repos.memories.listGlobal(DEFAULT_MEMORY_NAMESPACE)
           reply(payload, formatEnvironmentMemories(memories))
+          return true
+        }
+
+        case 'health': {
+          if (!deps.getHealthReport) {
+            reply(payload, '健康检查暂未配置。')
+            return true
+          }
+          reply(payload, await deps.getHealthReport())
+          return true
+        }
+
+        case 'update': {
+          if (!deps.getUpdatePreview || !deps.performUpdate) {
+            reply(payload, '自更新暂未配置。')
+            return true
+          }
+          if (parsed.args.length === 0) {
+            reply(payload, deps.getUpdatePreview())
+            return true
+          }
+          if (parsed.args.length === 1 && parsed.args[0] === 'confirm') {
+            reply(payload, await deps.performUpdate(payload.ref))
+            return true
+          }
+          reply(payload, '用法：/update 查看计划；/update confirm 执行自更新。')
+          return true
+        }
+
+        case 'restart': {
+          if (!deps.getRestartPreview || !deps.performRestart) {
+            reply(payload, '重启暂未配置。')
+            return true
+          }
+          if (parsed.args.length === 0) {
+            reply(payload, deps.getRestartPreview())
+            return true
+          }
+          if (parsed.args.length === 1 && parsed.args[0] === 'confirm') {
+            reply(payload, await deps.performRestart(payload.ref))
+            return true
+          }
+          reply(payload, '用法：/restart 查看计划；/restart confirm 执行重启。')
           return true
         }
 

@@ -980,4 +980,110 @@ describe('CommandRouter', () => {
     expect((replies[0] as { content: string }).content).toContain('环境快照')
     expect((replies[0] as { content: string }).content).toContain('MEDIA_DOWNLOAD_DIR=/tmp/media')
   })
+
+  test('/health 返回注入的健康报告', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      getHealthReport: async () => '**健康检查**\nStatus: ok',
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/health',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    expect(replies.length).toBe(1)
+    expect((replies[0] as { content: string }).content).toBe('**健康检查**\nStatus: ok')
+  })
+
+  test('/update 预览计划，/update confirm 执行注入的自更新', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    let updated = false
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      getUpdatePreview: () => '**自更新预检**\n确认执行请发送：/update confirm',
+      performUpdate: async () => {
+        updated = true
+        return '**自更新完成**'
+      },
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/update',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/update confirm',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '2' },
+    })
+
+    expect(updated).toBe(true)
+    expect((replies[0] as { content: string }).content).toContain('自更新预检')
+    expect((replies[1] as { content: string }).content).toContain('自更新完成')
+  })
+
+  test('/restart 预览计划，/restart confirm 执行注入的重启', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    let restartedRef: unknown
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      getRestartPreview: () => '**重启预检**\n确认执行请发送：/restart confirm',
+      performRestart: async ref => {
+        restartedRef = ref
+        return '**重启已安排**'
+      },
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/restart',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/restart confirm',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '2' },
+    })
+
+    expect(restartedRef).toEqual({ platform: 'telegram', chatId: 'c', nativeId: '2' })
+    expect((replies[0] as { content: string }).content).toContain('重启预检')
+    expect((replies[1] as { content: string }).content).toContain('重启已安排')
+  })
 })

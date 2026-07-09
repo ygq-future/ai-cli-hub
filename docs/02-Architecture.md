@@ -273,6 +273,16 @@ const ConfigSchema = z.object({
   SESSION_ARCHIVE_DAYS: z.coerce.number().default(7),           // 会话自动归档（天）
   RECENT_CONTEXT_LIMIT: z.coerce.number().default(10),           // adapter 刚启动时拼入的当前会话历史条数
   RECENT_CONTEXT_MESSAGE_MAX_CHARS: z.coerce.number().default(1200), // 单条历史消息尾部保留字符数
+  ENV_PROBE_TIMEOUT_MS: z.coerce.number().default(1500),          // 环境/健康探测短超时
+  UPDATE_WORKDIR: z.string().default(process.cwd()),              // /update 执行目录；默认进程启动目录，生产可覆盖
+  UPDATE_COMMAND_TIMEOUT_MS: z.coerce.number().default(120_000),  // /update 单步命令超时
+  UPDATE_REQUIRE_CLEAN_WORKTREE: z.boolean().default(true),       // 更新前要求 git 工作树干净
+  UPDATE_RESTART_COMMAND: z.string().default('pm2'),              // 更新成功后的守护器重启命令
+  UPDATE_RESTART_ARGS: z.array(z.string()).default(['restart', 'ai-cli-hub']),
+  UPDATE_RESTART_DELAY_MS: z.coerce.number().default(1500),
+  UPDATE_RESTART_NOTICE_FILE: z.string().default('.data/update-restart-notice.json'),
+  // /update 与 /restart 仅适用于 Linux/VPS 部署；Windows 上直接提示不可用且不执行命令。
+  // /restart 复用 UPDATE_RESTART_* 与 UPDATE_RESTART_NOTICE_FILE，只测试重启和启动通知链路。
   DEBUG_AGENT_SDK_JSON: z.boolean().default(false),              // Agent SDK 原始 JSON
   DEBUG_MESSAGE_FLOW: z.boolean().default(false),                // 消息链路可观测日志
 });

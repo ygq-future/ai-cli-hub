@@ -359,6 +359,16 @@ export const ConfigSchema = z.object({
   OCR_API_BASE_URL: z.string().default(''),       // Light OCR HTTP API；留空则禁用 OCR
   OCR_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
 
+  ENV_PROBE_TIMEOUT_MS: z.coerce.number().int().positive().default(1500),
+
+  UPDATE_WORKDIR: z.string().default(process.cwd()),       // /update 执行目录；默认进程启动目录，生产可覆盖为部署目录
+  UPDATE_COMMAND_TIMEOUT_MS: z.coerce.number().default(120_000),
+  UPDATE_REQUIRE_CLEAN_WORKTREE: z.boolean().default(true),
+  UPDATE_RESTART_COMMAND: z.string().default('pm2'),
+  UPDATE_RESTART_ARGS: z.string().transform(s => s.split(',').map(x => x.trim()).filter(Boolean)).default('restart,ai-cli-hub'),
+  UPDATE_RESTART_DELAY_MS: z.coerce.number().default(1500),
+  UPDATE_RESTART_NOTICE_FILE: z.string().default('.data/update-restart-notice.json'),
+
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   DEBUG_AGENT_SDK_JSON: z.boolean().default(false),
   DEBUG_MESSAGE_FLOW: z.boolean().default(false),
@@ -367,6 +377,13 @@ export const ConfigSchema = z.object({
 // M9 文件入站语义：除图片外，上传文件只登记 metadata/local_path，不自动读取、解析、OCR 或注入正文。
 // 用户明确要求处理文件时，再按需使用 FileTextExtractor：文字型 PDF 用 pdf-parse，.docx 用 mammoth，.xls/.xlsx 用 xlsx。
 // 上传时只有图片调用 OcrProvider；默认接 Light OCR API 的 POST /ocr/file，base url 为空时禁用。
+// V2-R2 自更新/重启语义：/update 和 /restart 仅适用于 Linux/VPS 部署；
+// Windows 上直接提示不可用且不执行命令。
+// /update 只展示计划；/update confirm 才按 UPDATE_WORKDIR 执行 git pull --ff-only、
+// bun install --frozen-lockfile、db:migrate、format:check、typecheck、lint，并延迟执行重启命令。
+// 任一步失败或工作树不干净时必须停止且不安排重启。安排重启前写入 UPDATE_RESTART_NOTICE_FILE，
+// 新进程启动并连接 Transport 后主动通知原 chat，然后删除该 marker。
+// /restart 只展示/执行同一组重启命令与通知 marker，不执行更新步骤，用于验证重启链路。
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
 

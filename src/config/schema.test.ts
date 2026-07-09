@@ -38,6 +38,13 @@ describe('loadConfig', () => {
     expect(c.OCR_API_BASE_URL).toBe('')
     expect(c.OCR_API_TIMEOUT_MS).toBe(30_000)
     expect(c.ENV_PROBE_TIMEOUT_MS).toBe(1500)
+    expect(c.UPDATE_WORKDIR).toBe(process.cwd())
+    expect(c.UPDATE_COMMAND_TIMEOUT_MS).toBe(120_000)
+    expect(c.UPDATE_REQUIRE_CLEAN_WORKTREE).toBe(true)
+    expect(c.UPDATE_RESTART_COMMAND).toBe('pm2')
+    expect(c.UPDATE_RESTART_ARGS).toEqual(['restart', 'ai-cli-hub'])
+    expect(c.UPDATE_RESTART_DELAY_MS).toBe(1500)
+    expect(c.UPDATE_RESTART_NOTICE_FILE).toBe('.data/update-restart-notice.json')
     expect(c.LOG_LEVEL).toBe('info')
     expect(c.DEBUG_AGENT_SDK_JSON).toBe(false)
     expect(c.DEBUG_MESSAGE_FLOW).toBe(false)
@@ -63,6 +70,8 @@ describe('loadConfig', () => {
       AGGREGATOR_MIN_EDIT_INTERVAL_MS: '800',
       AGGREGATOR_MAX_CHUNK_CHARS: '3500',
       ENV_PROBE_TIMEOUT_MS: '1000',
+      UPDATE_COMMAND_TIMEOUT_MS: '90000',
+      UPDATE_RESTART_DELAY_MS: '2000',
     })
     expect(c.EMBEDDING_DIMENSIONS).toBe(768)
     expect(c.MEMORY_RECALL_TOP_K).toBe(12)
@@ -76,6 +85,24 @@ describe('loadConfig', () => {
     expect(c.AGGREGATOR_MIN_EDIT_INTERVAL_MS).toBe(800)
     expect(c.AGGREGATOR_MAX_CHUNK_CHARS).toBe(3500)
     expect(c.ENV_PROBE_TIMEOUT_MS).toBe(1000)
+    expect(c.UPDATE_COMMAND_TIMEOUT_MS).toBe(90000)
+    expect(c.UPDATE_RESTART_DELAY_MS).toBe(2000)
+  })
+
+  test('Update 配置从 env 读取', () => {
+    const c = loadConfig({
+      ...VALID,
+      UPDATE_WORKDIR: '/srv/ai-cli-hub',
+      UPDATE_REQUIRE_CLEAN_WORKTREE: 'false',
+      UPDATE_RESTART_COMMAND: 'systemctl',
+      UPDATE_RESTART_ARGS: 'restart,ai-cli-hub',
+      UPDATE_RESTART_NOTICE_FILE: '/tmp/ai-cli-hub-restart.json',
+    })
+    expect(c.UPDATE_WORKDIR).toBe('/srv/ai-cli-hub')
+    expect(c.UPDATE_REQUIRE_CLEAN_WORKTREE).toBe(false)
+    expect(c.UPDATE_RESTART_COMMAND).toBe('systemctl')
+    expect(c.UPDATE_RESTART_ARGS).toEqual(['restart', 'ai-cli-hub'])
+    expect(c.UPDATE_RESTART_NOTICE_FILE).toBe('/tmp/ai-cli-hub-restart.json')
   })
 
   test('Embedding API base URL 从 env 读取', () => {

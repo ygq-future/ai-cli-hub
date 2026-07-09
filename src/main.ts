@@ -9,7 +9,9 @@
  * 依赖矩阵（CLAUDE.md §3）：只有本文件允许 import 具体实现并装配。
  */
 import { existsSync, statSync } from 'node:fs'
+import { access } from 'node:fs/promises'
 import path from 'node:path'
+import { sql } from 'drizzle-orm'
 import { createEventBus } from './event'
 import { loadConfig } from './config'
 import { createLogger, attachEventLogger } from './logger'
@@ -21,6 +23,14 @@ import { createClaudeSdkAdapter } from './cli'
 import { createApprovalAudit } from './audit'
 import { createMemoryModule } from './memory'
 import { createLightOcrProvider, createMediaPreprocessor } from './media'
+import {
+  createHealthReporter,
+  createRestartNoticeStore,
+  createRestartRunner,
+  createUpdateRunner,
+  type CommandResult,
+  type HealthCheckResult,
+} from './ops'
 import { createSessionOrchestrator } from './orchestrator'
 import { createTelegramTransport } from './transport'
 import type { Transport } from './shared'
@@ -42,6 +52,42 @@ async function main() {
   // —— 4. Repositories ——
   const repos = createRepositories(db)
   await repos.conversations.reconcileRuntimeStatuses(Date.now())
+
+  // —— 4b. Operations health reporter ——
+  const health = createHealthReporter({
+    config,
+    startedAt: Date.now(),
+    checkDatabase: () =>
+      withHealthTimeout(
+        async () => {
+          await db.execute(sql`select 1`)
+          return { name: 'database', status: 'ok', detail: 'Postgres ping ok', critical: true }
+        },
+        config.ENV_PROBE_TIMEOUT_MS,
+        'database',
+      ),
+    checkDirectory: dir => checkDirectory(dir),
+    checkCommand: command => checkCommand(command, config.ENV_PROBE_TIMEOUT_MS),
+  })
+  const restartNotices = createRestartNoticeStore(config.UPDATE_RESTART_NOTICE_FILE)
+  const scheduleRestart = (command: string, args: string[], cwd: string, delayMs: number) => {
+    setTimeout(() => {
+      void runCommand(command, args, cwd, config.UPDATE_COMMAND_TIMEOUT_MS).catch(err => {
+        logger.error({ err, command, args }, 'Scheduled restart command failed')
+      })
+    }, delayMs)
+  }
+  const updater = createUpdateRunner({
+    config,
+    runCommand,
+    writeRestartNotice: ref => restartNotices.write({ ref, requestedAt: Date.now() }),
+    scheduleRestart,
+  })
+  const restarter = createRestartRunner({
+    config,
+    writeRestartNotice: ref => restartNotices.write({ ref, requestedAt: Date.now() }),
+    scheduleRestart,
+  })
 
   // —— 5. Audit（审批事件旁路落库）——
   const approvalAudit = createApprovalAudit({ bus, audit: repos.audit })
@@ -105,6 +151,11 @@ async function main() {
     getUserLanguage: telegram.getUserLanguage,
     resolveCwd,
     refreshEnvironmentSnapshot: memory.refreshEnvironmentSnapshot,
+    getHealthReport: health.getReport,
+    getUpdatePreview: updater.preview,
+    performUpdate: updater.run,
+    getRestartPreview: restarter.preview,
+    performRestart: restarter.run,
   })
 
   // —— 注册优雅关闭 ——
@@ -142,6 +193,7 @@ async function main() {
   // —— 启动 ——
   logger.info({ cwd: config.DEFAULT_CWD }, 'AI CLI Hub 启动')
   await transport.start()
+  await notifyRestartComplete(restartNotices, transport, logger)
 
   // 主进程保持存活（transport.start() 只启 bot，不阻塞；此处挂起防 main 退出）
   await new Promise(() => {})
@@ -170,6 +222,112 @@ function resolveCwd(raw: string): { ok: true; cwd: string } | { ok: false; messa
   if (!existsSync(cwd)) return { ok: false, message: `目录不存在：${cwd}` }
   if (!statSync(cwd).isDirectory()) return { ok: false, message: `路径不是目录：${cwd}` }
   return { ok: true, cwd }
+}
+
+async function withHealthTimeout(
+  check: () => Promise<HealthCheckResult>,
+  ms: number,
+  name: string,
+): Promise<HealthCheckResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      check(),
+      new Promise<HealthCheckResult>(resolve => {
+        timer = setTimeout(() => resolve({ name, status: 'down', detail: `timed out after ${ms}ms` }), ms)
+      }),
+    ])
+  } catch (err) {
+    return { name, status: 'down', detail: err instanceof Error ? err.message : String(err) }
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function checkDirectory(dir: string): Promise<HealthCheckResult> {
+  const resolved = path.resolve(dir)
+  try {
+    const stat = statSync(resolved)
+    if (!stat.isDirectory()) return { name: 'directory', status: 'down', detail: `${resolved} is not a directory` }
+    await access(resolved, 0o6)
+    return { name: 'directory', status: 'ok', detail: `${resolved} readable/writable` }
+  } catch (err) {
+    return {
+      name: 'directory',
+      status: 'down',
+      detail: err instanceof Error ? `${resolved}: ${err.message}` : `${resolved}: ${String(err)}`,
+    }
+  }
+}
+
+async function checkCommand(command: string, timeoutMs: number): Promise<HealthCheckResult> {
+  const resolver = process.platform === 'win32' ? 'where.exe' : 'which'
+  return withHealthTimeout(
+    async () => {
+      const proc = Bun.spawn([resolver, command], { stdout: 'pipe', stderr: 'pipe' })
+      const code = await proc.exited
+      if (code !== 0) {
+        const stderr = await new Response(proc.stderr).text()
+        return { name: command, status: 'down', detail: stderr.trim() || `${command} not found` }
+      }
+      const stdout = await new Response(proc.stdout).text()
+      return { name: command, status: 'ok', detail: firstLine(stdout) || `${command} found` }
+    },
+    timeoutMs,
+    command,
+  )
+}
+
+async function runCommand(command: string, args: string[], cwd: string, timeoutMs: number): Promise<CommandResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const proc = Bun.spawn([command, ...args], { cwd, stdout: 'pipe', stderr: 'pipe' })
+  try {
+    const timedExit = Promise.race([
+      proc.exited,
+      new Promise<number>(resolve => {
+        timer = setTimeout(() => {
+          proc.kill()
+          resolve(124)
+        }, timeoutMs)
+      }),
+    ])
+    const [code, stdout, stderr] = await Promise.all([
+      timedExit,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ])
+    return { code, stdout, stderr: code === 124 ? appendLine(stderr, `timed out after ${timeoutMs}ms`) : stderr }
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+function appendLine(text: string, line: string): string {
+  return text.trim() ? `${text.trimEnd()}\n${line}` : line
+}
+
+function firstLine(value: string): string {
+  return (
+    value
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .find(Boolean)
+      ?.replace(/\\+/g, '/') ?? ''
+  )
+}
+
+async function notifyRestartComplete(
+  store: ReturnType<typeof createRestartNoticeStore>,
+  transport: Transport,
+  logger: ReturnType<typeof createLogger>,
+): Promise<void> {
+  try {
+    const notice = await store.consume()
+    if (!notice) return
+    await transport.sendMessage(notice.ref.chatId, '✅ 服务已重启完成，可以继续发送消息。')
+  } catch (err) {
+    logger.error({ err }, 'Failed to send restart completion notification')
+  }
 }
 
 main().catch(err => {

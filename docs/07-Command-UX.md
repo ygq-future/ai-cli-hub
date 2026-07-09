@@ -33,8 +33,8 @@ flowchart TD
 |---|---|---|---|
 | `/start` | — | 欢迎 + 当前会话状态 | 若无活跃会话则展示引导 |
 | `/help` | — | 命令帮助 | 返回本表精简版 |
-| `/new` | `[cli]` `[cwd]` | 强制开新会话 | 关闭当前/目标旧会话并后台生成会话摘录记忆 → 新建 `idle` conversation → `SessionCreated` |
-| `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；若会话含至少 2 条 user/assistant 消息，后台生成 conversation-derived episodic 摘录并回填 embedding |
+| `/new` | `[cli]` `[cwd]` | 强制开新会话 | 关闭当前/目标旧会话 → 新建 `idle` conversation → `SessionCreated` |
+| `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；不做非 LLM 自动会话摘录 |
 | `/status` | — | 当前会话详情 | 展示完整 conversationId、status、cli/cwd、目标 cli/cwd、语言 |
 | `/cwd` | `[path]` | 查看或切换工作目录 | 无参数查看；带路径则关闭当前会话、切换目标 cwd，下一条消息懒启动 |
 | `/sessions` | — | 列出该用户近期会话 | 历史查看，不表示 resume |
@@ -42,6 +42,9 @@ flowchart TD
 | `/remember` | `<text>` | 写入实例级全局长期记忆 | 默认写入 `namespace='global'`、`conversation_id=NULL`；`preference:` / `偏好:` 前缀写入偏好；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 | `/memory` | — | 查看实例级全局长期记忆 | Markdown 列表；每条仅展示短 ID、namespace 与 content |
 | `/env` | — | 刷新并查看环境快照 | 重新探测 OS/运行时/PM2/Docker/DB/端口/默认目录/媒体目录；按稳定 `env.*` tag 幂等 upsert |
+| `/health` | — | 服务健康检查 | 即时检查 DB ping、默认工作目录、媒体目录、关键 CLI 可用性与进程 uptime；不创建 conversation、不进入 CLI |
+| `/update` | `[confirm]` | 受控自更新 | 无参数只展示计划；`/update confirm` 才执行 git pull、依赖安装、迁移、检查，并延迟交给守护器重启；新进程启动后主动通知原 chat |
+| `/restart` | `[confirm]` | 受控重启 | Windows 上直接拒绝；非 Windows 无参数只展示计划；`/restart confirm` 不更新代码，只写入重启通知 marker 并延迟交给守护器重启；用于验证重启与主动通知链路 |
 | `/forget` | `<memoryId>` | 删除实例级全局长期记忆 | 支持唯一短前缀；前缀不唯一时拒绝删除；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 
 > 参数缺省：`/new` 不带参数则使用当前目标 `cli`、当前目标 `cwd`（若无则用 `DEFAULT_CWD`）。V1 当前只接入 `claude`，`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
@@ -54,10 +57,10 @@ flowchart TD
 | 用户动作 | 会话结果 |
 |---|---|
 | 普通发消息 | 命中 `(user, cli, cwd)` 活跃会话则复用；否则新建 |
-| `/new` | 强制新建，旧会话关闭并按 `/close` 规则生成会话摘录；新建会话初始为 `idle`，第一条普通消息懒启动 CLI |
+| `/new` | 强制新建，旧会话关闭；新建会话初始为 `idle`，第一条普通消息懒启动 CLI |
 | `/cwd` | 无参数仅查看当前目标 cwd |
 | `/cwd <path>` | 关闭当前会话并切换当前用户目标 cwd；不创建 conversation，下一条普通消息在新 cwd 新建 |
-| `/close` | 当前会话关闭；若有足够消息则后台生成会话派生摘录记忆，下条消息将开新会话 |
+| `/close` | 当前会话关闭；不自动写长期记忆，下条消息将开新会话 |
 | 长期无活动 | 超 `SESSION_ARCHIVE_DAYS` 自动归档（等同 `/close`，`reason:archiveTimeout`） |
 
 ---
@@ -143,6 +146,11 @@ Markdown 卡片 + 内联按钮：
 | `/forget` 前缀不唯一 | 记忆 ID 前缀不唯一：`{prefix}` |
 | `/remember` 或 `/forget` 后继续对话 | 下一条普通消息自动重启 adapter 并注入最新全局记忆，conversation 不关闭 |
 | `/env` 执行 | 立即刷新环境快照并返回 `env.*` 记忆；probe 失败项显示 `missing` 或 `unknown`，不阻塞服务 |
+| `/health` 执行 | 返回 live self-check；关键检查失败时 Status 为 `down`，非关键检查失败时为 `degraded` |
+| `/update` 执行 | Windows 上直接返回“自更新不可用”且不执行命令；非 Windows 无参数返回预检计划；必须发送 `/update confirm` 才执行；工作树不干净或任一步失败时停止且不安排重启 |
+| `/update confirm` 成功 | 返回自更新报告，并在 `UPDATE_RESTART_DELAY_MS` 后执行 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动并连接 Telegram 后主动通知“服务已重启完成，可以继续发送消息” |
+| `/restart` 执行 | Windows 上直接返回“重启不可用”且不执行命令；非 Windows 无参数返回重启预检计划；必须发送 `/restart confirm` 才执行；不执行 git pull、依赖安装、迁移或检查 |
+| `/restart confirm` 成功 | 返回重启安排，并在 `UPDATE_RESTART_DELAY_MS` 后执行同一组 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动并连接 Telegram 后主动通知原 chat |
 | adapter 重启后继续同一会话 | 下一条 user message 会携带当前 conversation 最近 `RECENT_CONTEXT_LIMIT` 条历史消息；单条超长时按 `RECENT_CONTEXT_MESSAGE_MAX_CHARS` 保留尾部，避免丢失上一轮最新结论 |
 | CLI 运行中 `/new` | ℹ️ 已关闭当前会话，已为你开启新会话 |
 | 进程被空闲回收后发消息 | （静默唤醒，重启进程，用户无感）|
@@ -194,6 +202,18 @@ MEDIA_PARSE_TIMEOUT_MS=30000
 # ── OCR（Light OCR API，可选；留空则禁用）──
 OCR_API_BASE_URL=http://localhost:8000
 OCR_API_TIMEOUT_MS=30000
+
+# ── 运维自更新（V2-R2）──
+# /update 和 /restart 仅适用于 Linux/VPS 部署；Windows 上会直接提示不可用。
+# /restart 复用同一组重启配置，但不更新代码，用于测试重启与主动通知链路。
+# UPDATE_WORKDIR 默认使用进程启动目录 process.cwd()；生产上只有守护器 cwd 不稳定时才需要覆盖。
+# UPDATE_WORKDIR=/srv/ai-cli-hub
+UPDATE_COMMAND_TIMEOUT_MS=120000
+UPDATE_REQUIRE_CLEAN_WORKTREE=true
+UPDATE_RESTART_COMMAND=pm2
+UPDATE_RESTART_ARGS=restart,ai-cli-hub
+UPDATE_RESTART_DELAY_MS=1500
+UPDATE_RESTART_NOTICE_FILE=.data/update-restart-notice.json
 
 # ── 生命周期超时 ──
 # 已启动的 CLI/adapter 空闲超过该时间后自动关闭；conversation 保持 idle，可再次唤醒
