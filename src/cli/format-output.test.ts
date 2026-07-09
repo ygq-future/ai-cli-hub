@@ -129,6 +129,16 @@ IMPORTANT SYSTEM-ROLE / CROSS-CUTTING INSTRUCTIONS:
     expect(formatOutputDelta(d)).toBe('你好！我是 Claude Code，你的 AI CLI 远程会话管理助手。有什么可以帮你的吗？')
   })
 
+  test('清理单 agent 结果展示指令泄露', () => {
+    const d: OutputDelta = {
+      kind: 'text',
+      final: true,
+      text: 'When you launch a single agent, send it in its own message so the user sees the agent result upon completion.你好！有什么我可以帮你的吗？',
+    }
+
+    expect(formatOutputDelta(d)).toBe('你好！有什么我可以帮你的吗？')
+  })
+
   test('tool_use 不展示给用户', () => {
     const d: OutputDelta = {
       kind: 'tool_use',

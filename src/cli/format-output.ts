@@ -48,6 +48,10 @@ export function sanitizeVisibleText(text: string): string {
       /^\s*IMPORTANT SYSTEM-ROLE \/ CROSS-CUTTING INSTRUCTIONS:[\s\S]*?(?=(?:你好|您好|Hello|Hi|I'm|I am|我是|有什么可以帮|$))/i,
       '',
     )
+    .replace(
+      /When you launch a single agent, send it in its own message so the user sees the agent result upon completion\.\s*/gi,
+      '',
+    )
     .replace(/<\/?(?:think|system-role|system-reminder)>/gi, '')
     .replace(
       /If you see the message "This tool does not support running in the background"[\s\S]*?TaskList at the start of each turn\.\s*/gi,

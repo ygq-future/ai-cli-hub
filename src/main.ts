@@ -33,6 +33,8 @@ async function main() {
   const logger = createLogger({ level: config.LOG_LEVEL })
   const bus = createEventBus()
   const detachLogger = attachEventLogger(bus, logger)
+  const messageFlowLogger = (event: string, data: Record<string, unknown>) =>
+    logger.info({ event, ...data }, 'Message flow debug')
 
   // —— 3. Database ——
   const db = createDb(config.DATABASE_URL)
@@ -45,13 +47,19 @@ async function main() {
   const approvalAudit = createApprovalAudit({ bus, audit: repos.audit })
 
   // —— 6. Memory（环境快照 + 全局记忆召回）——
-  const memory = await createMemoryModule({ bus, repos, config })
+  const memory = await createMemoryModule({
+    bus,
+    repos,
+    config,
+    debugMessageFlow: config.DEBUG_MESSAGE_FLOW,
+    messageFlowLogger,
+  })
 
   // —— 7. Aggregator ——
   const aggregator = createMessageAggregator(bus, {
-    debounceMs: 400,
-    minEditIntervalMs: 1000,
-    maxChunkChars: 4096,
+    debounceMs: config.AGGREGATOR_DEBOUNCE_MS,
+    minEditIntervalMs: config.AGGREGATOR_MIN_EDIT_INTERVAL_MS,
+    maxChunkChars: config.AGGREGATOR_MAX_CHUNK_CHARS,
   })
 
   // —— 8. Media + Telegram Transport ——
@@ -80,9 +88,10 @@ async function main() {
     getSystemMemoryHint: memory.recallGlobalContext,
     getRelevantMemoryHint: memory.recallRelevantContext,
     agentDescription: config.AGENT_DESCRIPTION,
-    debugDiagnostics: config.DEBUG_AGENT_SDK_JSON,
-    diagnosticLogger: (event, data) => logger.info({ event, ...data }, 'Orchestrator diagnostic'),
+    debugMessageFlow: config.DEBUG_MESSAGE_FLOW,
+    messageFlowLogger,
     idleTimeoutMs: config.AGENT_IDLE_TIMEOUT_MS,
+    turnTimeoutMs: config.AGENT_TURN_TIMEOUT_MS,
     recentContextLimit: config.RECENT_CONTEXT_LIMIT,
     recentContextMessageMaxChars: config.RECENT_CONTEXT_MESSAGE_MAX_CHARS,
   })
@@ -113,11 +122,11 @@ async function main() {
           memory.destroy()
           approvalAudit.destroy()
           aggregator.destroy()
-          await coreHub.destroy()
+          coreHub.destroy()
           await closeDb(db)
           detachLogger()
         })(),
-        15_000,
+        config.SERVICE_SHUTDOWN_TIMEOUT_MS,
         'shutdown',
       )
       logger.info('已关闭')
@@ -164,6 +173,6 @@ function resolveCwd(raw: string): { ok: true; cwd: string } | { ok: false; messa
 }
 
 main().catch(err => {
-  console.error('启动失败:', err)
+  process.stderr.write(`启动失败: ${err instanceof Error ? err.stack || err.message : String(err)}\n`)
   process.exit(1)
 })

@@ -37,6 +37,7 @@ export function createMessageRouter(
   commandRouter?: CommandRouter,
   handler?: MessageHandler,
   getUserLanguage: (userId: string) => UserLanguage = () => 'zh',
+  requestedSummaryMessageLimit = 10,
 ): MessageRouter {
   const unsubs: Unsubscribe[] = []
 
@@ -71,7 +72,7 @@ export function createMessageRouter(
           reason: 'userRememberRequest',
           text,
         })
-        const response = '已收到，我会根据当前会话最近 10 条消息总结成长期记忆。'
+        const response = `已收到，我会根据当前会话最近 ${requestedSummaryMessageLimit} 条消息总结成长期记忆。`
         await repos.messages.append({
           id: crypto.randomUUID(),
           conversationId,

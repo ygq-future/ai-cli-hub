@@ -45,7 +45,7 @@ flowchart TD
 | `/forget` | `<memoryId>` | 删除实例级全局长期记忆 | 支持唯一短前缀；前缀不唯一时拒绝删除；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 
 > 参数缺省：`/new` 不带参数则使用当前目标 `cli`、当前目标 `cwd`（若无则用 `DEFAULT_CWD`）。V1 当前只接入 `claude`，`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
-> 普通文本里的“记住/记一下/记录/remember this”等自然语言记忆请求不是 `/remember`：它不会写入 global 记忆，也不会进入 Claude SDK；系统会用当前 conversation 最近 10 条 `messages` 表 user/assistant 消息调用 LLM 摘要，摘要语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述，写入 conversation-derived episodic 记忆并用于后续 embedding 召回。
+> 普通文本里的“记住/记一下/记录/remember this”等自然语言记忆请求不是 `/remember`：它不会写入 global 记忆，也不会进入 Claude SDK；系统会按 `MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 读取当前 conversation 最近的 user/assistant 消息调用 LLM 摘要，摘要语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述，写入 conversation-derived episodic 记忆并用于后续 embedding 召回。
 
 ---
 
@@ -177,6 +177,7 @@ MEMORY_RECALL_TOP_K=10
 MEMORY_SUMMARY_API_BASE_URL=https://api.openai.com/v1
 MEMORY_SUMMARY_API_KEY=sk-your-summary-key
 MEMORY_SUMMARY_MODEL=gpt-4o-mini
+MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT=10
 MEMORY_SUMMARY_MAX_CHARS=600
 
 # ── Agent 职责定位（可选，注入 system hint）──
@@ -205,7 +206,9 @@ SESSION_ARCHIVE_DAYS=7
 # debug | info | warn | error
 LOG_LEVEL=info
 
-# ── Claude Agent SDK 调试 ──
-# true/1/on 时打印 SDK 原始 JSON，并开启 orchestrator adapterStarted/sendUserInput/turnTimeout 诊断日志
+# ── 调试 ──
+# true/1/on 时打印 Agent SDK 原始 JSON；开发 SDK adapter 时使用
 DEBUG_AGENT_SDK_JSON=false
+# true/1/on 时打印消息链路日志：用户输入、注入后的上下文、记忆召回、adapter 输出、落库消息等
+DEBUG_MESSAGE_FLOW=false
 ```

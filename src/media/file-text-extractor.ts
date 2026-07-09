@@ -49,7 +49,7 @@ interface XlsxModule {
   }
 }
 
-async function loadMammoth(): Promise<MammothModule> {
+function loadMammoth(): MammothModule {
   return requirePackage<MammothModule>('mammoth', 'lib/index.js')
 }
 
@@ -57,7 +57,7 @@ async function loadPdfParse(): Promise<PdfParseModule> {
   return (await import('pdf-parse')) as PdfParseModule
 }
 
-async function loadXlsx(): Promise<XlsxModule> {
+function loadXlsx(): XlsxModule {
   return requirePackage<XlsxModule>('xlsx', 'xlsx.js')
 }
 
@@ -128,7 +128,7 @@ async function extractPdf(input: FileTextInput): Promise<FileTextResult> {
 
 async function extractDocx(input: FileTextInput): Promise<FileTextResult> {
   try {
-    const mammoth = await loadMammoth()
+    const mammoth = loadMammoth()
     const result = await mammoth.extractRawText({ path: input.localPath })
     const text = normalizeText(result.value)
     const warnings = result.messages.map(message => message.message).filter(Boolean)
@@ -141,7 +141,7 @@ async function extractDocx(input: FileTextInput): Promise<FileTextResult> {
 
 async function extractExcel(input: FileTextInput): Promise<FileTextResult> {
   try {
-    const { read, utils } = await loadXlsx()
+    const { read, utils } = loadXlsx()
     const data = await readFile(input.localPath)
     const workbook = read(data, { type: 'buffer', dense: true })
     const sections: string[] = []
@@ -161,17 +161,17 @@ async function extractExcel(input: FileTextInput): Promise<FileTextResult> {
 
 export function createDefaultFileTextExtractor(): FileTextExtractor {
   return {
-    async extract(input: FileTextInput): Promise<FileTextResult> {
+    extract(input: FileTextInput): Promise<FileTextResult> {
       if (isPdf(input)) return extractPdf(input)
       if (isDocx(input)) return extractDocx(input)
       if (isExcel(input)) return extractExcel(input)
       if (isUnsupportedDoc(input)) {
-        return {
+        return Promise.resolve({
           status: 'unsupported',
           reason: 'Legacy .doc files are not supported; please send .docx or export to PDF/text.',
-        }
+        })
       }
-      return { status: 'unsupported', reason: 'No text extractor is configured for this file type.' }
+      return Promise.resolve({ status: 'unsupported', reason: 'No text extractor is configured for this file type.' })
     },
   }
 }

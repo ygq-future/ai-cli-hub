@@ -63,6 +63,7 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
     commandRouter,
     opts.handler,
     opts.getUserLanguage,
+    config.MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT,
   )
 
   return {

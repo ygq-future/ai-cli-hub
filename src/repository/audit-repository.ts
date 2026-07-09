@@ -13,7 +13,7 @@ export function createAuditRepository(db: Db): AuditRepository {
       await db.insert(auditLogs).values(a)
     },
 
-    async listByConversation(id: ConversationId): Promise<AuditLog[]> {
+    listByConversation(id: ConversationId): Promise<AuditLog[]> {
       return db.select().from(auditLogs).where(eq(auditLogs.conversationId, id)).orderBy(asc(auditLogs.createdAt))
     },
   }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { IPty } from 'node-pty'
 import { createPtyRuntime, type SpawnFn } from './node-pty-runtime'
-import type { SpawnOptions } from '../cli/base'
+import type { SpawnOptions } from '../cli'
 
 const SPAWN: SpawnOptions = { conversationId: 'c1' as SpawnOptions['conversationId'], cwd: '/tmp', cols: 80, rows: 24 }
 

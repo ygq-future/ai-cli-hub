@@ -4,7 +4,7 @@
  * ⚠️ 仅 PTY 家族（无 SDK 的 CLI）使用。SDK 家族的 Adapter 既不实现也不使用它。
  * docs/03-Interface-Contracts.md §3.2
  */
-import type { SpawnOptions } from '../cli/base'
+import type { SpawnOptions } from '../cli'
 import type { Unsubscribe } from '../shared'
 
 export interface PtyRuntime {

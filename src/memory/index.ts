@@ -9,7 +9,7 @@ import { access, mkdir, stat } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
 import type { AppConfig } from '../config'
 import type { EventBus } from '../event'
-import type { Memory, Message, Repositories } from '../repository'
+import type { Memory, Repositories } from '../repository'
 import {
   DEFAULT_MEMORY_NAMESPACE,
   type ConversationId,
@@ -34,6 +34,8 @@ export interface MemoryModuleDeps {
   namespace?: string
   embeddingProvider?: EmbeddingProvider
   summaryProvider?: SummaryProvider
+  debugMessageFlow?: boolean
+  messageFlowLogger?: (event: string, data: Record<string, unknown>) => void
 }
 
 interface EnvironmentFact {
@@ -42,9 +44,7 @@ interface EnvironmentFact {
   importance?: number
 }
 
-const CONVERSATION_SUMMARY_MESSAGE_LIMIT = 12
-const CONVERSATION_SUMMARY_MESSAGE_MAX_CHARS = 800
-const REQUESTED_SUMMARY_MESSAGE_LIMIT = 10
+const DEFAULT_ENV_PROBE_TIMEOUT_MS = 1500
 
 export async function createMemoryModule(deps: MemoryModuleDeps): Promise<MemoryModule> {
   const namespace = deps.namespace ?? DEFAULT_MEMORY_NAMESPACE
@@ -55,11 +55,6 @@ export async function createMemoryModule(deps: MemoryModuleDeps): Promise<Memory
     deps.bus.on('MemoryUpdated', payload => {
       if (payload.namespace !== namespace) return
       void embedMemoryById(deps, embeddingProvider, payload.memoryId)
-    }),
-  )
-  unsubs.push(
-    deps.bus.on('SessionClosed', payload => {
-      void createConversationSummaryMemory(deps, namespace, payload.conversationId)
     }),
   )
   unsubs.push(
@@ -79,6 +74,11 @@ export async function createMemoryModule(deps: MemoryModuleDeps): Promise<Memory
   return {
     async recallGlobalContext() {
       const memories = await deps.repos.memories.listGlobal(namespace)
+      debugMessageFlow(deps, 'memory.globalRecall', {
+        namespace,
+        count: memories.length,
+        memories: memories.map(formatMemoryDebugItem),
+      })
       return formatGlobalMemoryContext(memories)
     },
     async recallRelevantContext(query: string) {
@@ -86,6 +86,14 @@ export async function createMemoryModule(deps: MemoryModuleDeps): Promise<Memory
       const memories = await deps.repos.memories.searchByVector(namespace, embedding, deps.config.MEMORY_RECALL_TOP_K)
       const relevantMemories = memories.filter(m => m.conversationId !== null)
       await Promise.all(relevantMemories.map(m => deps.repos.memories.touch(m.id)))
+      debugMessageFlow(deps, 'memory.relevantRecall', {
+        namespace,
+        query,
+        topK: deps.config.MEMORY_RECALL_TOP_K,
+        embeddingDimensions: embedding.length,
+        returned: memories.map(formatMemoryDebugItem),
+        selected: relevantMemories.map(formatMemoryDebugItem),
+      })
       return formatRelevantMemoryContext(relevantMemories)
     },
     async refreshEnvironmentSnapshot() {
@@ -112,43 +120,6 @@ async function embedMemoryById(deps: MemoryModuleDeps, embeddingProvider: Embedd
   }
 }
 
-async function createConversationSummaryMemory(
-  deps: MemoryModuleDeps,
-  namespace: string,
-  conversationId: string,
-): Promise<void> {
-  try {
-    const cid = conversationId as ConversationId
-    const messages = await deps.repos.messages.listByConversation(cid)
-    const content = formatConversationSummaryMemory(conversationId, messages)
-    if (!content) return
-
-    const lastMessage = [...messages].reverse().find(m => m.content.trim())
-    const memory = await deps.repos.memories.upsertByTag(namespace, `conversation.summary:${conversationId}`, {
-      conversationId: cid,
-      type: 'episodic',
-      content,
-      embedding: null,
-      sourceMessageId: lastMessage?.id ?? null,
-      importance: 0.6,
-      accessCount: 0,
-      lastAccessedAt: null,
-    })
-    deps.bus.emit('MemoryUpdated', {
-      conversationId: cid,
-      namespace,
-      memoryType: memory.type,
-      memoryId: memory.id,
-    })
-  } catch (err) {
-    deps.bus.emit('ErrorOccurred', {
-      scope: 'memory:conversationSummary',
-      message: err instanceof Error ? err.message : String(err),
-      conversationId: conversationId as ConversationId,
-    })
-  }
-}
-
 async function createRequestedSummaryMemory(
   deps: MemoryModuleDeps,
   namespace: string,
@@ -161,11 +132,26 @@ async function createRequestedSummaryMemory(
     const messages = await deps.repos.messages.listByConversation(conversationId)
     const recentMessages = messages
       .filter(m => (m.role === 'user' || m.role === 'assistant') && m.content.trim())
-      .slice(-REQUESTED_SUMMARY_MESSAGE_LIMIT)
+      .slice(-deps.config.MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT)
     if (recentMessages.length === 0) return
 
     const summary = await summaryProvider.summarizeRecentMessages(recentMessages, userRequest, language)
     if (!summary.trim()) return
+    debugMessageFlow(deps, 'memory.requestedSummary', {
+      conversationId,
+      userRequest,
+      language,
+      messageLimit: deps.config.MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT,
+      messages: recentMessages.map(m => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        contentChars: m.content.length,
+        createdAt: m.createdAt,
+      })),
+      summary,
+      summaryChars: summary.length,
+    })
 
     const lastMessage = [...recentMessages].reverse().find(m => m.content.trim())
     const memory = await deps.repos.memories.insert({
@@ -199,6 +185,11 @@ async function createRequestedSummaryMemory(
 
 export async function upsertEnvironmentSnapshot(deps: MemoryModuleDeps, namespace = DEFAULT_MEMORY_NAMESPACE) {
   const facts = await collectEnvironmentFacts(deps.config)
+  debugMessageFlow(deps, 'memory.environmentSnapshot', {
+    namespace,
+    count: facts.length,
+    facts,
+  })
   for (const fact of facts) {
     const memory = await deps.repos.memories.upsertByTag(namespace, fact.tag, {
       conversationId: null,
@@ -219,24 +210,45 @@ export async function upsertEnvironmentSnapshot(deps: MemoryModuleDeps, namespac
   }
 }
 
+function debugMessageFlow(deps: MemoryModuleDeps, event: string, data: Record<string, unknown>) {
+  if (!deps.debugMessageFlow) return
+  deps.messageFlowLogger?.(event, data)
+}
+
+function formatMemoryDebugItem(memory: Memory, index: number) {
+  return {
+    rank: index + 1,
+    id: memory.id,
+    namespace: memory.namespace,
+    type: memory.type,
+    tag: memory.tag,
+    conversationId: memory.conversationId,
+    importance: memory.importance,
+    accessCount: memory.accessCount,
+    content: memory.content,
+    contentChars: memory.content.length,
+    createdAt: memory.createdAt,
+  }
+}
+
 export async function collectEnvironmentFacts(config: AppConfig): Promise<EnvironmentFact[]> {
   const isWindows = process.platform === 'win32'
   const mediaDir = path.resolve(config.MEDIA_DOWNLOAD_DIR)
   const [node, bash, zsh, sh, bunCli, git, claude, codex, gemini, docker, dockerCompose, pm2, psql, mediaInfo] =
     await Promise.all([
-      probeCommand('node', ['--version']),
-      probeCommand('bash', ['--version'], firstLine),
-      probeCommand('zsh', ['--version'], firstLine),
-      probeCommand('sh', ['--version'], firstLine),
-      probeCommand('bun', ['--version']),
-      probeCommand('git', ['--version']),
-      probeCliAvailability('claude'),
-      probeCliAvailability('codex'),
-      probeCliAvailability('gemini'),
-      probeCommand('docker', ['--version']),
-      probeCommand('docker', ['compose', 'version']),
-      probeCommand('pm2', ['--version']),
-      probeCommand('psql', ['--version']),
+      probeCommand('node', ['--version'], undefined, config.ENV_PROBE_TIMEOUT_MS),
+      probeCommand('bash', ['--version'], firstLine, config.ENV_PROBE_TIMEOUT_MS),
+      probeCommand('zsh', ['--version'], firstLine, config.ENV_PROBE_TIMEOUT_MS),
+      probeCommand('sh', ['--version'], firstLine, config.ENV_PROBE_TIMEOUT_MS),
+      probeCommand('bun', ['--version'], undefined, config.ENV_PROBE_TIMEOUT_MS),
+      probeCommand('git', ['--version'], undefined, config.ENV_PROBE_TIMEOUT_MS),
+      probeCliAvailability('claude', config.ENV_PROBE_TIMEOUT_MS),
+      probeCliAvailability('codex', config.ENV_PROBE_TIMEOUT_MS),
+      probeCliAvailability('gemini', config.ENV_PROBE_TIMEOUT_MS),
+      probeCommand('docker', ['--version'], undefined, config.ENV_PROBE_TIMEOUT_MS),
+      probeCommand('docker', ['compose', 'version'], undefined, config.ENV_PROBE_TIMEOUT_MS),
+      probeCommand('pm2', ['--version'], undefined, config.ENV_PROBE_TIMEOUT_MS),
+      probeCommand('psql', ['--version'], undefined, config.ENV_PROBE_TIMEOUT_MS),
       inspectDirectory(mediaDir),
     ])
 
@@ -330,23 +342,6 @@ export function formatRelevantMemoryContext(memories: Memory[]): string {
   return ['[相关长期记忆 · 语义召回]', ...lines, '---'].join('\n')
 }
 
-export function formatConversationSummaryMemory(conversationId: string, messages: Message[]): string {
-  const conversationMessages = messages.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content.trim())
-  if (conversationMessages.length < 2) return ''
-
-  const selected = conversationMessages.slice(-CONVERSATION_SUMMARY_MESSAGE_LIMIT)
-  const lines = selected.map(m => {
-    const role = m.role === 'assistant' ? '助手' : '用户'
-    return `- ${role}：${truncateForConversationSummary(m.content)}`
-  })
-  return [
-    '会话派生记忆：该内容来自一次已关闭会话，用于未来按语义召回，不属于全局默认事实。',
-    `conversation_id=${conversationId}`,
-    '最近对话摘录：',
-    ...lines,
-  ].join('\n')
-}
-
 function memorySortKey(memory: Memory): string {
   return `${memory.type}:${memory.tag ?? ''}:${memory.createdAt}:${memory.id}`
 }
@@ -355,12 +350,6 @@ function memoryTypeLabel(type: MemoryType): string {
   if (type === 'preference') return '偏好'
   if (type === 'episodic') return '情节'
   return '事实'
-}
-
-function truncateForConversationSummary(content: string): string {
-  const normalized = content.trim()
-  if (normalized.length <= CONVERSATION_SUMMARY_MESSAGE_MAX_CHARS) return normalized
-  return `${normalized.slice(0, CONVERSATION_SUMMARY_MESSAGE_MAX_CHARS - 3)}...`
 }
 
 function normalizePathForMemory(value: string): string {
@@ -378,22 +367,23 @@ interface DirectoryProbe {
   kind: 'directory' | 'file' | 'missing' | 'other'
 }
 
-async function probeCliAvailability(name: string): Promise<ProbeResult> {
-  if (process.platform === 'win32') return probeCommand('where.exe', [name], firstLine)
-  return probeCommand('which', [name], firstLine)
+function probeCliAvailability(name: string, timeoutMs = DEFAULT_ENV_PROBE_TIMEOUT_MS): Promise<ProbeResult> {
+  if (process.platform === 'win32') return probeCommand('where.exe', [name], firstLine, timeoutMs)
+  return probeCommand('which', [name], firstLine, timeoutMs)
 }
 
 async function probeCommand(
   command: string,
   args: string[],
   transform: (output: string) => string = output => output.trim(),
+  timeoutMs = DEFAULT_ENV_PROBE_TIMEOUT_MS,
 ): Promise<ProbeResult> {
   let proc: Bun.Subprocess<'ignore', 'pipe', 'pipe'> | null = null
   const timeout = new Promise<number>(resolve => {
     setTimeout(() => {
       proc?.kill()
       resolve(-1)
-    }, 1500)
+    }, timeoutMs)
   })
 
   try {

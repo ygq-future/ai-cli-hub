@@ -33,6 +33,11 @@ type SessionTargetResolveResult = { ok: true; cli: CliType; cwd: string } | { ok
 
 const KNOWN_CLI_TYPES: ReadonlySet<CliType> = new Set(['claude', 'codex', 'gemini'])
 const SUPPORTED_CLI_TYPES: ReadonlySet<CliType> = new Set(['claude'])
+const RECENT_SESSIONS_LIMIT = 10
+const ID_PREFIX_SEARCH_LIMIT = 50
+const SHORT_ID_CHARS = 8
+const MEMORY_PREVIEW_CHARS = 160
+const AUDIT_COMMAND_PREVIEW_CHARS = 300
 
 export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
   const { bus, repos, sessionManager } = deps
@@ -127,7 +132,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
         }
 
         case 'sessions': {
-          const sessions = await repos.conversations.listRecentByUser(payload.userId, 10)
+          const sessions = await repos.conversations.listRecentByUser(payload.userId, RECENT_SESSIONS_LIMIT)
           reply(payload, formatSessions(sessions))
           return true
         }
@@ -313,7 +318,7 @@ async function resolveAuditConversation(
   const exact = await repos.conversations.findById(target as ConversationId)
   if (exact) return exact.userId === payload.userId ? { ok: true, conversation: exact } : auditNotFound(target)
 
-  const recent = await repos.conversations.listRecentByUser(payload.userId, 50)
+  const recent = await repos.conversations.listRecentByUser(payload.userId, ID_PREFIX_SEARCH_LIMIT)
   const matches = recent.filter(conv => conv.id.startsWith(target))
   if (matches.length === 1) return { ok: true, conversation: matches[0]! }
   if (matches.length > 1) return { ok: false, message: `会话 ID 前缀不唯一：${target}\n请多输入几位。` }
@@ -403,23 +408,23 @@ function memoryNotFound(target: string): { ok: false; message: string } {
 }
 
 function shortMemoryId(id: string): string {
-  return id.slice(0, 8)
+  return id.slice(0, SHORT_ID_CHARS)
 }
 
 function truncateMemory(value: string): string {
   const normalized = value.trim()
-  if (normalized.length <= 160) return normalized
-  return `${normalized.slice(0, 157)}...`
+  if (normalized.length <= MEMORY_PREVIEW_CHARS) return normalized
+  return `${normalized.slice(0, MEMORY_PREVIEW_CHARS - 3)}...`
 }
 
 function truncateForAudit(value: string): string {
   const normalized = value.trim()
-  if (normalized.length <= 300) return normalized
-  return `${normalized.slice(0, 297)}...`
+  if (normalized.length <= AUDIT_COMMAND_PREVIEW_CHARS) return normalized
+  return `${normalized.slice(0, AUDIT_COMMAND_PREVIEW_CHARS - 3)}...`
 }
 
 function shortId(id: ConversationId): string {
-  return id.slice(0, 8)
+  return id.slice(0, SHORT_ID_CHARS)
 }
 
 function formatDate(ts: number): string {

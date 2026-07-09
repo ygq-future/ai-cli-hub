@@ -19,20 +19,28 @@ describe('loadConfig', () => {
     expect(c.MEMORY_SUMMARY_API_BASE_URL).toBe('')
     expect(c.MEMORY_SUMMARY_API_KEY).toBe('')
     expect(c.MEMORY_SUMMARY_MODEL).toBe('')
+    expect(c.MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT).toBe(10)
     expect(c.MEMORY_SUMMARY_MAX_CHARS).toBe(600)
     expect(c.AGENT_IDLE_TIMEOUT_MS).toBe(300_000)
+    expect(c.AGENT_TURN_TIMEOUT_MS).toBe(60_000)
+    expect(c.SERVICE_SHUTDOWN_TIMEOUT_MS).toBe(15_000)
     expect(c.SESSION_ARCHIVE_DAYS).toBe(7)
     expect(c.AGENT_DESCRIPTION).toBe('')
     expect(c.RECENT_CONTEXT_LIMIT).toBe(10)
     expect(c.RECENT_CONTEXT_MESSAGE_MAX_CHARS).toBe(1200)
+    expect(c.AGGREGATOR_DEBOUNCE_MS).toBe(400)
+    expect(c.AGGREGATOR_MIN_EDIT_INTERVAL_MS).toBe(1000)
+    expect(c.AGGREGATOR_MAX_CHUNK_CHARS).toBe(4096)
     expect(c.MEDIA_DOWNLOAD_DIR).toBe('.data/media')
     expect(c.MEDIA_MAX_FILE_BYTES).toBe(10 * 1024 * 1024)
     expect(c.MEDIA_MAX_TEXT_CHARS).toBe(20_000)
     expect(c.MEDIA_PARSE_TIMEOUT_MS).toBe(30_000)
     expect(c.OCR_API_BASE_URL).toBe('')
     expect(c.OCR_API_TIMEOUT_MS).toBe(30_000)
+    expect(c.ENV_PROBE_TIMEOUT_MS).toBe(1500)
     expect(c.LOG_LEVEL).toBe('info')
     expect(c.DEBUG_AGENT_SDK_JSON).toBe(false)
+    expect(c.DEBUG_MESSAGE_FLOW).toBe(false)
   })
 
   test('AGENT_DESCRIPTION 从 env 读取', () => {
@@ -45,15 +53,29 @@ describe('loadConfig', () => {
       ...VALID,
       EMBEDDING_DIMENSIONS: '768',
       MEMORY_RECALL_TOP_K: '12',
+      MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT: '9',
       AGENT_IDLE_TIMEOUT_MS: '60000',
+      AGENT_TURN_TIMEOUT_MS: '45000',
+      SERVICE_SHUTDOWN_TIMEOUT_MS: '12000',
       RECENT_CONTEXT_LIMIT: '8',
       RECENT_CONTEXT_MESSAGE_MAX_CHARS: '900',
+      AGGREGATOR_DEBOUNCE_MS: '300',
+      AGGREGATOR_MIN_EDIT_INTERVAL_MS: '800',
+      AGGREGATOR_MAX_CHUNK_CHARS: '3500',
+      ENV_PROBE_TIMEOUT_MS: '1000',
     })
     expect(c.EMBEDDING_DIMENSIONS).toBe(768)
     expect(c.MEMORY_RECALL_TOP_K).toBe(12)
+    expect(c.MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT).toBe(9)
     expect(c.AGENT_IDLE_TIMEOUT_MS).toBe(60000)
+    expect(c.AGENT_TURN_TIMEOUT_MS).toBe(45000)
+    expect(c.SERVICE_SHUTDOWN_TIMEOUT_MS).toBe(12000)
     expect(c.RECENT_CONTEXT_LIMIT).toBe(8)
     expect(c.RECENT_CONTEXT_MESSAGE_MAX_CHARS).toBe(900)
+    expect(c.AGGREGATOR_DEBOUNCE_MS).toBe(300)
+    expect(c.AGGREGATOR_MIN_EDIT_INTERVAL_MS).toBe(800)
+    expect(c.AGGREGATOR_MAX_CHUNK_CHARS).toBe(3500)
+    expect(c.ENV_PROBE_TIMEOUT_MS).toBe(1000)
   })
 
   test('Embedding API base URL 从 env 读取', () => {
@@ -122,6 +144,8 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...VALID, DEBUG_AGENT_SDK_JSON: 'false' }).DEBUG_AGENT_SDK_JSON).toBe(false)
     expect(loadConfig({ ...VALID, DEBUG_AGENT_SDK_JSON: '0' }).DEBUG_AGENT_SDK_JSON).toBe(false)
     expect(loadConfig({ ...VALID, DEBUG_AGENT_SDK_JSON: 'off' }).DEBUG_AGENT_SDK_JSON).toBe(false)
+    expect(loadConfig({ ...VALID, DEBUG_MESSAGE_FLOW: 'yes' }).DEBUG_MESSAGE_FLOW).toBe(true)
+    expect(loadConfig({ ...VALID, DEBUG_MESSAGE_FLOW: 'no' }).DEBUG_MESSAGE_FLOW).toBe(false)
   })
 
   test('非法调试布尔 env 时抛错', () => {

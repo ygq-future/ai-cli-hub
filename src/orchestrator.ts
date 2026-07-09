@@ -36,8 +36,8 @@ export interface SessionOrchestratorDeps {
   getSystemMemoryHint?: () => Promise<string> | string
   getRelevantMemoryHint?: (query: string) => Promise<string> | string
   agentDescription?: string
-  debugDiagnostics?: boolean
-  diagnosticLogger?: (event: string, data: Record<string, unknown>) => void
+  debugMessageFlow?: boolean
+  messageFlowLogger?: (event: string, data: Record<string, unknown>) => void
   turnTimeoutMs?: number
   /** adapter 空闲回收时间；0 表示禁用。默认沿用 AGENT_IDLE_TIMEOUT_MS 的 5 分钟语义。 */
   idleTimeoutMs?: number
@@ -65,6 +65,19 @@ interface EnsureAdapterResult {
 const DEFAULT_RECENT_CONTEXT_LIMIT = 10
 const DEFAULT_RECENT_CONTEXT_MESSAGE_MAX_CHARS = 1200
 const DEFAULT_TURN_TIMEOUT_MS = 60_000
+const LOW_SIGNAL_MEMORY_QUERIES = new Set([
+  'hello',
+  'hi',
+  'hey',
+  '你好',
+  '您好',
+  '嗨',
+  '哈喽',
+  '在吗',
+  '早',
+  '早上好',
+  '晚上好',
+])
 
 export function createSessionOrchestrator(deps: SessionOrchestratorDeps): SessionOrchestrator {
   const { bus, repos, aggregator } = deps
@@ -76,15 +89,15 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   const turnTimeoutMs = deps.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
   const recentContextLimit = deps.recentContextLimit ?? DEFAULT_RECENT_CONTEXT_LIMIT
   const recentContextMessageMaxChars = deps.recentContextMessageMaxChars ?? DEFAULT_RECENT_CONTEXT_MESSAGE_MAX_CHARS
-  const debugDiagnostics = deps.debugDiagnostics ?? false
+  const debugMessageFlow = deps.debugMessageFlow ?? false
 
   const entries = new Map<ConversationId, AdapterEntry>()
   const globalUnsubs: Unsubscribe[] = []
   const resolvedApprovals = new Set<string>()
 
   function diag(event: string, data: Record<string, unknown>) {
-    if (!debugDiagnostics) return
-    deps.diagnosticLogger?.(event, data)
+    if (!debugMessageFlow) return
+    deps.messageFlowLogger?.(event, data)
   }
 
   function reportError(scope: string, err: unknown, conversationId?: ConversationId) {
@@ -207,6 +220,15 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
         if (text) {
           aggregator.push(cid, text)
           entry.assistantBuf += text
+          diag('adapterOutput', {
+            conversationId: cid,
+            userId: entry.userId,
+            final: delta.final,
+            text,
+            textChars: text.length,
+            assistantBufferChars: entry.assistantBuf.length,
+            adapterState: entry.adapter.getState(),
+          })
         }
         if (delta.final) {
           aggregator.flush(cid)
@@ -241,29 +263,24 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
 
     try {
       const systemMemoryHint = await resolveSystemMemoryHint(cid)
+      const roleHint = roleDescriptionHint(deps.agentDescription)
+      const langHint = languageHint(getUserLanguage(conv.userId))
+      const systemHint = [roleHint, langHint, systemMemoryHint].filter(Boolean).join('\n\n')
       await adapter.start({
         conversationId: cid,
         cwd: conv.cwd,
-        systemLanguageHint: [
-          roleDescriptionHint(deps.agentDescription),
-          languageHint(getUserLanguage(conv.userId)),
-          systemMemoryHint,
-        ]
-          .filter(Boolean)
-          .join('\n\n'),
+        systemLanguageHint: systemHint,
       })
       resetIdleTimer(cid, entry)
       diag('adapterStarted', {
         conversationId: cid,
         userId: conv.userId,
         cwd: conv.cwd,
-        systemHintChars: [
-          roleDescriptionHint(deps.agentDescription),
-          languageHint(getUserLanguage(conv.userId)),
-          systemMemoryHint,
-        ]
-          .filter(Boolean)
-          .join('\n\n').length,
+        systemHint,
+        systemHintChars: systemHint.length,
+        roleHint,
+        languageHint: langHint,
+        systemMemoryHint,
         memoryHintChars: systemMemoryHint.length,
       })
     } catch (err) {
@@ -276,7 +293,14 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
 
   async function resolveSystemMemoryHint(cid: ConversationId): Promise<string> {
     try {
-      return await getSystemMemoryHint()
+      const hint = await getSystemMemoryHint()
+      diag('systemMemoryHintResolved', {
+        conversationId: cid,
+        included: Boolean(hint.trim()),
+        content: hint,
+        contentChars: hint.length,
+      })
+      return hint
     } catch (err) {
       reportError('orchestrator:memoryRecall', err, cid)
       return ''
@@ -284,8 +308,28 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   }
 
   async function resolveRelevantMemoryHint(cid: ConversationId, query: string): Promise<string> {
+    if (shouldSkipRelevantMemoryRecall(query)) {
+      diag('relevantMemoryHintResolved', {
+        conversationId: cid,
+        query,
+        included: false,
+        skipped: true,
+        reason: 'lowSignalQuery',
+        content: '',
+        contentChars: 0,
+      })
+      return ''
+    }
     try {
-      return await getRelevantMemoryHint(query)
+      const hint = await getRelevantMemoryHint(query)
+      diag('relevantMemoryHintResolved', {
+        conversationId: cid,
+        query,
+        included: Boolean(hint.trim()),
+        content: hint,
+        contentChars: hint.length,
+      })
+      return hint
     } catch (err) {
       reportError('orchestrator:semanticMemoryRecall', err, cid)
       return ''
@@ -294,7 +338,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
 
   function scheduleTurnTimeout(cid: ConversationId, entry: AdapterEntry, inputChars: number) {
     clearTurnTimer(entry)
-    if (!debugDiagnostics || turnTimeoutMs <= 0) return
+    if (!debugMessageFlow || turnTimeoutMs <= 0) return
     entry.turnTimer = setTimeout(() => {
       if (entries.get(cid) !== entry) return
       diag('turnTimeout', {
@@ -319,7 +363,25 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
         const role = m.role === 'assistant' ? '助手' : m.role === 'system' ? '系统' : '用户'
         return `- ${role}：${truncateForRecentContext(m.content, recentContextMessageMaxChars)}`
       })
-      return ['[最近对话上下文 · 供延续当前会话]', ...contextLines, '---', '[本次用户输入]', currentText].join('\n')
+      const input = ['[最近对话上下文 · 供延续当前会话]', ...contextLines, '---', '[本次用户输入]', currentText].join(
+        '\n',
+      )
+      diag('recentContextResolved', {
+        conversationId,
+        included: true,
+        limit: recentContextLimit,
+        messageMaxChars: recentContextMessageMaxChars,
+        messages: previousMessages.map(m => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          contentChars: m.content.length,
+          createdAt: m.createdAt,
+        })),
+        input,
+        inputChars: input.length,
+      })
+      return input
     } catch (err) {
       reportError('orchestrator:recentContext', err, conversationId)
       return currentText
@@ -332,9 +394,27 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     inputText: string,
   ): Promise<string> {
     const memoryHint = await resolveRelevantMemoryHint(conversationId, queryText)
-    if (!memoryHint.trim()) return inputText
+    if (!memoryHint.trim()) {
+      diag('relevantMemoryContextResolved', {
+        conversationId,
+        queryText,
+        included: false,
+        input: inputText,
+        inputChars: inputText.length,
+      })
+      return inputText
+    }
     const userInput = inputText === queryText ? ['[本次用户输入]', inputText].join('\n') : inputText
-    return [memoryHint, userInput].join('\n')
+    const input = [memoryHint, userInput].join('\n')
+    diag('relevantMemoryContextResolved', {
+      conversationId,
+      queryText,
+      included: true,
+      memoryHint,
+      input,
+      inputChars: input.length,
+    })
+    return input
   }
 
   /** 落一条 assistant 消息（本轮全文），失败只报错不阻塞。 */
@@ -349,6 +429,12 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
         role: 'assistant',
         content,
         createdAt: Date.now(),
+      })
+      diag('assistantMessagePersisted', {
+        conversationId: cid,
+        userId: entry.userId,
+        content,
+        contentChars: content.length,
       })
     } catch (err) {
       reportError('orchestrator:persistAssistant', err, cid)
@@ -408,6 +494,8 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
         conversationId,
         userId: result.entry.userId,
         started: result.started,
+        originalText: text,
+        input,
         originalTextChars: text.length,
         inputChars: input.length,
         recentContextIncluded: baseInput !== text,
@@ -452,6 +540,14 @@ function truncateForRecentContext(content: string, maxChars: number): string {
   if (normalized.length <= maxChars) return normalized
   if (maxChars <= 3) return '.'.repeat(maxChars)
   return `...${normalized.slice(-(maxChars - 3))}`
+}
+
+function shouldSkipRelevantMemoryRecall(query: string): boolean {
+  const normalized = query
+    .trim()
+    .toLowerCase()
+    .replace(/^[\s,.!?。！？、，~～"'`]+|[\s,.!?。！？、，~～"'`]+$/g, '')
+  return LOW_SIGNAL_MEMORY_QUERIES.has(normalized)
 }
 
 function languageHint(lang: UserLanguage): string {

@@ -341,6 +341,7 @@ export const ConfigSchema = z.object({
   MEMORY_SUMMARY_API_BASE_URL: z.string().default(''),
   MEMORY_SUMMARY_API_KEY: z.string().default(''),
   MEMORY_SUMMARY_MODEL: z.string().default(''),
+  MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT: z.coerce.number().default(10),
   MEMORY_SUMMARY_MAX_CHARS: z.coerce.number().default(600),
 
   AGENT_IDLE_TIMEOUT_MS: z.coerce.number().default(300_000), // 已启动 CLI/adapter 空闲回收；conversation 保持 idle
@@ -359,6 +360,8 @@ export const ConfigSchema = z.object({
   OCR_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
 
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  DEBUG_AGENT_SDK_JSON: z.boolean().default(false),
+  DEBUG_MESSAGE_FLOW: z.boolean().default(false),
 });
 
 // M9 文件入站语义：除图片外，上传文件只登记 metadata/local_path，不自动读取、解析、OCR 或注入正文。

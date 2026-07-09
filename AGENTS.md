@@ -96,7 +96,7 @@ src/
 12. **禁止自动提交 Git**：**每次写完功能/改动后，禁止自动 `git commit` / `git push`，除非用户明确下达提交指令。** 完成后只汇报改了什么，等待用户指令再提交。
 13. **Import 路径优先用 barrel export 简写**：目录有 `index.ts` 时优先写 `'../shared'` 而非 `'../shared/types/common'`，`'../repository'` 而非 `'../repository/types'`。若 barrel 未 re-export 目标类型，仍用完整路径。
 14. **写完必格式化**：**每次写完/改完代码，必须执行 `bun run format`**（Prettier）再进入验收（typecheck/lint/test）。提交前代码须已格式化，`bun run format:check` 应通过。
-15. **Windows 大小写陷阱**：本仓库在 Windows 上工作，文件名大小写不敏感。**禁止创建 `progress.md` / `process.md` 等会与 [PROGRESS.md](./PROGRESS.md) 混淆或碰撞的临时记录文件。** 若确需临时过程记录，追加到 `PROGRESS.md` 的明确 `临时备注/TODO` 小段，并在开发完毕、提交前删除该临时段。
+15. **Windows 大小写陷阱 / Agent 临时规划文件**：本仓库在 Windows 上工作，文件名大小写不敏感。**禁止在项目根目录创建 `task_plan.md` / `progress.md` / `process.md` 等会与 [PROGRESS.md](./PROGRESS.md) 混淆或碰撞的临时规划文件。** 复杂任务若需要 `planning-with-files` 工作记忆，只能放在已 gitignore 的 `.planning/<plan-id>/` 下（如 `.planning/<plan-id>/task_plan.md`、`findings.md`、`progress.md`）；正式阶段进度和关键决策仍必须同步到 `PROGRESS.md`。
 
 ---
 

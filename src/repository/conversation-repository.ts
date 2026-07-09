@@ -54,7 +54,7 @@ export function createConversationRepository(db: Db): ConversationRepository {
       return row ?? null
     },
 
-    async listOpenByUser(userId: string): Promise<Conversation[]> {
+    listOpenByUser(userId: string): Promise<Conversation[]> {
       return db
         .select()
         .from(conversations)
@@ -62,7 +62,7 @@ export function createConversationRepository(db: Db): ConversationRepository {
         .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
     },
 
-    async listRecentByUser(userId: string, limit: number): Promise<Conversation[]> {
+    listRecentByUser(userId: string, limit: number): Promise<Conversation[]> {
       return db
         .select()
         .from(conversations)
@@ -87,7 +87,7 @@ export function createConversationRepository(db: Db): ConversationRepository {
         .where(eq(conversations.status, 'closing'))
     },
 
-    async listStaleIdle(beforeTs: number): Promise<Conversation[]> {
+    listStaleIdle(beforeTs: number): Promise<Conversation[]> {
       return db
         .select()
         .from(conversations)

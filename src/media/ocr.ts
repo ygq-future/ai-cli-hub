@@ -5,11 +5,11 @@ import type { OcrBox, OcrLine, OcrProvider, OcrResult } from '../shared'
 type LightOcrFetch = (input: string, init: RequestInit) => Promise<Response>
 
 export const UNCONFIGURED_OCR_PROVIDER: OcrProvider = {
-  async recognize(): Promise<OcrResult> {
-    return {
+  recognize(): Promise<OcrResult> {
+    return Promise.resolve({
       status: 'unavailable',
       reason: 'OCR provider is not configured yet.',
-    }
+    })
   },
 }
 

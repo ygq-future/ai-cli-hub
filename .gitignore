@@ -28,6 +28,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .cache
 *.tsbuildinfo
 
+# local agent planning files
+.planning/
+.plan-attestation
+
 # IntelliJ based IDEs
 .idea
 

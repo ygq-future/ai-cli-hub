@@ -40,11 +40,14 @@ export const ConfigSchema = z.object({
   MEMORY_SUMMARY_API_BASE_URL: z.string().default(''),
   MEMORY_SUMMARY_API_KEY: z.string().default(''),
   MEMORY_SUMMARY_MODEL: z.string().default(''),
+  MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT: z.coerce.number().int().positive().default(10),
   MEMORY_SUMMARY_MAX_CHARS: z.coerce.number().int().positive().default(600),
 
   // —— 生命周期超时 ——
   // 已启动的 CLI/adapter 空闲超过该时间后自动关闭；conversation 保持 idle，可再次唤醒。
   AGENT_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  AGENT_TURN_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+  SERVICE_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   SESSION_ARCHIVE_DAYS: z.coerce.number().int().positive().default(7),
 
   // —— 会话默认工作目录（/cwd 可切换当前用户目标目录）——
@@ -54,6 +57,11 @@ export const ConfigSchema = z.object({
   AGENT_DESCRIPTION: z.string().default(''),
   RECENT_CONTEXT_LIMIT: z.coerce.number().int().positive().default(10),
   RECENT_CONTEXT_MESSAGE_MAX_CHARS: z.coerce.number().int().positive().default(1200),
+
+  // —— 消息聚合器 ——
+  AGGREGATOR_DEBOUNCE_MS: z.coerce.number().int().nonnegative().default(400),
+  AGGREGATOR_MIN_EDIT_INTERVAL_MS: z.coerce.number().int().nonnegative().default(1000),
+  AGGREGATOR_MAX_CHUNK_CHARS: z.coerce.number().int().positive().default(4096),
 
   // —— 媒体/文件入站（M9）——
   MEDIA_DOWNLOAD_DIR: z.string().min(1).default('.data/media'),
@@ -69,11 +77,15 @@ export const ConfigSchema = z.object({
   OCR_API_BASE_URL: z.string().default(''),
   OCR_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 
+  // —— 环境画像探测 ——
+  ENV_PROBE_TIMEOUT_MS: z.coerce.number().int().positive().default(1500),
+
   // —— 日志 ——
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
   // —— CLI Adapter 调试 ——
   DEBUG_AGENT_SDK_JSON: EnvBooleanSchema,
+  DEBUG_MESSAGE_FLOW: EnvBooleanSchema,
 })
 
 export type AppConfig = z.infer<typeof ConfigSchema>

@@ -261,8 +261,8 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   const mediaPreprocessor =
     deps.mediaPreprocessor ??
     ({
-      async preprocess(input) {
-        return { text: input.text, warnings: [] }
+      preprocess(input) {
+        return Promise.resolve({ text: input.text, warnings: [] })
       },
     } satisfies MediaPreprocessor)
 
@@ -358,7 +358,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     return localPath
   }
 
-  async function downloadTelegramFile(file: TelegramDownloadRequest): Promise<string> {
+  function downloadTelegramFile(file: TelegramDownloadRequest): Promise<string> {
     return withTimeout(
       (deps.downloadTelegramFile ?? defaultDownloadTelegramFile)(file),
       config.MEDIA_PARSE_TIMEOUT_MS,
@@ -571,7 +571,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     return attachments
   }
 
-  async function emitIncoming(ctx: TgCtx, text: string): Promise<void> {
+  function emitIncoming(ctx: TgCtx, text: string): void {
     const userId = String(ctx.from?.id ?? '')
     const chatId = String(ctx.chat?.id ?? '')
     if (!userId || !chatId) return
@@ -620,7 +620,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     const text = message.text ?? message.caption ?? ''
     const commandName = message.text ? parseCommandName(message.text) : null
     if (commandName) {
-      await emitIncoming(ctx, message.text ?? '')
+      emitIncoming(ctx, message.text ?? '')
       return
     }
 
@@ -636,7 +636,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
         config.MEDIA_PARSE_TIMEOUT_MS,
         'Media preprocessing',
       )
-      await emitIncoming(ctx, result.text)
+      emitIncoming(ctx, result.text)
     } catch (err) {
       reportError('telegram:media', err)
       void ctx.reply(`附件处理失败：${err instanceof Error ? err.message : String(err)}`).catch(() => {})
@@ -749,12 +749,13 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   return {
     platform: 'telegram',
 
-    async start() {
+    start() {
       // launch() 的 Promise 在 bot 停止时才 resolve，故不 await
       void bot.launch().catch(err => reportError('telegram:launch', err))
+      return Promise.resolve()
     },
 
-    async stop() {
+    stop() {
       for (const u of unsubs) u()
       unsubs.length = 0
       try {
@@ -762,6 +763,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       } catch (err) {
         reportError('telegram:stop', err)
       }
+      return Promise.resolve()
     },
 
     sendMessage: (chatId, content) => doSend(chatId, content),

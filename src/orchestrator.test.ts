@@ -297,7 +297,7 @@ describe('SessionOrchestrator', () => {
     agg.destroy()
   })
 
-  test('debugDiagnostics 默认关闭时不打印诊断日志', async () => {
+  test('debugMessageFlow 默认关闭时不打印链路日志', async () => {
     const fake = createFakeAdapter()
     const bus = createEventBus()
     const agg = createMessageAggregator(bus)
@@ -308,7 +308,7 @@ describe('SessionOrchestrator', () => {
       repos,
       aggregator: agg,
       adapterFactory: () => fake.adapter,
-      diagnosticLogger: (event, data) => diagnostics.push({ event, data }),
+      messageFlowLogger: (event, data) => diagnostics.push({ event, data }),
     })
 
     await orch.handler.onMessage('hi', CID)
@@ -319,7 +319,7 @@ describe('SessionOrchestrator', () => {
     agg.destroy()
   })
 
-  test('debugDiagnostics 开启后打印 adapterStarted 和 sendUserInput', async () => {
+  test('debugMessageFlow 开启后打印 adapterStarted 和 sendUserInput', async () => {
     const fake = createFakeAdapter()
     const bus = createEventBus()
     const agg = createMessageAggregator(bus)
@@ -330,8 +330,8 @@ describe('SessionOrchestrator', () => {
       repos,
       aggregator: agg,
       adapterFactory: () => fake.adapter,
-      debugDiagnostics: true,
-      diagnosticLogger: (event, data) => diagnostics.push({ event, data }),
+      debugMessageFlow: true,
+      messageFlowLogger: (event, data) => diagnostics.push({ event, data }),
     })
 
     await orch.handler.onMessage('hi', CID)
@@ -355,7 +355,48 @@ describe('SessionOrchestrator', () => {
     agg.destroy()
   })
 
-  test('debugDiagnostics 开启后一轮超时无 output/approval/result 会打印 turnTimeout', async () => {
+  test('debugMessageFlow 开启后打印完整消息链路内容', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos('/proj')
+    const logs: Array<{ event: string; data: Record<string, unknown> }> = []
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => fake.adapter,
+      getSystemMemoryHint: () => '[长期记忆 · 供参考]\n- 事实：softs 目录\n---',
+      getRelevantMemoryHint: () => '[相关长期记忆 · 语义召回]\n- 情节：PM2 重启\n---',
+      debugMessageFlow: true,
+      messageFlowLogger: (event, data) => logs.push({ event, data }),
+    })
+
+    await orch.handler.onMessage('PM2 怎么重启？', CID)
+    fake.emitOutput({ kind: 'text', text: '使用 pm2 restart ai-cli-hub', final: true })
+    await sleep(0)
+
+    expect(logs.map(d => d.event)).toContain('adapterStarted')
+    expect(logs.map(d => d.event)).toContain('sendUserInput')
+    expect(logs.map(d => d.event)).toContain('adapterOutput')
+    expect(logs.map(d => d.event)).toContain('assistantMessagePersisted')
+    expect(logs.find(d => d.event === 'adapterStarted')?.data).toMatchObject({
+      systemMemoryHint: '[长期记忆 · 供参考]\n- 事实：softs 目录\n---',
+    })
+    expect(logs.find(d => d.event === 'sendUserInput')?.data).toMatchObject({
+      originalText: 'PM2 怎么重启？',
+    })
+    expect(String(logs.find(d => d.event === 'sendUserInput')?.data.input)).toContain('[相关长期记忆 · 语义召回]')
+    expect(logs.find(d => d.event === 'adapterOutput')?.data).toMatchObject({
+      text: '使用 pm2 restart ai-cli-hub',
+      final: true,
+    })
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('debugMessageFlow 开启后一轮超时无 output/approval/result 会打印 turnTimeout', async () => {
     const fake = createFakeAdapter()
     const bus = createEventBus()
     const agg = createMessageAggregator(bus)
@@ -366,8 +407,8 @@ describe('SessionOrchestrator', () => {
       repos,
       aggregator: agg,
       adapterFactory: () => fake.adapter,
-      debugDiagnostics: true,
-      diagnosticLogger: (event, data) => diagnostics.push({ event, data }),
+      debugMessageFlow: true,
+      messageFlowLogger: (event, data) => diagnostics.push({ event, data }),
       turnTimeoutMs: 5,
     })
 
@@ -435,6 +476,41 @@ describe('SessionOrchestrator', () => {
     agg.destroy()
   })
 
+  test('低信息量问候不触发相关长期记忆召回', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    let recallCalls = 0
+    const logs: Array<{ event: string; data: Record<string, unknown> }> = []
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => fake.adapter,
+      getRelevantMemoryHint: () => {
+        recallCalls++
+        return '[相关长期记忆 · 语义召回]\n- 情节：不应出现\n---'
+      },
+      debugMessageFlow: true,
+      messageFlowLogger: (event, data) => logs.push({ event, data }),
+    })
+
+    await orch.handler.onMessage('hello', CID)
+
+    expect(recallCalls).toBe(0)
+    expect(fake.calls.sendUserInput).toEqual(['hello'])
+    expect(logs.find(d => d.event === 'relevantMemoryHintResolved')?.data).toMatchObject({
+      query: 'hello',
+      included: false,
+      skipped: true,
+      reason: 'lowSignalQuery',
+    })
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
   test('相关记忆召回失败只发 ErrorOccurred，不阻塞用户输入', async () => {
     const fake = createFakeAdapter()
     const bus = createEventBus()
@@ -452,9 +528,9 @@ describe('SessionOrchestrator', () => {
       },
     })
 
-    await orch.handler.onMessage('hi', CID)
+    await orch.handler.onMessage('PM2 怎么重启？', CID)
 
-    expect(fake.calls.sendUserInput).toEqual(['hi'])
+    expect(fake.calls.sendUserInput).toEqual(['PM2 怎么重启？'])
     expect(errors.some(e => e.scope === 'orchestrator:semanticMemoryRecall')).toBe(true)
 
     await orch.destroy()

@@ -14,7 +14,7 @@ export function createMessageRepository(db: Db): MessageRepository {
       return row
     },
 
-    async listByConversation(id: ConversationId, limit?: number): Promise<Message[]> {
+    listByConversation(id: ConversationId, limit?: number): Promise<Message[]> {
       // 按时间正序读取历史消息（idx_msg_conv 覆盖）；当前不做完整上下文回放。
       const q = db.select().from(messages).where(eq(messages.conversationId, id)).orderBy(asc(messages.createdAt))
       return limit === undefined ? q : q.limit(limit)

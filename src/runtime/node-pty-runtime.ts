@@ -8,7 +8,7 @@
  *  - 空闲超时自动 kill（idleTimeoutMs）
  *  - resize / write 透传
  *
- * 依赖矩阵：runtime/ 允许依赖 cli/base（SpawnOptions）和 shared/。
+ * 依赖矩阵：runtime/ 允许依赖 cli barrel 中的 SpawnOptions 类型和 shared/。
  */
 import type { IPty } from 'node-pty'
 import { spawn as nodePtySpawn } from 'node-pty'
@@ -47,8 +47,8 @@ export function createPtyRuntime(opts?: NodePtyOptions & { spawnFn?: SpawnFn }):
   }
 
   return {
-    async spawn(opts_) {
-      if (pty) throw new Error('PtyRuntime: already spawned')
+    spawn(opts_) {
+      if (pty) return Promise.reject(new Error('PtyRuntime: already spawned'))
 
       pty = spawn(defaultShell(), [], {
         name: 'xterm-256color',
@@ -74,6 +74,7 @@ export function createPtyRuntime(opts?: NodePtyOptions & { spawnFn?: SpawnFn }):
       })
 
       resetIdleTimer()
+      return Promise.resolve()
     },
 
     write(data: string) {

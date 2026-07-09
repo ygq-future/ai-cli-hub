@@ -3,12 +3,7 @@ import { loadConfig } from '../config'
 import { createEventBus } from '../event'
 import type { Memory, Message, NewMemory, Repositories } from '../repository'
 import type { ConversationId } from '../shared'
-import {
-  collectEnvironmentFacts,
-  createMemoryModule,
-  formatConversationSummaryMemory,
-  formatGlobalMemoryContext,
-} from './index'
+import { collectEnvironmentFacts, createMemoryModule, formatGlobalMemoryContext } from './index'
 
 const CONFIG = loadConfig({
   TELEGRAM_BOT_TOKEN: 'token',
@@ -160,7 +155,7 @@ describe('memory module', () => {
     expect(formatGlobalMemoryContext([])).toBe('')
   })
 
-  test('SessionClosed 后把会话摘录写入 conversation-derived episodic 记忆并回填 embedding', async () => {
+  test('SessionClosed 不再自动生成会话摘录记忆', async () => {
     const bus = createEventBus()
     const { repos, memories, messages } = createMemoryRepos()
     messages.push(
@@ -188,32 +183,12 @@ describe('memory module', () => {
 
     bus.emit('SessionClosed', { conversationId: 'conv-summary' as ConversationId, reason: 'user' })
     await new Promise(resolve => setTimeout(resolve, 0))
-    await new Promise(resolve => setTimeout(resolve, 0))
 
-    const summary = memories.find(m => m.tag === 'conversation.summary:conv-summary')
-    expect(summary?.conversationId).toBe('conv-summary')
-    expect(summary?.type).toBe('episodic')
-    expect(summary?.content).toContain('会话派生记忆')
-    expect(summary?.content).toContain('ai-cli-hub')
-    expect(summary?.embedding).toHaveLength(1024)
+    expect(memories.some(m => m.conversationId === 'conv-summary')).toBe(false)
     module.destroy()
   })
 
-  test('formatConversationSummaryMemory 少于两条对话消息时不生成摘要', () => {
-    expect(
-      formatConversationSummaryMemory('conv-empty', [
-        {
-          id: 'u1',
-          conversationId: 'conv-empty',
-          role: 'user',
-          content: '只有一条消息',
-          createdAt: 1,
-        } as Message,
-      ]),
-    ).toBe('')
-  })
-
-  test('MemorySummaryRequested 使用最近 10 条 DB user/assistant 消息做 LLM 摘要并写入记忆', async () => {
+  test('MemorySummaryRequested 使用配置的最近消息窗口做 LLM 摘要并写入记忆', async () => {
     const bus = createEventBus()
     const { repos, memories, messages } = createMemoryRepos()
     const seenBatches: Message[][] = []
@@ -387,6 +362,68 @@ describe('memory module', () => {
     expect(context).not.toContain('全局偏好')
     expect(semanticMemory.accessCount).toBe(1)
     expect(globalMemory.accessCount).toBe(0)
+    module.destroy()
+  })
+
+  test('debugMessageFlow 开启后记录语义召回排序和过滤结果', async () => {
+    const bus = createEventBus()
+    const { repos, memories } = createMemoryRepos()
+    const logs: Array<{ event: string; data: Record<string, unknown> }> = []
+    memories.push(
+      {
+        id: 'm1',
+        namespace: 'global',
+        conversationId: 'conv-1',
+        type: 'episodic',
+        content: '第一条相关记忆',
+        embedding: Array(1024).fill(0.1),
+        sourceMessageId: null,
+        importance: 0.8,
+        accessCount: 0,
+        lastAccessedAt: null,
+        tag: null,
+        createdAt: 1,
+      } as Memory,
+      {
+        id: 'm2-global',
+        namespace: 'global',
+        conversationId: null,
+        type: 'semantic',
+        content: '全局事实不进入相关召回注入',
+        embedding: Array(1024).fill(0.1),
+        sourceMessageId: null,
+        importance: 0.8,
+        accessCount: 0,
+        lastAccessedAt: null,
+        tag: 'env.os',
+        createdAt: 2,
+      } as Memory,
+    )
+    repos.memories.searchByVector = async () => memories
+    const module = await createMemoryModule({
+      bus,
+      repos,
+      config: CONFIG,
+      embeddingProvider: { embed: async () => Array(1024).fill(0.3) },
+      debugMessageFlow: true,
+      messageFlowLogger: (event, data) => logs.push({ event, data }),
+    })
+
+    await module.recallRelevantContext('查 PM2')
+
+    const recallLog = logs.find(log => log.event === 'memory.relevantRecall')
+    expect(recallLog?.data).toMatchObject({
+      query: '查 PM2',
+      topK: CONFIG.MEMORY_RECALL_TOP_K,
+      embeddingDimensions: 1024,
+    })
+    expect(recallLog?.data.returned).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rank: 1, id: 'm1' }),
+        expect.objectContaining({ rank: 2, id: 'm2-global' }),
+      ]),
+    )
+    expect(recallLog?.data.selected).toEqual([expect.objectContaining({ rank: 1, id: 'm1' })])
     module.destroy()
   })
 })

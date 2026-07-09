@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-09 · 阶段：**V1.5 记忆回放增强进行中**
+> 最后更新：2026-07-09 · 阶段：**V2-R1 优化和 Bug 修复进行中**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V1.5 — 记忆回放增强进行中**（embedding 配置/1024 维 pgvector/语义召回链路已落地，自然语言记忆触发 LLM 摘要已完成，待真库迁移与真机验证） |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要 |
-| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步 |
+| 当前里程碑 | **V2-R1 — 优化和 Bug 修复进行中**（V2 分三轮推进：先做一轮优化和 bug 修复，再做运维自更新/自检测/自动拉起，最后扩展 Transport 与 CLI） |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 首批常量配置化、审批参数修复、PTY approval 说明、async/import 清理已落地；`SessionClosed` 自动摘录已移除；SDK raw JSON 与消息链路 debug 已拆分；低信息量问候跳过语义召回，新增 Agent SDK host 指令泄漏清洗 |
+| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步；V2-R1 配置语义与阶段状态已同步 |
 | 阻塞项 | 无 |
-| 下一步 | 应用 `drizzle/0002_memory_embedding_1024.sql`，配置 BAAI/bge-m3 embedding API 与 `MEMORY_SUMMARY_*`，真机验证自然语言“记住…”触发 LLM 摘要与后续语义召回 |
+| 下一步 | 继续 V2-R1：基于真机反馈继续修复体验问题、稳定性问题和小型代码/文档债务；暂不提前做自更新守护或新 Transport/CLI |
 
 ---
 
@@ -35,7 +35,10 @@
 | M8 | 全局记忆基础 | ✅ | 环境画像记忆、adapter start 全局注入、`/remember`、`/memory`、`/env`、`/forget`、记忆变更后下一条消息实时加载已落地 |
 | M9 | 媒体/文件入站 + Light OCR 接入 | ✅ | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、PDF/Office 按需解析能力保留；Vision 暂缓 |
 | M10 | 加固与交付 | ✅ | 启动状态对账、优雅关闭、adapter 故障隔离、审批幂等、PM2/systemd 部署示例完成；用户已在 VPS 宿主机 + PM2 部署跑通 |
-| V1.5 | 记忆增强（pgvector） | 🟡 | 默认 BAAI/bge-m3/1024 维/Top-K 10；embedding provider、HNSW 迁移、向量召回注入、自然语言记忆 LLM 摘要已落地，待真库迁移与真机验证 |
+| V1.5 | 记忆增强（pgvector） | ✅ 完成 | 默认 BAAI/bge-m3/1024 维/Top-K 10；embedding provider、HNSW 迁移、向量召回注入、自然语言记忆 LLM 摘要已落地 |
+| V2-R1 | 优化和 Bug 修复 | 🟡 进行中 | 首批已完成：常量配置化、记忆摘要窗口语义收口、移除 `SessionClosed` 非 LLM 自动摘录、Claude SDK 审批 approve 保留原始 tool input、PTY approval 目录说明、async/import 清理、SDK raw JSON 与消息链路 debug 拆分、短问候跳过语义召回、Agent SDK host 指令泄漏清洗；继续按真机反馈推进 |
+| V2-R2 | 运维自更新 / 自检测 / 自动拉起 | ⬜ 未开始 | 受控自更新、健康检查、自检测、进程异常退出后的自动拉起与恢复验证 |
+| V2-R3 | Transport 和 CLI 扩展 | ⬜ 未开始 | 在现有架构稳定后，再接入新的 Transport 与 CLI Adapter，保持 Core 零侵入 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
 
@@ -93,29 +96,33 @@
 | D44 | **文件上传采用懒加载，只有图片即时 OCR**：上传文件只保存到 `MEDIA_DOWNLOAD_DIR` 并把 metadata/local_path 放入上下文；PDF/Word/Excel/text/audio/video 等非图片文件不在上传时提取正文、OCR、总结、转写、转换或移动，不消耗正文 prompt token，也不触发工具；用户明确要求读取/总结/转换/移动时才按 local_path 处理。图片/photo 仍可即时 OCR，因为其主要输入就是视觉文本。 | 2026-07-08 |
 | D45 | **进程重启后运行期状态不可恢复，必须对账回持久安全状态**：启动时将 `starting/running` conversation 复位为 `idle`，将残留 `closing` 收尾为 `closed`；审批挂起与 SDK query 都是内存态，不尝试跨进程恢复。优雅关闭顺序固定为停入站→flush 聚合草稿→停止 adapter→销毁模块→关闭 DB。 | 2026-07-08 |
 | D46 | **环境快照升级为按 OS 自适应的 VPS 稳定画像**：Linux 不再记录 PowerShell 噪音，改为探测 OS/cwd/runtime/shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、默认工作目录与媒体目录可操作状态；不记录容器列表、端口、磁盘占用等高频变化状态，Agent 需要时自行实时查询。`/env` 可手动刷新并查看 `env.*` 稳定 tag。所有 probe 短超时，失败只记 missing/unknown，不阻塞启动或对话。 | 2026-07-08 |
-| D47 | **V1.5 embedding 默认采用 `BAAI/bge-m3` 1024 维，Top-K 默认 10**：配置新增 `EMBEDDING_API_BASE_URL` 与 `EMBEDDING_DIMENSIONS`；数据库 `memories.embedding` 迁移为 `vector(1024)` 并创建 HNSW；`SessionClosed` 时为至少 2 条 user/assistant 消息的会话生成 conversation-derived episodic 摘录记忆（`conversation_id` 填当前会话，`tag=conversation.summary:<id>`），随后后台异步 embedding，失败只发 `ErrorOccurred`，不阻塞对话。每条用户输入前按 query 做语义召回注入。实例级全局事实/环境（含 `/remember`）仍在 adapter start 时全量注入，不参与 embedding 回填或 Top-K 召回。 | 2026-07-08 |
-| D48 | **自然语言“记住/记录/remember this”触发 LLM 摘要记忆，不进入 Claude SDK**：MessageRouter 保存用户消息后识别记忆意图，发 `MemorySummaryRequested` 并直接确认，不调用 handler/adapter，避免 SDK raw JSON、thinking、tool_use 或宿主 `.claude/.../memory` 文件污染长期记忆。Memory 模块只读取当前 conversation 最近 10 条 `messages` 表 user/assistant 消息，调用 OpenAI-compatible `MEMORY_SUMMARY_*` chat completions 生成 `episodic` 记忆，再异步 embedding；摘要输出语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述。 | 2026-07-09 |
+| D47 | **V1.5 embedding 默认采用 `BAAI/bge-m3` 1024 维，Top-K 默认 10**：配置新增 `EMBEDDING_API_BASE_URL` 与 `EMBEDDING_DIMENSIONS`；数据库 `memories.embedding` 迁移为 `vector(1024)` 并创建 HNSW；conversation-derived episodic 记忆回填 embedding，失败只发 `ErrorOccurred`，不阻塞对话。每条用户输入前按 query 做语义召回注入。实例级全局事实/环境（含 `/remember`）仍在 adapter start 时全量注入，不参与 embedding 回填或 Top-K 召回。`SessionClosed` 不再自动生成确定性会话摘录。 | 2026-07-08 |
+| D48 | **自然语言“记住/记录/remember this”触发 LLM 摘要记忆，不进入 Claude SDK**：MessageRouter 保存用户消息后识别记忆意图，发 `MemorySummaryRequested` 并直接确认，不调用 handler/adapter，避免 SDK raw JSON、thinking、tool_use 或宿主 `.claude/.../memory` 文件污染长期记忆。Memory 模块按 `MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 读取当前 conversation 最近的 user/assistant 消息，调用 OpenAI-compatible `MEMORY_SUMMARY_*` chat completions 生成 `episodic` 记忆，再异步 embedding；摘要输出语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述。 | 2026-07-09 |
+| D49 | **V2 分三轮推进**：第一轮只做优化和 bug 修复，先消化现有体验、稳定性、可观测性和小型债务；第二轮再做运维自更新、自检测、进程死掉自动拉起与恢复验证；第三轮最后做 Transport 和 CLI 扩展。扩展类工作不得抢跑到前两轮，避免在基础维护能力未稳前扩大复杂度。 | 2026-07-09 |
+| D50 | **记忆写入只保留主动 LLM 摘要入口**：`SessionClosed` 只负责生命周期清理，不自动生成确定性会话摘录，避免把杂乱或不准确的信息写入长期记忆；`MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 只控制用户主动说“记住/记录”时喂给 LLM 摘要器的最近消息条数；`MEMORY_SUMMARY_MAX_CHARS` 只控制 LLM 摘要最终输出长度。`EMBEDDING_DIMENSIONS` 保持 env 配置，但维度一经系统选型后视为与旧向量数据兼容性绑定，后续改维度必须走集中迁移脚本。 | 2026-07-09 |
+| D51 | **Agent 临时规划文件统一放 `.planning/` 并忽略提交**：复杂任务可按 `planning-with-files` 使用 `.planning/<plan-id>/task_plan.md`、`findings.md`、`progress.md` 作为临时工作记忆；禁止在项目根目录创建 `task_plan.md`/`progress.md`/`process.md` 等易与 `PROGRESS.md` 混淆的规划文件。`.planning/` 与 `.plan-attestation` 已加入 `.gitignore`。 | 2026-07-09 |
+| D52 | **调试开关分层**：`DEBUG_AGENT_SDK_JSON` 只控制各 Agent SDK/Adapter 的原始 JSON 输出，定位为开发 adapter 时使用；消息链路可观测性改由 `DEBUG_MESSAGE_FLOW` 单独控制，覆盖用户原始输入、注入后的 input、adapter start system hint、全局/相关记忆召回内容与排序、adapter 输出、assistant 落库和 turn timeout。 | 2026-07-09 |
+| D53 | **低信息量问候不触发语义记忆召回**：`hello`、`hi`、`你好`、`在吗` 等明确问候只走最近上下文与正常对话，不调用 embedding/pgvector 相关记忆召回，避免短 query 把无关历史记忆注入 prompt；真正有语义的问题仍按原 Top-K 召回。 | 2026-07-09 |
 
 ---
 
 ## 4. 下一步行动（Next Actions）
 
-**V1 — 已交付；当前增强项：环境画像**
+**V2 — 优化维护与扩展，三轮推进**
 
-状态：**宿主机 + PM2 部署已跑通；环境画像增强已完成并通过自动验收**。
+状态：**V1.5 已完成；V2-R1 进行中**。
 
-### 本次增强清单
+### 三轮顺序
 
-1. `collectEnvironmentFacts` 从基础跨平台列表升级为按 OS 自适应的 VPS 运维画像。
-2. Linux 侧记录 runtime/shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、默认工作目录、媒体目录可操作状态与清理提示。
-3. Linux 不再写入 PowerShell/Windows PowerShell 噪音；Windows 仅在实际存在时记录对应能力。
-4. 新增 `/env` 命令：刷新 `env.*` 稳定 tag 并返回当前环境快照。
-5. 媒体目录 `MEDIA_DOWNLOAD_DIR` 进入环境记忆，包含绝对路径、存在性、可写性、目录类型、文件大小/解析超时限制和清理提示；不缓存磁盘占用。
+1. V2-R1：优化和 bug 修复。先处理现有体验问题、稳定性问题、可观测性缺口和小型代码/文档债务。
+2. V2-R2：运维自更新 / 自检测 / 自动拉起。再实现受控 `/update`、健康检查、异常退出自动恢复和部署自检。
+3. V2-R3：Transport 和 CLI 扩展。最后新增 Transport 与 CLI Adapter，继续遵守依赖矩阵与 Core 零侵入原则。
 
 ### 下一步候选
 
-- V1.5：pgvector 语义召回、记忆 embedding 回填、Top-K 召回重排。
-- 运维增强：受控 `/update` 自更新（后台脚本执行 `git pull --ff-only`、`bun install`、`db:migrate`、`pm2 restart`）。
+- V2-R1：继续基于真机反馈和现有代码债务，挑选低风险、高收益的优化/bug 修复进入实现；首批配置化、审批参数、PTY approval 说明、async/import 清理已完成。
+- V2-R2 预留：受控 `/update` 自更新（后台脚本执行 `git pull --ff-only`、`bun install`、`db:migrate`、`pm2 restart`）和进程健康恢复。
+- V2-R3 预留：新增 Transport 与 CLI Adapter，扩展时不改 Core 分层。
 
 ---
 
@@ -186,6 +193,14 @@
 | 2026-07-09 | **自然语言记忆触发改为 LLM 摘要**：针对真机日志中“没事，你记住在这个地方就行了”导致 Claude SDK 自行写 `.claude/.../memory` 且 raw JSON 混入调试输出的问题，新增 `MemorySummaryRequested` 事件与 MessageRouter 记忆意图识别；普通文本含“记住/记一下/记录/remember this”等时保存用户消息后直接确认，不进入 handler/Claude SDK；Memory 模块读取当前 conversation 最近 10 条 DB `messages` 的 user/assistant 内容，调用 `MEMORY_SUMMARY_API_BASE_URL`/`MEMORY_SUMMARY_API_KEY`/`MEMORY_SUMMARY_MODEL` 的 OpenAI-compatible chat completions 摘要，摘要语言跟随用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，写入 conversation-derived `episodic` 记忆并异步 embedding。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 通过；目标测试 `bun test src/config/schema.test.ts src/core/session-manager.test.ts src/memory/index.test.ts src/memory/summary-provider.test.ts src/orchestrator.test.ts` 72 pass / 0 fail。 |
 | 2026-07-09 | **最近上下文配置与尾部截断修正**：将 `.data` 加入 `.gitignore`；新增 `RECENT_CONTEXT_LIMIT`（默认 10）与 `RECENT_CONTEXT_MESSAGE_MAX_CHARS`（默认 1200）配置并注入 orchestrator；adapter 刚启动时最近上下文先按 `createdAt` 正序排序、取最后 N 条，再正序拼接；单条超长历史改为保留尾部，避免把最新结论截掉。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 通过；目标测试 `bun test src/config/schema.test.ts src/orchestrator.test.ts` 39 pass / 0 fail。 |
 | 2026-07-09 | **LLM 摘要记忆改为第三人称/中性事实陈述**：自然语言记忆摘要 prompt 增加人称约束，要求使用第三人称或中性事实陈述，避免“你/我/我们/助手”等依赖当前对话身份的人称，降低长期记忆回放时的指代歧义。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 通过；目标测试 `bun test src/memory/summary-provider.test.ts` 2 pass / 0 fail。 |
+| 2026-07-09 | **V1.5 标记完成，新增后续阶段**：按当前进度将 V1.5 记忆增强（pgvector、embedding provider、HNSW 迁移、向量召回注入、自然语言记忆 LLM 摘要）标记为完成；新增 V2“优化维护与扩展”阶段，后续聚焦运维维护体验、可观测性、Transport/CLI 扩展、媒体/记忆能力增强、测试与部署稳态优化。 |
+| 2026-07-09 | **V2 三轮计划定稿**：V2 拆为三轮推进：V2-R1 先做优化和 bug 修复；V2-R2 再做运维自更新、自检测与进程死掉自动拉起；V2-R3 最后做 Transport 和 CLI 扩展。同步当前里程碑、里程碑表、下一步行动与新增决策 D49。 |
+| 2026-07-09 | **V2-R1 首批优化和 Bug 修复完成**：保留 `src/approval` 作为 PTY 家族未来审批 scraping 目录并补说明；新增 aggregator/turn/shutdown/env probe/记忆摘要窗口等 env 配置；明确 conversation 自动摘录、用户主动“记住”LLM 摘要、LLM 输出长度三类配置关系；修复 Claude SDK approve 丢失原始 tool input 的真实 bug；清理一批硬编码展示常量、barrel import 和 async/await 不匹配。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；沙箱全量 `bun test` 仍因 `mammoth/xlsx` 动态依赖 EPERM 出现 2 个媒体解析用例失败，非沙箱全量 `bun test` 通过，229 pass / 0 fail。 |
+| 2026-07-09 | **V2-R1 记忆写入语义修正**：移除 `SessionClosed` 自动确定性摘录功能，避免非 LLM 摘录把杂乱或不准确的信息写入长期记忆；删除对应 env 配置、formatter 与测试，长期会话记忆只保留用户主动“记住/记录”触发的 LLM 摘要；`main.ts` 关闭链路中同步 `coreHub.destroy()` 不再使用无意义 `await`。 |
+| 2026-07-09 | **Agent 规划文件位置约定**：为兼容 `planning-with-files` 又避免 Windows 下根目录 `progress.md`/`process.md` 与 `PROGRESS.md` 混淆，约定临时计划文件只放 `.planning/<plan-id>/`，并将 `.planning/` 与 `.plan-attestation` 加入 `.gitignore`。 |
+| 2026-07-09 | **Agent/Claude 规范同步规划目录规则**：将 `.planning/<plan-id>/` 临时规划目录约定同步到 `AGENTS.md` 与 `CLAUDE.md`；根目录继续禁止创建 `task_plan.md`/`progress.md`/`process.md` 等易与 `PROGRESS.md` 混淆的文件。 |
+| 2026-07-09 | **V2-R1 消息链路 debug 拆分完成**：新增 `DEBUG_MESSAGE_FLOW`，将 orchestrator/memory 的消息链路日志从 `DEBUG_AGENT_SDK_JSON` 中拆出；raw JSON 开关只保留给 Agent SDK 原始输出。链路日志覆盖用户输入、上下文注入、system memory hint、相关记忆召回排序、adapter 输出、assistant 落库、主动记忆摘要与环境快照。 |
+| 2026-07-09 | **V2-R1 hello 链路修复**：针对真机 `hello` 链路分析结果，orchestrator 对低信息量问候跳过相关长期记忆召回并在 `DEBUG_MESSAGE_FLOW` 中记录 `skipped: true/reason: lowSignalQuery`；`formatOutputDelta` 增加 `When you launch a single agent...` host 指令泄漏清洗，避免污染 Telegram 输出和 assistant 落库。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试 `bun test src/orchestrator.test.ts src/cli/format-output.test.ts` 均通过；沙箱全量 `bun test` 仍因 `mammoth/xlsx` 动态依赖失败 2 项，非沙箱两次输出均显示 232 pass / 0 fail，但命令包装器在测试完成后超时返回 124。 |
 
 ---
 

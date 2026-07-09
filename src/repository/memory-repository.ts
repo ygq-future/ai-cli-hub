@@ -46,7 +46,7 @@ export function createMemoryRepository(db: Db): MemoryRepository {
       return row
     },
 
-    async listGlobal(namespace: string): Promise<Memory[]> {
+    listGlobal(namespace: string): Promise<Memory[]> {
       // 全局事实 = conversationId 为 NULL；启动时全量注入。
       return db
         .select()
@@ -59,7 +59,7 @@ export function createMemoryRepository(db: Db): MemoryRepository {
       return row ?? null
     },
 
-    async searchByKeyword(namespace: string, query: string, topK: number): Promise<Memory[]> {
+    searchByKeyword(namespace: string, query: string, topK: number): Promise<Memory[]> {
       // GIN FTS（idx_mem_fts）：simple 配置，按 ts_rank 排序取 Top-K。
       const tsv = sql`to_tsvector('simple', ${memories.content})`
       const tsq = sql`plainto_tsquery('simple', ${query})`
@@ -71,7 +71,7 @@ export function createMemoryRepository(db: Db): MemoryRepository {
         .limit(topK)
     },
 
-    async searchByVector(namespace: string, embedding: number[], topK: number): Promise<Memory[]> {
+    searchByVector(namespace: string, embedding: number[], topK: number): Promise<Memory[]> {
       const queryVector = `[${embedding.join(',')}]`
       return db
         .select()

@@ -155,7 +155,10 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
   const outputHandlers: Array<(d: OutputDelta) => void> = []
   const approvalHandlers: Array<(r: ApprovalRequest) => void> = []
   const exitHandlers: Array<(i: ExitInfo) => void> = []
-  const pendingApprovals = new Map<string, (r: PermissionResult) => void>()
+  const pendingApprovals = new Map<
+    string,
+    { resolve: (r: PermissionResult) => void; toolInput: Record<string, unknown> }
+  >()
 
   function emit<T>(handlers: Array<(v: T) => void>, value: T) {
     for (const h of handlers) h(value)
@@ -167,7 +170,7 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
       return Promise.resolve({ behavior: 'allow', updatedInput: toolInput, toolUseID })
     }
     return new Promise<PermissionResult>(resolve => {
-      pendingApprovals.set(toolUseID, resolve)
+      pendingApprovals.set(toolUseID, { resolve, toolInput: inputRecord(toolInput) })
       state = 'waitingApproval'
       emit(approvalHandlers, { approvalId: toolUseID, command: toolName, detail: JSON.stringify(toolInput) })
     })
@@ -287,15 +290,15 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
     },
 
     resolveApproval(approvalId: string, decision: ApprovalAction) {
-      const resolve = pendingApprovals.get(approvalId)
-      if (!resolve) return
+      const pending = pendingApprovals.get(approvalId)
+      if (!pending) return
       pendingApprovals.delete(approvalId)
       state = 'busy'
       // PermissionResult 要求 allow 时传 updatedInput+toolUseID，deny 时传 message
       if (decision === 'approve') {
-        resolve({ behavior: 'allow', updatedInput: {}, toolUseID: approvalId })
+        pending.resolve({ behavior: 'allow', updatedInput: pending.toolInput, toolUseID: approvalId })
       } else {
-        resolve({
+        pending.resolve({
           behavior: 'deny',
           message: 'User rejected this tool use. Stop the current turn.',
           toolUseID: approvalId,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { CanUseTool, Options, Query, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { createClaudeSdkAdapter } from './claude-sdk-adapter'
-import type { OutputDelta, SpawnOptions } from '../base'
+import type { OutputDelta, SpawnOptions } from '..'
 
 const SPAWN: SpawnOptions = { conversationId: 'c1' as SpawnOptions['conversationId'], cwd: '/tmp' }
 
@@ -137,7 +137,7 @@ describe('ClaudeSdkAdapter (real message flow)', () => {
     // 审批后决议
     a.resolveApproval('t4', 'approve')
     a.resolveApproval('t5', 'reject')
-    expect(await deny).toEqual({ behavior: 'allow', updatedInput: {}, toolUseID: 't4' })
+    expect(await deny).toEqual({ behavior: 'allow', updatedInput: { file_path: '/y' }, toolUseID: 't4' })
     expect(await deny2).toEqual({
       behavior: 'deny',
       message: 'User rejected this tool use. Stop the current turn.',

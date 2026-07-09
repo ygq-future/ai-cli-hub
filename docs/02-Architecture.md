@@ -265,6 +265,7 @@ const ConfigSchema = z.object({
   MEMORY_SUMMARY_API_BASE_URL: z.string().default(''),
   MEMORY_SUMMARY_API_KEY: z.string().default(''),
   MEMORY_SUMMARY_MODEL: z.string().default(''),
+  MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT: z.coerce.number().default(10),
   MEMORY_SUMMARY_MAX_CHARS: z.coerce.number().default(600),
 
   // 生命周期超时
@@ -272,6 +273,8 @@ const ConfigSchema = z.object({
   SESSION_ARCHIVE_DAYS: z.coerce.number().default(7),           // 会话自动归档（天）
   RECENT_CONTEXT_LIMIT: z.coerce.number().default(10),           // adapter 刚启动时拼入的当前会话历史条数
   RECENT_CONTEXT_MESSAGE_MAX_CHARS: z.coerce.number().default(1200), // 单条历史消息尾部保留字符数
+  DEBUG_AGENT_SDK_JSON: z.boolean().default(false),              // Agent SDK 原始 JSON
+  DEBUG_MESSAGE_FLOW: z.boolean().default(false),                // 消息链路可观测日志
 });
 export type AppConfig = z.infer<typeof ConfigSchema>;
 ```
@@ -489,7 +492,7 @@ erDiagram
 | **Global / instance-level** | `namespace='global'` | 环境事实、全局偏好、手工 `/remember` 事实 | NULL |
 | **Conversation-derived** | `namespace='global'` + `conversation_id` | 某次会话产出的情节摘要、项目/任务局部事实 | 填值 |
 
-V1 记忆注入 = 取 **实例级全局记忆** + **environment 环境记忆**，在 adapter start 时全量注入。conversation-derived 摘要用于归档回顾和相关召回，不做完整 messages replay。`MEMORY_RECALL_TOP_K` 只限制会话派生记忆的检索召回部分，不限制全局事实注入；`/remember` 写入的 global 记忆不走 embedding 重复召回。自然语言“记住/记录/remember this”请求会触发 `MemorySummaryRequested`，Memory 模块读取当前 conversation 最近 10 条 `messages` 表 user/assistant 消息调用 LLM 摘要，输出语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，避免 Claude SDK raw JSON 或宿主 memory 文件进入长期记忆。
+V1 记忆注入 = 取 **实例级全局记忆** + **environment 环境记忆**，在 adapter start 时全量注入。`SessionClosed` 不自动生成确定性会话摘录，避免把杂乱或不准确的信息写入长期记忆；conversation-derived 记忆只来自用户主动说“记住/记录/remember this”后触发的 LLM 摘要。`MEMORY_RECALL_TOP_K` 只限制会话派生记忆的检索召回部分，不限制全局事实注入；`/remember` 写入的 global 记忆不走 embedding 重复召回。自然语言“记住/记录/remember this”请求会触发 `MemorySummaryRequested`，Memory 模块按 `MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 读取当前 conversation 最近的 user/assistant 消息调用 LLM 摘要，输出语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，避免 Claude SDK raw JSON 或宿主 memory 文件进入长期记忆。
 
 ### 7.2 记忆分型
 
