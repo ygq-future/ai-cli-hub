@@ -11,6 +11,8 @@
     "lint:deps": "depcruise src --config .dependency-cruiser.cjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "env:migrate": "bun scripts/env-migrate.ts",
+    "setting:migrate": "bun run env:migrate",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun scripts/migrate.ts",
     "test": "bun test"

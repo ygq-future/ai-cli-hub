@@ -162,7 +162,7 @@ Markdown 卡片 + 内联按钮：
 
 ## 附：`.env.example`
 
-> 与 [03 §6 ConfigSchema](./03-Interface-Contracts.md) 逐项对齐。放项目根目录，实际值写入 `.env`（勿提交）。
+> 与 [03 §6 ConfigSchema](./03-Interface-Contracts.md) 逐项对齐。放项目根目录，实际值写入 `.env`（勿提交）。新增配置后可运行 `bun run env:migrate`，用 `.env.example` 刷新 `.env` 的注释、顺序和缺失默认值，同时保留已有 `.env` 的 active key-value；引号包裹的多行值会作为同一个配置保留，未出现在模板中的本地 key 会被保留在文件末尾。
 
 ```dotenv
 # ── Telegram ──

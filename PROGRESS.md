@@ -12,8 +12,8 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V2-R2 — 运维自更新 / 自检测 / 自动拉起进行中**（V2 分三轮推进：R1 优化和 bug 修复已完成首批，R2 做运维自更新/自检测/自动拉起，R3 扩展 Transport 与 CLI） |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 首批优化修复已落地；V2-R2 `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启测试入口（Windows 直接拒绝）、重启后主动通知已接入 |
-| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步；V2-R1 配置语义与阶段状态已同步；V2-R2 `/health`、`/update`、`/restart`、重启通知、`UPDATE_WORKDIR` 默认语义与阶段切片已同步 |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 首批优化修复已落地；V2-R2 `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启测试入口（Windows 直接拒绝）、重启后主动通知、`.env.example`→`.env` 迁移脚本已接入 |
+| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步；V2-R1 配置语义与阶段状态已同步；V2-R2 `/health`、`/update`、`/restart`、重启通知、`UPDATE_WORKDIR` 默认语义与 env 迁移说明已同步 |
 | 阻塞项 | 无 |
 | 下一步 | 继续 V2-R2：补部署自检与 PM2/systemd 恢复验证，真机确认 `/update confirm` 后重启链路 |
 
@@ -206,6 +206,8 @@
 | 2026-07-09 | **V2-R2 `/restart` 重启测试入口接入**：新增 `ops/restart` 与 `/restart` 两步命令；`/restart` 只展示重启计划，`/restart confirm` 不拉代码、不安装依赖、不跑迁移/检查，只写入同一 `UPDATE_RESTART_NOTICE_FILE` 并按 `UPDATE_RESTART_COMMAND`/`UPDATE_RESTART_ARGS` 延迟重启，用于真机验证“重启后主动通知”链路；Telegram help、命令 UX、接口契约、架构摘要、实施计划同步。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS node_modules EPERM 失败 2 项，非沙箱非登录全量 `bun test` 通过，248 pass / 0 fail。 |
 | 2026-07-09 | **V2-R2 `/update` Windows 禁用与工作目录默认语义收口**：`ops/update` 新增平台 guard，Windows 上 `/update` 预览与确认都会返回“自更新不可用”，不执行 git/bun/migrate/check，也不安排重启；`UPDATE_WORKDIR` 保持默认 `process.cwd()`，`.env.example` 改为注释掉的可选生产覆盖项，避免误以为必须写死 `/srv/ai-cli-hub`。同步命令 UX、接口契约、架构摘要与实施计划。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS node_modules EPERM 失败 2 项，非沙箱非登录全量 `bun test` 通过，249 pass / 0 fail。 |
 | 2026-07-09 | **V2-R2 `/restart` Windows 禁用补齐**：`ops/restart` 新增平台 guard，Windows 上 `/restart` 预览与确认都会返回“重启不可用”，不写入 `UPDATE_RESTART_NOTICE_FILE`，不执行 `UPDATE_RESTART_COMMAND`，不安排重启；与 `/update` 的 Linux/VPS 部署边界保持一致。同步 `.env.example`、命令 UX、接口契约、架构摘要与实施计划。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS node_modules EPERM 失败 2 项，非沙箱非登录全量 `bun test` 通过，250 pass / 0 fail。 |
+| 2026-07-09 | **`.env.example` 到 `.env` 迁移脚本接入**：JSON setting 迁移按用户要求暂缓到 R3 扩展后；先新增 `scripts/env-migrate.ts` 与 `bun run env:migrate`，按 `.env.example` 刷新 `.env` 的注释、顺序和缺失默认值，已存在的 active key-value 保持不被覆盖，未出现在模板里的本地 key 保留到末尾，注释掉的可选模板项不会被自动激活；另加 `bun run setting:migrate` 兼容别名，目前仅委托到 env 迁移。同步命令 UX 与规划记录。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS 动态依赖权限失败 2 项，非沙箱非登录全量 `bun test` 通过，255 pass / 0 fail。 |
+| 2026-07-09 | **env 迁移多行值修复**：修复 `.env` 中 `AGENT_DESCRIPTION="...\n..."` 这类引号包裹的多行配置在迁移时只保留第一行、丢失后续行与结束引号的问题；env 迁移 parser 改为按 dotenv entry 解析，未闭合的单/双引号值会持续读取到匹配结束引号并作为一个完整 value 保留。新增回归测试覆盖用户给出的多行 `AGENT_DESCRIPTION` 场景。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun test scripts\env-migrate.test.ts` 通过，env 迁移目标测试 7 pass / 0 fail。 |
 
 ---
 
