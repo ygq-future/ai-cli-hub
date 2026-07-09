@@ -33,7 +33,7 @@ describe('schema — 表结构与契约', () => {
     expect(t.foreignKeys[0]!.onDelete).toBe('no action')
   })
 
-  test('memories：namespace + 向量列 vector(1536) + FTS gin 索引 + set null 外键', () => {
+  test('memories：namespace + 向量列 vector(1024) + FTS gin 索引 + set null 外键', () => {
     const t = getTableConfig(memories)
     expect(t.name).toBe('memories')
     const cols = t.columns.map(c => c.name)
@@ -41,7 +41,7 @@ describe('schema — 表结构与契约', () => {
 
     const embedding = t.columns.find(c => c.name === 'embedding')
     expect(embedding).toBeDefined()
-    expect(embedding!.getSQLType()).toBe('vector(1536)')
+    expect(embedding!.getSQLType()).toBe('vector(1024)')
 
     expect(t.foreignKeys[0]!.onDelete).toBe('set null')
 

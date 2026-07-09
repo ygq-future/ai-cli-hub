@@ -63,6 +63,8 @@ export interface MemoryRepository {
   searchByKeyword(namespace: string, query: string, topK: number): Promise<Memory[]>
   /** V1.5：向量近邻检索（embedding 非空时启用）。V1 留桩。 */
   searchByVector(namespace: string, embedding: number[], topK: number): Promise<Memory[]>
+  /** V1.5：异步回填或更新单条记忆向量。 */
+  setEmbedding(id: string, embedding: number[]): Promise<void>
   /** 命中记忆时更新 accessCount / lastAccessedAt。 */
   touch(id: string): Promise<void>
   delete(id: string): Promise<void>

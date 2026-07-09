@@ -11,7 +11,7 @@
  * 依赖矩阵：core/ 禁依赖 cli/，故 handler 是语义接缝——具体 adapter 驱动由 Composition
  * Root（orchestrator）实现并注入。
  */
-import type { ConversationId, Unsubscribe } from '../shared'
+import type { ConversationId, Unsubscribe, UserLanguage } from '../shared'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
 import type { CommandRouter } from './commands'
@@ -36,6 +36,7 @@ export function createMessageRouter(
   sessionManager: SessionManager,
   commandRouter?: CommandRouter,
   handler?: MessageHandler,
+  getUserLanguage: (userId: string) => UserLanguage = () => 'zh',
 ): MessageRouter {
   const unsubs: Unsubscribe[] = []
 
@@ -52,10 +53,6 @@ export function createMessageRouter(
 
       // 解析/新建会话（新建时同步发 SessionCreated）
       conversationId = await sessionManager.findOrCreate({ userId, platform, cli, cwd, text })
-      const status = await sessionManager.getStatus(conversationId)
-      const shouldMarkReady = status === 'idle'
-      if (shouldMarkReady) await sessionManager.transition(conversationId, 'START')
-
       // 保存用户消息（角色=user）
       const msgId = crypto.randomUUID()
       await repos.messages.append({
@@ -65,6 +62,34 @@ export function createMessageRouter(
         content: text,
         createdAt: Date.now(),
       })
+
+      if (isMemorySummaryRequest(text)) {
+        bus.emit('MemorySummaryRequested', {
+          conversationId,
+          userId,
+          language: getUserLanguage(userId),
+          reason: 'userRememberRequest',
+          text,
+        })
+        const response = '已收到，我会根据当前会话最近 10 条消息总结成长期记忆。'
+        await repos.messages.append({
+          id: crypto.randomUUID(),
+          conversationId,
+          role: 'assistant',
+          content: response,
+          createdAt: Date.now(),
+        })
+        bus.emit('MessageGenerated', {
+          conversationId,
+          content: response,
+          final: true,
+        })
+        return
+      }
+
+      const status = await sessionManager.getStatus(conversationId)
+      const shouldMarkReady = status === 'idle'
+      if (shouldMarkReady) await sessionManager.transition(conversationId, 'START')
 
       // 交由 handler 处理
       if (handler) {
@@ -107,4 +132,16 @@ export function createMessageRouter(
       unsubs.length = 0
     },
   }
+}
+
+function isMemorySummaryRequest(text: string): boolean {
+  const normalized = text.trim().toLowerCase()
+  if (!normalized || normalized.startsWith('/')) return false
+  return (
+    /(?:帮我|请|麻烦)?记住/.test(normalized) ||
+    /(?:帮我|请|麻烦)?记一下/.test(normalized) ||
+    /(?:帮我|请|麻烦)?记录(?:一下)?/.test(normalized) ||
+    /记下来/.test(normalized) ||
+    /\bremember\s+(?:this|that|it|the|these|where|what)/i.test(normalized)
+  )
 }

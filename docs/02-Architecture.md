@@ -60,7 +60,7 @@ flowchart TB
         DB[(Postgres + pgvector<br/>via Drizzle)]
     end
 
-    EMB[[嵌入 API<br/>text-embedding-3-small]]
+    EMB[[嵌入 API<br/>BAAI/bge-m3]]
 
     Client <--> Transport
     Transport <--> Core
@@ -257,13 +257,21 @@ const ConfigSchema = z.object({
   DATABASE_URL: z.string().url(),                    // postgres://user:pass@host:5432/hub
 
   // 记忆 / 嵌入
+  EMBEDDING_API_BASE_URL: z.url().default('https://api.openai.com/v1'),
   EMBEDDING_API_KEY: z.string().min(1),
-  EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
-  MEMORY_RECALL_TOP_K: z.coerce.number().default(6), // 召回注入条数
+  EMBEDDING_MODEL: z.string().default('BAAI/bge-m3'),
+  EMBEDDING_DIMENSIONS: z.coerce.number().default(1024),
+  MEMORY_RECALL_TOP_K: z.coerce.number().default(10), // 召回注入条数
+  MEMORY_SUMMARY_API_BASE_URL: z.string().default(''),
+  MEMORY_SUMMARY_API_KEY: z.string().default(''),
+  MEMORY_SUMMARY_MODEL: z.string().default(''),
+  MEMORY_SUMMARY_MAX_CHARS: z.coerce.number().default(600),
 
   // 生命周期超时
   AGENT_IDLE_TIMEOUT_MS: z.coerce.number().default(300_000),    // 已启动 CLI/adapter 空闲回收（5min）
   SESSION_ARCHIVE_DAYS: z.coerce.number().default(7),           // 会话自动归档（天）
+  RECENT_CONTEXT_LIMIT: z.coerce.number().default(10),           // adapter 刚启动时拼入的当前会话历史条数
+  RECENT_CONTEXT_MESSAGE_MAX_CHARS: z.coerce.number().default(1200), // 单条历史消息尾部保留字符数
 });
 export type AppConfig = z.infer<typeof ConfigSchema>;
 ```
@@ -481,7 +489,7 @@ erDiagram
 | **Global / instance-level** | `namespace='global'` | 环境事实、全局偏好、手工 `/remember` 事实 | NULL |
 | **Conversation-derived** | `namespace='global'` + `conversation_id` | 某次会话产出的情节摘要、项目/任务局部事实 | 填值 |
 
-V1 记忆注入 = 取 **实例级全局记忆** + **environment 环境记忆**，在 adapter start 时全量注入。conversation-derived 摘要后续用于归档回顾和相关召回，不做完整 messages replay。`MEMORY_RECALL_TOP_K` 只限制检索召回部分，不限制全局事实注入。
+V1 记忆注入 = 取 **实例级全局记忆** + **environment 环境记忆**，在 adapter start 时全量注入。conversation-derived 摘要用于归档回顾和相关召回，不做完整 messages replay。`MEMORY_RECALL_TOP_K` 只限制会话派生记忆的检索召回部分，不限制全局事实注入；`/remember` 写入的 global 记忆不走 embedding 重复召回。自然语言“记住/记录/remember this”请求会触发 `MemorySummaryRequested`，Memory 模块读取当前 conversation 最近 10 条 `messages` 表 user/assistant 消息调用 LLM 摘要，输出语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，避免 Claude SDK raw JSON 或宿主 memory 文件进入长期记忆。
 
 ### 7.2 记忆分型
 
@@ -505,7 +513,7 @@ flowchart LR
 ```
 
 - 全程**后台异步**，失败重试，**绝不阻塞** §4.1 的对话主链路。
-- 嵌入统一走 API（`EMBEDDING_MODEL`），批量提交降低成本。
+- 嵌入统一走 OpenAI-compatible API（`EMBEDDING_API_BASE_URL` + `EMBEDDING_MODEL`），批量提交降低成本。
 
 ### 7.4 召回侧：向量检索注入（RAG）
 
@@ -577,7 +585,7 @@ flowchart TB
 | `approval/` | PTY 家族审批 scraping（SDK 家族无需） | 正则匹配 |
 | `repository/` | 数据抽象 | Repository 接口 |
 | `storage/` | 持久化实现 | **Postgres + Drizzle ORM**（V1.5 加 `pgvector`） |
-| `memory/` | 长期记忆子系统 | 嵌入 API（`text-embedding-3-small`）+ pgvector |
+| `memory/` | 长期记忆子系统 | 嵌入 API（默认 `BAAI/bge-m3`）+ pgvector |
 | `logger/` | 全局日志 | Pino |
 | `shared/` | 类型与工具 | 纯 TypeScript |
 

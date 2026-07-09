@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-08 · 阶段：**V1 交付完成；环境画像增强完成**
+> 最后更新：2026-07-09 · 阶段：**V1.5 记忆回放增强进行中**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V1 — 已交付**（宿主机 + PM2 部署已跑通；环境画像增强完成） |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境快照升级为 VPS 运维画像并新增 `/env` |
-| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步 |
+| 当前里程碑 | **V1.5 — 记忆回放增强进行中**（embedding 配置/1024 维 pgvector/语义召回链路已落地，自然语言记忆触发 LLM 摘要已完成，待真库迁移与真机验证） |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要 |
+| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步 |
 | 阻塞项 | 无 |
-| 下一步 | 按需进入 V1.5 记忆增强（pgvector 语义召回）或实现受控自更新 `/update` |
+| 下一步 | 应用 `drizzle/0002_memory_embedding_1024.sql`，配置 BAAI/bge-m3 embedding API 与 `MEMORY_SUMMARY_*`，真机验证自然语言“记住…”触发 LLM 摘要与后续语义召回 |
 
 ---
 
@@ -25,7 +25,7 @@
 |---|---|---|---|
 | M0 | 工程骨架 | ✅ 完成 | Bun+TS / src 骨架 / dependency-cruiser 依赖矩阵 / ESLint(defineConfig)禁 env 越界 / Prettier 格式化 / Pino logger / main 启动 |
 | M1 | 配置与事件总线 | ✅ 完成 | config Zod(fail-fast, 唯一 env 入口) / EventBus(emit/on/once, 订阅者抛错隔离转 ErrorOccurred) + EventMap(Record 同步 ALL_EVENT_TYPES) / logger 订阅全部事件桥 / main 装配；17 单测 |
-| M2 | 存储与仓储 | ✅ 完成 | Drizzle 四表(conversations/messages/audit_logs/memories) + enums / 迁移 0000_init(含 CREATE EXTENSION vector, embedding vector(1536), FTS gin, 无 HNSW) / bun-sql 连接 / 四 Repository(唯一 SQL 出口) + createRepositories 工厂 / schema 离线单测 5 + 集成测试 6(TEST_DATABASE_URL 守卫) |
+| M2 | 存储与仓储 | ✅ 完成 | Drizzle 四表(conversations/messages/audit_logs/memories) + enums / 迁移 0000_init(含 CREATE EXTENSION vector, 初始 embedding vector(1536), FTS gin；V1.5 迁移改为 vector(1024)+HNSW) / bun-sql 连接 / 四 Repository(唯一 SQL 出口) + createRepositories 工厂 / schema 离线单测 5 + 集成测试 6(TEST_DATABASE_URL 守卫) |
 | M3 | Core 状态机与会话生命周期 | ✅ 完成 | SessionMachine 纯状态机(11 合法/24 非法迁移+2 终态) + Auth(白名单 fail-closed) + SessionManager(findOrCreate/forceNew/close/transition/listStaleIdle) + MessageRouter(订阅 MessageReceived 事件, 存消息, 发 MessageGenerated) + MockHandler(模拟 Adapter 打通闭环) + CoreHub 装配；94 单测(含 62 状态机 + 6 Auth + 12 SessionManager 集成 + 14 Router 集成), depcruise 48 模块 0 违规 |
 | M4 | Runtime 与 Claude Adapter | ✅ 完成 | CLIAdapter 语义接缝(cli/base) + ClaudeSdkAdapter(SDK 家族,持 query() 流式输入 + canUseTool 审批,queryFn 可注入测试) + PtyRuntime/NodePtyRuntime(node-pty,PTY 家族备用,spawnFn 可注入 + 空闲超时自杀) + 各家族 barrel 导出；main.ts TODO 更新；新增 19 单测(6 SDK 同步契约 + 6 SDK 假 query 驱动 + 7 PtyRuntime)；113 单测全绿, depcruise 57 模块 0 违规(D11)。**ApprovalDetector(PTY scraping)未做——无 SDK 的 CLI 接入时再补(M4b)** |
 | M5 | 消息聚合器 | ✅ 完成 | MessageAggregator(core/aggregator, push/flush/destroy; 累计文本 Buffer + Debounce[debounceMs] + Throttle[minEditIntervalMs trailing 补发] + 超长拆分[maxChunkChars,优先换行处切], 发 MessageGenerated) + formatOutputDelta(cli/format-output, OutputDelta→展示串, tool_use 合成工具行) + main.ts bindAdapterOutput 接线(onOutput→format→push; final→flush, M6 每会话调用)。**content 语义定为累计全文(D12)**；新增 20 单测(13 aggregator + 7 format-output)；126 单测全绿, depcruise 61 模块 0 违规。AggregatorConfig 暂用默认常量(DEFAULT_AGGREGATOR_CONFIG 400/1000/4096), 未 env 化 |
@@ -35,7 +35,7 @@
 | M8 | 全局记忆基础 | ✅ | 环境画像记忆、adapter start 全局注入、`/remember`、`/memory`、`/env`、`/forget`、记忆变更后下一条消息实时加载已落地 |
 | M9 | 媒体/文件入站 + Light OCR 接入 | ✅ | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、PDF/Office 按需解析能力保留；Vision 暂缓 |
 | M10 | 加固与交付 | ✅ | 启动状态对账、优雅关闭、adapter 故障隔离、审批幂等、PM2/systemd 部署示例完成；用户已在 VPS 宿主机 + PM2 部署跑通 |
-| V1.5 | 记忆增强（pgvector） | ⬜ | 非 V1 阻塞项 |
+| V1.5 | 记忆增强（pgvector） | 🟡 | 默认 BAAI/bge-m3/1024 维/Top-K 10；embedding provider、HNSW 迁移、向量召回注入、自然语言记忆 LLM 摘要已落地，待真库迁移与真机验证 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
 
@@ -49,7 +49,7 @@
 |---|---|---|
 | D1 | 数据库 V1 即用 **Postgres + Drizzle**（非 SQLite），一次定库避免二次迁移 | 2026-07-03 |
 | D2 | 向量用 **pgvector 同库**；V1 预留 `embedding` 列留空，**V1.5** 启用 HNSW 索引 | 2026-07-03 |
-| D3 | 嵌入**只走 API**（`text-embedding-3-small`），**不在 VPS 跑本地模型**；异步批量 | 2026-07-03 |
+| D3 | 嵌入**只走 API**（默认 `BAAI/bge-m3`，1024 维，经 OpenAI-compatible `EMBEDDING_API_BASE_URL`），**不在 VPS 跑本地模型**；异步批量 | 2026-07-03 |
 | D4 | 会话边界 = `(user_id, cli, cwd)` 复用 + `/new` 开新 + `/close`/超期归档 | 2026-07-03 |
 | D5 | **运行时回收 ≠ 会话关闭**：CLI/adapter 空闲超时仅关闭已启动运行时并让会话保持 `idle`。`closed` 由 `/close`、`/new`、`/cwd <path>` 或归档触发（D29/D30 对原始表述做了收口修正）。 | 2026-07-03 |
 | D6 | 原记忆分层方案已由 **D36** 修正：长期记忆不再按 Transport 用户身份隔离，而归属实例级 `namespace`；`conversation_id` 只标注会话来源。 | 2026-07-03 |
@@ -83,7 +83,7 @@
 | D34 | **M9 媒体理解分层**：Unicode emoji 是文本语义归一化，不走 OCR；Telegram sticker/custom emoji 先解析 metadata（`emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`），不靠 OCR；OCR 原设计覆盖图片/PDF/截图文字，后由 D44 收口为上传时仅图片即时 OCR；动态 sticker 视觉语义属于 Vision/抽帧增强，作为 M9-D 可选能力。 | 2026-07-06 |
 | D35 | **M7 审计范围收口为 Human Approval 审计 + 可查看**：`audit/` 订阅 `ApprovalRequested` 缓存请求详情，订阅 `ApprovalApproved/Rejected` 写 `audit_logs`；`/audit [conversationId]` 查看当前或指定会话最近审批记录。M7 不做完整操作日志，不改变 conversation status；审批 `detail` 以可读文本折入现有 `audit_logs.command` 字段，暂不新增迁移。 | 2026-07-06 |
 | D36 | **长期记忆归属实例级 `namespace`，不按 Transport `user_id` 隔离**：`user_id` 只用于鉴权、会话路由和审批操作者；Telegram/QQ/WebSocket 上的同一个个人 VPS AI Hub 共享同一套环境事实、全局偏好和跨会话回放。`memories.namespace='global'` 为默认共享池；`conversation_id=NULL` 表示全局事实/偏好/环境，填值表示某会话产出的情节摘要但仍可在同 namespace 内召回。M8 全局事实全量注入；`MEMORY_RECALL_TOP_K` 只限制后续关键词/向量检索召回。 | 2026-07-06 |
-| D37 | **记忆变更后实时生效但不丢最近语境**：`/remember`、`/forget` 后停止当前用户已启动 adapter，conversation 不关闭；下一条普通消息重新 start adapter，system hint 注入最新全局记忆与 `AGENT_DESCRIPTION`，user message 前缀携带当前 conversation 最近 10 条历史消息（不含当前消息本身），不做完整 messages replay。 | 2026-07-06 |
+| D37 | **记忆变更后实时生效但不丢最近语境**：`/remember`、`/forget` 后停止当前用户已启动 adapter，conversation 不关闭；下一条普通消息重新 start adapter，system hint 注入最新全局记忆与 `AGENT_DESCRIPTION`，user message 前缀携带当前 conversation 最近 `RECENT_CONTEXT_LIMIT` 条历史消息（不含当前消息本身），单条超长历史按 `RECENT_CONTEXT_MESSAGE_MAX_CHARS` 保留尾部，不做完整 messages replay。 | 2026-07-06 |
 | D38 | **会话当前态以“用户最新可复用会话”为准并带新建兜底**：普通消息、`/status`、`/close`、`/cwd` 优先回查该用户最新 `idle/starting/running` 会话，恢复 `cli/cwd` 后复用，解决 Transport 重启或内存目标丢失后看不到最新 idle 的问题；每次新建 conversation 前必须关闭该用户所有非 `closed` 历史会话（含卡在 `closing` 的记录），保证同一用户至多一条未关闭会话。 | 2026-07-07 |
 | D39 | **M9 收口为媒体入站基础 + OCR 抽象，Vision 暂缓**：OCR 方案尚未定稿，M9 先定义 `OcrProvider` 抽象；原设想包含图片/PDF 路径调用，后由 D44 收口为上传时仅图片即时 OCR。PDF/Office 具体文本提取 adapter 后续接入，并仅在用户明确要求时按需调用。M9-D Vision（图片语义理解、static sticker/thumbnail Vision、animated/video sticker 抽帧）明确移到项目 V1 完成后的优化迭代。 | 2026-07-07 |
 | D40 | **M9 PDF/Office 文本提取库定稿**：文字型 PDF 用 `pdf-parse`；`.docx` 用 `mammoth.extractRawText`；`.xls/.xlsx` 用 `xlsx` 读取工作表并转 CSV 文本；旧 `.doc` 不支持，提示用户转 `.docx`/PDF/text。D44 已收口：这些库只作为用户明确要求后的按需解析能力，不在上传时自动调用。 | 2026-07-08 |
@@ -93,6 +93,8 @@
 | D44 | **文件上传采用懒加载，只有图片即时 OCR**：上传文件只保存到 `MEDIA_DOWNLOAD_DIR` 并把 metadata/local_path 放入上下文；PDF/Word/Excel/text/audio/video 等非图片文件不在上传时提取正文、OCR、总结、转写、转换或移动，不消耗正文 prompt token，也不触发工具；用户明确要求读取/总结/转换/移动时才按 local_path 处理。图片/photo 仍可即时 OCR，因为其主要输入就是视觉文本。 | 2026-07-08 |
 | D45 | **进程重启后运行期状态不可恢复，必须对账回持久安全状态**：启动时将 `starting/running` conversation 复位为 `idle`，将残留 `closing` 收尾为 `closed`；审批挂起与 SDK query 都是内存态，不尝试跨进程恢复。优雅关闭顺序固定为停入站→flush 聚合草稿→停止 adapter→销毁模块→关闭 DB。 | 2026-07-08 |
 | D46 | **环境快照升级为按 OS 自适应的 VPS 稳定画像**：Linux 不再记录 PowerShell 噪音，改为探测 OS/cwd/runtime/shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、默认工作目录与媒体目录可操作状态；不记录容器列表、端口、磁盘占用等高频变化状态，Agent 需要时自行实时查询。`/env` 可手动刷新并查看 `env.*` 稳定 tag。所有 probe 短超时，失败只记 missing/unknown，不阻塞启动或对话。 | 2026-07-08 |
+| D47 | **V1.5 embedding 默认采用 `BAAI/bge-m3` 1024 维，Top-K 默认 10**：配置新增 `EMBEDDING_API_BASE_URL` 与 `EMBEDDING_DIMENSIONS`；数据库 `memories.embedding` 迁移为 `vector(1024)` 并创建 HNSW；`SessionClosed` 时为至少 2 条 user/assistant 消息的会话生成 conversation-derived episodic 摘录记忆（`conversation_id` 填当前会话，`tag=conversation.summary:<id>`），随后后台异步 embedding，失败只发 `ErrorOccurred`，不阻塞对话。每条用户输入前按 query 做语义召回注入。实例级全局事实/环境（含 `/remember`）仍在 adapter start 时全量注入，不参与 embedding 回填或 Top-K 召回。 | 2026-07-08 |
+| D48 | **自然语言“记住/记录/remember this”触发 LLM 摘要记忆，不进入 Claude SDK**：MessageRouter 保存用户消息后识别记忆意图，发 `MemorySummaryRequested` 并直接确认，不调用 handler/adapter，避免 SDK raw JSON、thinking、tool_use 或宿主 `.claude/.../memory` 文件污染长期记忆。Memory 模块只读取当前 conversation 最近 10 条 `messages` 表 user/assistant 消息，调用 OpenAI-compatible `MEMORY_SUMMARY_*` chat completions 生成 `episodic` 记忆，再异步 embedding；摘要输出语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述。 | 2026-07-09 |
 
 ---
 
@@ -179,6 +181,11 @@
 | 2026-07-08 | **M10 加固与交付代码完成（待真机重启验证）**：新增启动状态对账 `reconcileRuntimeStatuses`，重启后 `starting/running→idle`、`closing→closed`；优雅关闭改为停入站→`flushAll`→停止 adapters→销毁模块→关闭 Bun SQL client，并加 15s 超时兜底；adapter crash 后单会话清理并回 idle；审批决议按 `conversationId:approvalId` 幂等；新增 PM2/systemd 示例和 README 部署说明；同步接口契约与 PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；全量 `bun test` 沙箱内因 `mammoth/xlsx` 动态依赖用例失败，按策略非沙箱重跑通过，209 pass / 7 skip / 0 fail。 |
 | 2026-07-08 | **环境画像增强完成**：用户在 VPS 宿主机 + PM2 部署跑通后反馈原环境快照噪音高且缺 Docker/PM2/媒体目录等运维事实；`collectEnvironmentFacts` 改为按 OS 自适应的 VPS 运维画像，Linux 记录 runtime/shell、AI CLI、PM2、Docker/Compose、Postgres 工具、监听端口、默认目录、媒体目录状态与清理提示，不再写 PowerShell 噪音；新增 `/env` 刷新并查看 `env.*` 快照；同步记忆设计/命令 UX/实施计划/PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 均通过；沙箱内全量 `bun test` 受 `mammoth/xlsx` 动态依赖影响出现 2 个媒体解析用例失败，非沙箱全量 `bun test` 通过（211 pass / 7 skip / 0 fail）。 |
 | 2026-07-08 | **环境画像去动态状态**：真机 `/env` 显示容器列表、监听端口、磁盘占用会随时变化且污染长期记忆；移除 `docker ps`、`pm2 jlist`、`ss -ltn`、`df -h` 采样，`env.container` 只记录 Docker/Compose/psql 与 `DATABASE_URL` host，删除 `env.network`，默认工作目录和媒体目录不再写 disk 行；同步测试、记忆设计、实施计划与 PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；`bun test src/memory/index.test.ts src/core/session-manager.test.ts` 26 pass / 0 fail。 |
+| 2026-07-08 | **V1.5 记忆回放底座完成（待真机迁移验证）**：按用户确认将默认 embedding 改为 `BAAI/bge-m3`、`EMBEDDING_DIMENSIONS=1024`、`MEMORY_RECALL_TOP_K=10`，新增 `EMBEDDING_API_BASE_URL`；新增 OpenAI-compatible embedding provider；`SessionClosed` 后把会话最近 user/assistant 消息写入 conversation-derived episodic 摘录记忆并自动回填 embedding，`/remember` global 记忆不重复 embedding；`MemoryRepository.searchByVector` 接入 pgvector cosine KNN，新增 `setEmbedding`；orchestrator 每条消息按当前 query 注入 `[相关长期记忆 · 语义召回]`，全局事实/环境仍启动时全量注入；新增 `drizzle/0002_memory_embedding_1024.sql` 将列迁移为 `vector(1024)` 并创建 HNSW。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；目标测试 48 pass / 7 skip / 0 fail；沙箱全量 `bun test` 受既有 mammoth/xlsx 动态依赖影响 2 fail，非沙箱重跑打印 216 pass / 7 skip / 0 fail 但命令包装器在输出后超时退出。 |
+| 2026-07-08 | **V1.5 会话派生记忆入口补全**：澄清 `/remember` 是 global 记忆且已全量注入，不是 embedding 召回的主要价值来源；补实装 `SessionClosed` 订阅，关闭会话时读取最近 user/assistant 消息，少于 2 条不生成，最多 12 条确定性摘录为 `episodic` 记忆，`conversation_id` 填当前会话、`tag=conversation.summary:<id>`，随后自动 embedding 并进入语义召回。同步记忆设计与命令 UX。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；目标测试 `bun test src/memory/index.test.ts src/orchestrator.test.ts` 33 pass / 0 fail。 |
+| 2026-07-09 | **自然语言记忆触发改为 LLM 摘要**：针对真机日志中“没事，你记住在这个地方就行了”导致 Claude SDK 自行写 `.claude/.../memory` 且 raw JSON 混入调试输出的问题，新增 `MemorySummaryRequested` 事件与 MessageRouter 记忆意图识别；普通文本含“记住/记一下/记录/remember this”等时保存用户消息后直接确认，不进入 handler/Claude SDK；Memory 模块读取当前 conversation 最近 10 条 DB `messages` 的 user/assistant 内容，调用 `MEMORY_SUMMARY_API_BASE_URL`/`MEMORY_SUMMARY_API_KEY`/`MEMORY_SUMMARY_MODEL` 的 OpenAI-compatible chat completions 摘要，摘要语言跟随用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，写入 conversation-derived `episodic` 记忆并异步 embedding。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 通过；目标测试 `bun test src/config/schema.test.ts src/core/session-manager.test.ts src/memory/index.test.ts src/memory/summary-provider.test.ts src/orchestrator.test.ts` 72 pass / 0 fail。 |
+| 2026-07-09 | **最近上下文配置与尾部截断修正**：将 `.data` 加入 `.gitignore`；新增 `RECENT_CONTEXT_LIMIT`（默认 10）与 `RECENT_CONTEXT_MESSAGE_MAX_CHARS`（默认 1200）配置并注入 orchestrator；adapter 刚启动时最近上下文先按 `createdAt` 正序排序、取最后 N 条，再正序拼接；单条超长历史改为保留尾部，避免把最新结论截掉。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 通过；目标测试 `bun test src/config/schema.test.ts src/orchestrator.test.ts` 39 pass / 0 fail。 |
+| 2026-07-09 | **LLM 摘要记忆改为第三人称/中性事实陈述**：自然语言记忆摘要 prompt 增加人称约束，要求使用第三人称或中性事实陈述，避免“你/我/我们/助手”等依赖当前对话身份的人称，降低长期记忆回放时的指代歧义。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 通过；目标测试 `bun test src/memory/summary-provider.test.ts` 2 pass / 0 fail。 |
 
 ---
 

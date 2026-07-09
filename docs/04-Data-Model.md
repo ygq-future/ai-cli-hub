@@ -129,9 +129,9 @@ import { pgTable, text, bigint, real, integer, index, uniqueIndex, customType } 
 import { memoryTypeEnum } from './enums';
 import { conversations } from './conversations';
 
-// pgvector 自定义列（维度对齐 text-embedding-3-small = 1536）
+// pgvector 自定义列（维度对齐 BAAI/bge-m3 = 1024）
 const vector = customType<{ data: number[]; driverData: string }>({
-  dataType() { return 'vector(1536)'; },
+  dataType() { return 'vector(1024)'; },
   toDriver(v) { return `[${v.join(',')}]`; },
 });
 

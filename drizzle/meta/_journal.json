@@ -15,6 +15,13 @@
       "when": 1783339543364,
       "tag": "0001_memory_namespace",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783526400000,
+      "tag": "0002_memory_embedding_1024",
+      "breakpoints": true
     }
   ]
 }

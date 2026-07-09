@@ -511,6 +511,67 @@ describe('MessageRouter with MockHandler', () => {
     expect((generated[0] as Record<string, unknown>).final).toBe(true)
   })
 
+  test('自然语言记忆请求触发 MemorySummaryRequested，不进入 handler/SDK', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+
+    const cid = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'hello',
+    })
+
+    let handlerCalls = 0
+    const handler: MessageHandler = {
+      async onMessage(text: string) {
+        handlerCalls++
+        return `Echo: ${text}`
+      },
+    }
+    createMessageRouter(bus as unknown as EventBus, repos, sm, undefined, handler, () => 'en')
+
+    const requested: unknown[] = []
+    const generated: unknown[] = []
+    bus.on('MemorySummaryRequested', p => requested.push(p))
+    bus.on('MessageGenerated', p => generated.push(p))
+
+    bus.emit('MessageReceived', {
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: '没事,你记住在这个地方就行了',
+      ref: { platform: 'telegram' as const, chatId: 'c', nativeId: '1' },
+    })
+
+    await new Promise(r => setTimeout(r, 10))
+
+    const msgs = await repos.messages.listByConversation(cid)
+    expect(handlerCalls).toBe(0)
+    expect(await sm.getStatus(cid)).toBe('idle')
+    expect(requested).toHaveLength(1)
+    expect(requested[0]).toMatchObject({
+      conversationId: cid,
+      userId: 'u1',
+      language: 'en',
+      reason: 'userRememberRequest',
+      text: '没事,你记住在这个地方就行了',
+    })
+    expect(msgs.at(-2)).toMatchObject({ role: 'user', content: '没事,你记住在这个地方就行了' })
+    expect(msgs.at(-1)).toMatchObject({
+      role: 'assistant',
+      content: '已收到，我会根据当前会话最近 10 条消息总结成长期记忆。',
+    })
+    expect(generated[0]).toMatchObject({
+      conversationId: cid,
+      content: '已收到，我会根据当前会话最近 10 条消息总结成长期记忆。',
+      final: true,
+    })
+  })
+
   test('异常时发 ErrorOccurred', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()

@@ -56,7 +56,14 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
     })
 
   // MessageRouter：消息路由 + handler 处理（M6 由 orchestrator 注入真实 adapter 驱动）
-  const messageRouter = createMessageRouter(bus, repos, sessionManager, commandRouter, opts.handler)
+  const messageRouter = createMessageRouter(
+    bus,
+    repos,
+    sessionManager,
+    commandRouter,
+    opts.handler,
+    opts.getUserLanguage,
+  )
 
   return {
     auth,

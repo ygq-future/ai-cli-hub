@@ -78,10 +78,13 @@ async function main() {
       }),
     getUserLanguage: telegram.getUserLanguage,
     getSystemMemoryHint: memory.recallGlobalContext,
+    getRelevantMemoryHint: memory.recallRelevantContext,
     agentDescription: config.AGENT_DESCRIPTION,
     debugDiagnostics: config.DEBUG_AGENT_SDK_JSON,
     diagnosticLogger: (event, data) => logger.info({ event, ...data }, 'Orchestrator diagnostic'),
     idleTimeoutMs: config.AGENT_IDLE_TIMEOUT_MS,
+    recentContextLimit: config.RECENT_CONTEXT_LIMIT,
+    recentContextMessageMaxChars: config.RECENT_CONTEXT_MESSAGE_MAX_CHARS,
   })
 
   // —— 10. Core Hub（SessionManager + Auth + MessageRouter）——

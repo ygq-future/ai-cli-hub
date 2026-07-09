@@ -2,7 +2,7 @@
  * memories —— 长期记忆（实例级 namespace + 向量预留 + 遗忘三件套；docs/04-Data-Model.md §6）。
  * namespace = global → 当前 AI Hub 实例共享记忆池。
  * conversationId = NULL → 全局事实/偏好/环境；填值 → 会话产出的情节摘要。
- * embedding：V1 建列不建索引、留空；V1.5 回填并追加 HNSW 迁移。
+ * embedding：V1 建列、V1.5 以 BAAI/bge-m3 的 1024 维回填并追加 HNSW 迁移。
  */
 import { sql } from 'drizzle-orm'
 import { pgTable, text, bigint, real, integer, index, uniqueIndex, customType } from 'drizzle-orm/pg-core'
@@ -10,12 +10,12 @@ import { memoryTypeEnum } from './enums'
 import { conversations } from './conversations'
 
 /**
- * pgvector 自定义列（维度对齐 text-embedding-3-small = 1536）。
+ * pgvector 自定义列（维度对齐 BAAI/bge-m3 = 1024）。
  * toDriver：number[] → pgvector 文本字面量 `[a,b,c]`（Postgres 侧 text→vector 隐式转换）。
  */
 export const vector = customType<{ data: number[]; driverData: string }>({
   dataType() {
-    return 'vector(1536)'
+    return 'vector(1024)'
   },
   toDriver(value) {
     return `[${value.join(',')}]`
@@ -46,7 +46,7 @@ export const memories = pgTable(
     index('idx_mem_conv').on(t.conversationId),
     // 全文检索预留；后续与语义召回结合。
     index('idx_mem_fts').using('gin', sql`to_tsvector('simple', ${t.content})`),
-    // V1.5：向量近邻索引（HNSW）在启用时追加独立迁移，见 docs/04 §8
+    // V1.5：向量近邻索引（HNSW）由独立迁移追加，见 docs/04 §8
   ],
 )
 

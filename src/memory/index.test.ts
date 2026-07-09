@@ -1,8 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { loadConfig } from '../config'
 import { createEventBus } from '../event'
-import type { Memory, NewMemory, Repositories } from '../repository'
-import { collectEnvironmentFacts, createMemoryModule, formatGlobalMemoryContext } from './index'
+import type { Memory, Message, NewMemory, Repositories } from '../repository'
+import type { ConversationId } from '../shared'
+import {
+  collectEnvironmentFacts,
+  createMemoryModule,
+  formatConversationSummaryMemory,
+  formatGlobalMemoryContext,
+} from './index'
 
 const CONFIG = loadConfig({
   TELEGRAM_BOT_TOKEN: 'token',
@@ -14,7 +20,13 @@ const CONFIG = loadConfig({
 
 function createMemoryRepos() {
   const memories: Memory[] = []
+  const messages: Message[] = []
   const repos = {
+    messages: {
+      async listByConversation(conversationId: ConversationId) {
+        return messages.filter(row => row.conversationId === conversationId)
+      },
+    },
     memories: {
       async insert(m: NewMemory) {
         const row = m as Memory
@@ -43,6 +55,10 @@ function createMemoryRepos() {
       async searchByVector() {
         return []
       },
+      async setEmbedding(id: string, embedding: number[]) {
+        const memory = memories.find(row => row.id === id)
+        if (memory) memory.embedding = embedding
+      },
       async touch() {},
       async delete(id: string) {
         const idx = memories.findIndex(row => row.id === id)
@@ -50,7 +66,7 @@ function createMemoryRepos() {
       },
     },
   } as unknown as Repositories
-  return { repos, memories }
+  return { repos, memories, messages }
 }
 
 describe('memory module', () => {
@@ -127,7 +143,12 @@ describe('memory module', () => {
       createdAt: 2,
     } as Memory)
 
-    const memory = await createMemoryModule({ bus, repos, config: CONFIG })
+    const memory = await createMemoryModule({
+      bus,
+      repos,
+      config: CONFIG,
+      embeddingProvider: { embed: async () => Array(1024).fill(0) },
+    })
     const context = await memory.recallGlobalContext()
 
     expect(context).toContain('[长期记忆 · 供参考]')
@@ -137,5 +158,235 @@ describe('memory module', () => {
 
   test('formatGlobalMemoryContext 空列表返回空串', () => {
     expect(formatGlobalMemoryContext([])).toBe('')
+  })
+
+  test('SessionClosed 后把会话摘录写入 conversation-derived episodic 记忆并回填 embedding', async () => {
+    const bus = createEventBus()
+    const { repos, memories, messages } = createMemoryRepos()
+    messages.push(
+      {
+        id: 'u1',
+        conversationId: 'conv-summary',
+        role: 'user',
+        content: '这个项目怎么用 PM2 部署？',
+        createdAt: 1,
+      } as Message,
+      {
+        id: 'a1',
+        conversationId: 'conv-summary',
+        role: 'assistant',
+        content: '使用 pm2 start deploy/pm2.config.cjs，并确认服务名是 ai-cli-hub。',
+        createdAt: 2,
+      } as Message,
+    )
+    const module = await createMemoryModule({
+      bus,
+      repos,
+      config: CONFIG,
+      embeddingProvider: { embed: async () => Array(1024).fill(0.4) },
+    })
+
+    bus.emit('SessionClosed', { conversationId: 'conv-summary' as ConversationId, reason: 'user' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    const summary = memories.find(m => m.tag === 'conversation.summary:conv-summary')
+    expect(summary?.conversationId).toBe('conv-summary')
+    expect(summary?.type).toBe('episodic')
+    expect(summary?.content).toContain('会话派生记忆')
+    expect(summary?.content).toContain('ai-cli-hub')
+    expect(summary?.embedding).toHaveLength(1024)
+    module.destroy()
+  })
+
+  test('formatConversationSummaryMemory 少于两条对话消息时不生成摘要', () => {
+    expect(
+      formatConversationSummaryMemory('conv-empty', [
+        {
+          id: 'u1',
+          conversationId: 'conv-empty',
+          role: 'user',
+          content: '只有一条消息',
+          createdAt: 1,
+        } as Message,
+      ]),
+    ).toBe('')
+  })
+
+  test('MemorySummaryRequested 使用最近 10 条 DB user/assistant 消息做 LLM 摘要并写入记忆', async () => {
+    const bus = createEventBus()
+    const { repos, memories, messages } = createMemoryRepos()
+    const seenBatches: Message[][] = []
+    const seenLanguages: string[] = []
+    messages.push({
+      id: 'sdk-json',
+      conversationId: 'conv-remember',
+      role: 'system',
+      content: 'Agent SDK raw message {"type":"assistant","message":{"content":[{"type":"tool_use"}]}}',
+      createdAt: 0,
+    } as Message)
+    for (let i = 1; i <= 12; i++) {
+      messages.push({
+        id: `m${i}`,
+        conversationId: 'conv-remember',
+        role: i % 2 === 0 ? 'assistant' : 'user',
+        content: `db-message-${i}`,
+        createdAt: i,
+      } as Message)
+    }
+
+    const module = await createMemoryModule({
+      bus,
+      repos,
+      config: CONFIG,
+      summaryProvider: {
+        async summarizeRecentMessages(batch, _userRequest, language) {
+          seenBatches.push(batch)
+          seenLanguages.push(language)
+          return '用户希望记住：PowerShell 脚本目录位于 E:/library/documents/PowerShell。'
+        },
+      },
+      embeddingProvider: { embed: async () => Array(1024).fill(0.5) },
+    })
+
+    bus.emit('MemorySummaryRequested', {
+      conversationId: 'conv-remember' as ConversationId,
+      userId: 'u1',
+      language: 'zh',
+      reason: 'userRememberRequest',
+      text: '没事,你记住在这个地方就行了',
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(seenBatches).toHaveLength(1)
+    expect(seenLanguages).toEqual(['zh'])
+    expect(seenBatches[0]!.map(m => m.content)).toEqual(Array.from({ length: 10 }, (_, idx) => `db-message-${idx + 3}`))
+    expect(seenBatches[0]!.some(m => m.content.includes('SDK raw'))).toBe(false)
+    const memory = memories.find(m => m.content.includes('PowerShell 脚本目录'))
+    expect(memory?.conversationId).toBe('conv-remember')
+    expect(memory?.type).toBe('episodic')
+    expect(memory?.embedding).toHaveLength(1024)
+    module.destroy()
+  })
+
+  test('MemoryUpdated 后异步回填会话派生记忆 embedding，跳过 global 记忆', async () => {
+    const bus = createEventBus()
+    const { repos, memories } = createMemoryRepos()
+    let embedCalls = 0
+    const module = await createMemoryModule({
+      bus,
+      repos,
+      config: CONFIG,
+      embeddingProvider: {
+        embed: async () => {
+          embedCalls++
+          return Array(1024).fill(0.1)
+        },
+      },
+    })
+    await repos.memories.insert({
+      id: 'm-global',
+      namespace: 'global',
+      conversationId: null,
+      type: 'preference',
+      content: '喜欢最短可行方案',
+      embedding: null,
+      sourceMessageId: null,
+      importance: 0.8,
+      accessCount: 0,
+      lastAccessedAt: null,
+      tag: null,
+      createdAt: 1,
+    })
+    await repos.memories.insert({
+      id: 'm-embed',
+      namespace: 'global',
+      conversationId: 'conv-1',
+      type: 'episodic',
+      content: '某次会话中确认 PM2 服务名是 ai-cli-hub',
+      embedding: null,
+      sourceMessageId: null,
+      importance: 0.8,
+      accessCount: 0,
+      lastAccessedAt: null,
+      tag: null,
+      createdAt: 2,
+    } as Memory)
+
+    bus.emit('MemoryUpdated', {
+      conversationId: null,
+      namespace: 'global',
+      memoryType: 'preference',
+      memoryId: 'm-global',
+    })
+    bus.emit('MemoryUpdated', {
+      conversationId: 'conv-1' as ConversationId,
+      namespace: 'global',
+      memoryType: 'episodic',
+      memoryId: 'm-embed',
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(embedCalls).toBe(1)
+    expect(memories.find(m => m.id === 'm-global')?.embedding).toBeNull()
+    expect(memories.find(m => m.id === 'm-embed')?.embedding).toHaveLength(1024)
+    module.destroy()
+  })
+
+  test('recallRelevantContext 使用 query embedding 召回 Top-K 相关记忆', async () => {
+    const bus = createEventBus()
+    const { repos, memories } = createMemoryRepos()
+    const semanticMemory = {
+      id: 'm-related',
+      namespace: 'global',
+      conversationId: 'conv-1',
+      type: 'episodic',
+      content: '上次排查过 PM2 restart 后环境画像刷新。',
+      embedding: Array(1024).fill(0.2),
+      sourceMessageId: null,
+      importance: 0.8,
+      accessCount: 0,
+      lastAccessedAt: null,
+      tag: null,
+      createdAt: 1,
+    } as Memory
+    const globalMemory = {
+      id: 'm-global',
+      namespace: 'global',
+      conversationId: null,
+      type: 'preference',
+      content: '全局偏好已经由 system hint 全量注入，不应再语义召回。',
+      embedding: Array(1024).fill(0.2),
+      sourceMessageId: null,
+      importance: 0.8,
+      accessCount: 0,
+      lastAccessedAt: null,
+      tag: null,
+      createdAt: 2,
+    } as Memory
+    memories.push(semanticMemory)
+    memories.push(globalMemory)
+    repos.memories.searchByVector = async (_namespace: string, _embedding: number[], topK: number) =>
+      memories.slice(0, topK)
+    repos.memories.touch = async (id: string) => {
+      const memory = memories.find(row => row.id === id)
+      if (memory) memory.accessCount += 1
+    }
+    const module = await createMemoryModule({
+      bus,
+      repos,
+      config: CONFIG,
+      embeddingProvider: { embed: async text => (text.includes('PM2') ? Array(1024).fill(0.3) : Array(1024).fill(0)) },
+    })
+
+    const context = await module.recallRelevantContext('PM2 怎么重启？')
+
+    expect(context).toContain('[相关长期记忆 · 语义召回]')
+    expect(context).toContain('PM2 restart')
+    expect(context).not.toContain('全局偏好')
+    expect(semanticMemory.accessCount).toBe(1)
+    expect(globalMemory.accessCount).toBe(0)
+    module.destroy()
   })
 })

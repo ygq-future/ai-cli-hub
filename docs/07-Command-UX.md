@@ -33,8 +33,8 @@ flowchart TD
 |---|---|---|---|
 | `/start` | — | 欢迎 + 当前会话状态 | 若无活跃会话则展示引导 |
 | `/help` | — | 命令帮助 | 返回本表精简版 |
-| `/new` | `[cli]` `[cwd]` | 强制开新会话 | 关闭当前/目标旧会话 → 新建 `idle` conversation → `SessionCreated` |
-| `/close` | — | 结束当前会话 | 状态 → `closing` → 生成 episodic 摘要 → `closed` → `SessionClosed{reason:user}` |
+| `/new` | `[cli]` `[cwd]` | 强制开新会话 | 关闭当前/目标旧会话并后台生成会话摘录记忆 → 新建 `idle` conversation → `SessionCreated` |
+| `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；若会话含至少 2 条 user/assistant 消息，后台生成 conversation-derived episodic 摘录并回填 embedding |
 | `/status` | — | 当前会话详情 | 展示完整 conversationId、status、cli/cwd、目标 cli/cwd、语言 |
 | `/cwd` | `[path]` | 查看或切换工作目录 | 无参数查看；带路径则关闭当前会话、切换目标 cwd，下一条消息懒启动 |
 | `/sessions` | — | 列出该用户近期会话 | 历史查看，不表示 resume |
@@ -45,6 +45,7 @@ flowchart TD
 | `/forget` | `<memoryId>` | 删除实例级全局长期记忆 | 支持唯一短前缀；前缀不唯一时拒绝删除；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 
 > 参数缺省：`/new` 不带参数则使用当前目标 `cli`、当前目标 `cwd`（若无则用 `DEFAULT_CWD`）。V1 当前只接入 `claude`，`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
+> 普通文本里的“记住/记一下/记录/remember this”等自然语言记忆请求不是 `/remember`：它不会写入 global 记忆，也不会进入 Claude SDK；系统会用当前 conversation 最近 10 条 `messages` 表 user/assistant 消息调用 LLM 摘要，摘要语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述，写入 conversation-derived episodic 记忆并用于后续 embedding 召回。
 
 ---
 
@@ -53,10 +54,10 @@ flowchart TD
 | 用户动作 | 会话结果 |
 |---|---|
 | 普通发消息 | 命中 `(user, cli, cwd)` 活跃会话则复用；否则新建 |
-| `/new` | 强制新建，旧会话关闭；新建会话初始为 `idle`，第一条普通消息懒启动 CLI |
+| `/new` | 强制新建，旧会话关闭并按 `/close` 规则生成会话摘录；新建会话初始为 `idle`，第一条普通消息懒启动 CLI |
 | `/cwd` | 无参数仅查看当前目标 cwd |
 | `/cwd <path>` | 关闭当前会话并切换当前用户目标 cwd；不创建 conversation，下一条普通消息在新 cwd 新建 |
-| `/close` | 当前会话归档并生成摘要，下条消息将开新会话 |
+| `/close` | 当前会话关闭；若有足够消息则后台生成会话派生摘录记忆，下条消息将开新会话 |
 | 长期无活动 | 超 `SESSION_ARCHIVE_DAYS` 自动归档（等同 `/close`，`reason:archiveTimeout`） |
 
 ---
@@ -142,7 +143,7 @@ Markdown 卡片 + 内联按钮：
 | `/forget` 前缀不唯一 | 记忆 ID 前缀不唯一：`{prefix}` |
 | `/remember` 或 `/forget` 后继续对话 | 下一条普通消息自动重启 adapter 并注入最新全局记忆，conversation 不关闭 |
 | `/env` 执行 | 立即刷新环境快照并返回 `env.*` 记忆；probe 失败项显示 `missing` 或 `unknown`，不阻塞服务 |
-| adapter 重启后继续同一会话 | 下一条 user message 会携带当前 conversation 最近 10 条历史消息，避免丢失上一轮语境 |
+| adapter 重启后继续同一会话 | 下一条 user message 会携带当前 conversation 最近 `RECENT_CONTEXT_LIMIT` 条历史消息；单条超长时按 `RECENT_CONTEXT_MESSAGE_MAX_CHARS` 保留尾部，避免丢失上一轮最新结论 |
 | CLI 运行中 `/new` | ℹ️ 已关闭当前会话，已为你开启新会话 |
 | 进程被空闲回收后发消息 | （静默唤醒，重启进程，用户无感）|
 | 内部异常 | ⚠️ 出错了，已记录。可重试或 /status 查看状态 |
@@ -166,12 +167,22 @@ WHITELIST_USER_IDS=11111111,22222222
 DATABASE_URL=postgres://hub:password@localhost:5432/ai_cli_hub
 
 # ── 长期记忆 / 嵌入（API，不跑本地模型）──
+EMBEDDING_API_BASE_URL=https://api.openai.com/v1
 EMBEDDING_API_KEY=sk-your-embedding-key
-EMBEDDING_MODEL=text-embedding-3-small
-MEMORY_RECALL_TOP_K=6
+EMBEDDING_MODEL=BAAI/bge-m3
+EMBEDDING_DIMENSIONS=1024
+MEMORY_RECALL_TOP_K=10
+
+# ── 长期记忆 / LLM 摘要（OpenAI-compatible chat completions；留空则无法生成 LLM 摘要）──
+MEMORY_SUMMARY_API_BASE_URL=https://api.openai.com/v1
+MEMORY_SUMMARY_API_KEY=sk-your-summary-key
+MEMORY_SUMMARY_MODEL=gpt-4o-mini
+MEMORY_SUMMARY_MAX_CHARS=600
 
 # ── Agent 职责定位（可选，注入 system hint）──
 AGENT_DESCRIPTION=你是运行在个人 VPS 上的 AI CLI 远程会话管理助手，负责协助用户安全、高效地管理本机项目、命令执行、审批和长期记忆。
+RECENT_CONTEXT_LIMIT=10
+RECENT_CONTEXT_MESSAGE_MAX_CHARS=1200
 
 # ── 媒体/文件入站（M9）──
 MEDIA_DOWNLOAD_DIR=.data/media

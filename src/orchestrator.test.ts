@@ -411,6 +411,56 @@ describe('SessionOrchestrator', () => {
     agg.destroy()
   })
 
+  test('相关长期记忆按当前输入前缀注入 user input', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => fake.adapter,
+      getRelevantMemoryHint: query =>
+        query.includes('PM2') ? '[相关长期记忆 · 语义召回]\n- 情节：PM2 部署已跑通\n---' : '',
+    })
+
+    await orch.handler.onMessage('PM2 怎么重启？', CID)
+
+    expect(fake.calls.sendUserInput[0]).toContain('[相关长期记忆 · 语义召回]')
+    expect(fake.calls.sendUserInput[0]).toContain('PM2 部署已跑通')
+    expect(fake.calls.sendUserInput[0]).toContain('[本次用户输入]\nPM2 怎么重启？')
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('相关记忆召回失败只发 ErrorOccurred，不阻塞用户输入', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const errors: Array<{ scope: string }> = []
+    bus.on('ErrorOccurred', p => errors.push(p))
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => fake.adapter,
+      getRelevantMemoryHint: () => {
+        throw new Error('embedding unavailable')
+      },
+    })
+
+    await orch.handler.onMessage('hi', CID)
+
+    expect(fake.calls.sendUserInput).toEqual(['hi'])
+    expect(errors.some(e => e.scope === 'orchestrator:semanticMemoryRecall')).toBe(true)
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
   test('SessionClosed → stop 并清理 adapter', async () => {
     const fake = createFakeAdapter()
     const bus = createEventBus()
@@ -573,6 +623,62 @@ describe('SessionOrchestrator', () => {
     expect(firstInput).toContain('[本次用户输入]\ncurrent question')
     expect(firstInput.match(/current question/g)?.length).toBe(1)
     expect(fake.calls.sendUserInput[1]).toBe('follow up')
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('最近上下文条数和单条长度可配置，长消息保留尾部', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos, messages } = createFakeRepos()
+    messages.push(
+      {
+        id: 'old',
+        conversationId: CID,
+        role: 'user',
+        content: 'old-message',
+        createdAt: 1,
+      },
+      {
+        id: 'long',
+        conversationId: CID,
+        role: 'assistant',
+        content: 'prefix-should-be-dropped-final-answer-kept',
+        createdAt: 2,
+      },
+      {
+        id: 'new',
+        conversationId: CID,
+        role: 'user',
+        content: 'new-message',
+        createdAt: 3,
+      },
+      {
+        id: 'current',
+        conversationId: CID,
+        role: 'user',
+        content: 'current question',
+        createdAt: 4,
+      },
+    )
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => fake.adapter,
+      recentContextLimit: 2,
+      recentContextMessageMaxChars: 20,
+    })
+
+    await orch.handler.onMessage('current question', CID)
+
+    const firstInput = fake.calls.sendUserInput[0]!
+    expect(firstInput).not.toContain('old-message')
+    expect(firstInput).not.toContain('prefix-should-be-dropped')
+    expect(firstInput).toContain('...final-answer-kept')
+    expect(firstInput).toContain('new-message')
 
     await orch.destroy()
     agg.destroy()

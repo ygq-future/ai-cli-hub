@@ -131,7 +131,7 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     expect(logs[0]!.action).toBe('approve')
   })
 
-  test('MemoryRepository：insert → listGlobal → searchByKeyword → touch/delete/upsert；searchByVector 抛错', async () => {
+  test('MemoryRepository：insert → listGlobal → searchByKeyword → searchByVector → touch/delete/upsert', async () => {
     // global（conversationId 为 NULL）
     const mem = await repos.memories.insert({
       id: crypto.randomUUID(),
@@ -172,10 +172,14 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     const byId = await repos.memories.findById(mem.id)
     expect(byId?.id).toBe(mem.id)
 
+    const queryEmbedding = Array(1024).fill(0)
+    queryEmbedding[0] = 1
+    await repos.memories.setEmbedding(mem.id, queryEmbedding)
+    const vectorHits = await repos.memories.searchByVector(testNamespace, queryEmbedding, 5)
+    expect(vectorHits.some(m => m.id === mem.id)).toBe(true)
+
     await repos.memories.delete(mem.id)
     expect(await repos.memories.findById(mem.id)).toBeNull()
     await db.delete(memories).where(eq(memories.id, upserted.id))
-
-    expect(repos.memories.searchByVector(testNamespace, [0.1, 0.2], 5)).rejects.toThrow(/V1\.5/)
   })
 })

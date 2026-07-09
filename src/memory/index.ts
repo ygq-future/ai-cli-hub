@@ -1,5 +1,5 @@
 /**
- * memory —— 长期记忆 V1：环境快照 + 实例级全局记忆注入。
+ * memory —— 长期记忆：环境快照 + 实例级全局记忆注入 + V1.5 语义召回。
  *
  * 本模块只依赖 event/repository/config/shared；不 import core/、transport/、cli/。
  */
@@ -9,11 +9,20 @@ import { access, mkdir, stat } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
 import type { AppConfig } from '../config'
 import type { EventBus } from '../event'
-import type { Memory, Repositories } from '../repository'
-import { DEFAULT_MEMORY_NAMESPACE, type MemoryType } from '../shared'
+import type { Memory, Message, Repositories } from '../repository'
+import {
+  DEFAULT_MEMORY_NAMESPACE,
+  type ConversationId,
+  type MemoryType,
+  type Unsubscribe,
+  type UserLanguage,
+} from '../shared'
+import { createEmbeddingProvider, type EmbeddingProvider } from './embedding-provider'
+import { createSummaryProvider, type SummaryProvider } from './summary-provider'
 
 export interface MemoryModule {
   recallGlobalContext(): Promise<string>
+  recallRelevantContext(query: string): Promise<string>
   refreshEnvironmentSnapshot(): Promise<void>
   destroy(): void
 }
@@ -23,6 +32,8 @@ export interface MemoryModuleDeps {
   repos: Repositories
   config: AppConfig
   namespace?: string
+  embeddingProvider?: EmbeddingProvider
+  summaryProvider?: SummaryProvider
 }
 
 interface EnvironmentFact {
@@ -31,8 +42,38 @@ interface EnvironmentFact {
   importance?: number
 }
 
+const CONVERSATION_SUMMARY_MESSAGE_LIMIT = 12
+const CONVERSATION_SUMMARY_MESSAGE_MAX_CHARS = 800
+const REQUESTED_SUMMARY_MESSAGE_LIMIT = 10
+
 export async function createMemoryModule(deps: MemoryModuleDeps): Promise<MemoryModule> {
   const namespace = deps.namespace ?? DEFAULT_MEMORY_NAMESPACE
+  const embeddingProvider = deps.embeddingProvider ?? createEmbeddingProvider(deps.config)
+  const summaryProvider = deps.summaryProvider ?? createSummaryProvider(deps.config)
+  const unsubs: Unsubscribe[] = []
+  unsubs.push(
+    deps.bus.on('MemoryUpdated', payload => {
+      if (payload.namespace !== namespace) return
+      void embedMemoryById(deps, embeddingProvider, payload.memoryId)
+    }),
+  )
+  unsubs.push(
+    deps.bus.on('SessionClosed', payload => {
+      void createConversationSummaryMemory(deps, namespace, payload.conversationId)
+    }),
+  )
+  unsubs.push(
+    deps.bus.on('MemorySummaryRequested', payload => {
+      void createRequestedSummaryMemory(
+        deps,
+        namespace,
+        summaryProvider,
+        payload.conversationId,
+        payload.text,
+        payload.language,
+      )
+    }),
+  )
   await upsertEnvironmentSnapshot(deps, namespace)
 
   return {
@@ -40,12 +81,119 @@ export async function createMemoryModule(deps: MemoryModuleDeps): Promise<Memory
       const memories = await deps.repos.memories.listGlobal(namespace)
       return formatGlobalMemoryContext(memories)
     },
+    async recallRelevantContext(query: string) {
+      const embedding = await embeddingProvider.embed(query)
+      const memories = await deps.repos.memories.searchByVector(namespace, embedding, deps.config.MEMORY_RECALL_TOP_K)
+      const relevantMemories = memories.filter(m => m.conversationId !== null)
+      await Promise.all(relevantMemories.map(m => deps.repos.memories.touch(m.id)))
+      return formatRelevantMemoryContext(relevantMemories)
+    },
     async refreshEnvironmentSnapshot() {
       await upsertEnvironmentSnapshot(deps, namespace)
     },
     destroy() {
-      // V1 无后台队列；保留接口给后续摘要/嵌入任务。
+      for (const u of unsubs) u()
+      unsubs.length = 0
     },
+  }
+}
+
+async function embedMemoryById(deps: MemoryModuleDeps, embeddingProvider: EmbeddingProvider, memoryId: string) {
+  try {
+    const memory = await deps.repos.memories.findById(memoryId)
+    if (!memory || memory.conversationId === null) return
+    const embedding = await embeddingProvider.embed(memory.content)
+    await deps.repos.memories.setEmbedding(memory.id, embedding)
+  } catch (err) {
+    deps.bus.emit('ErrorOccurred', {
+      scope: 'memory:embed',
+      message: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
+async function createConversationSummaryMemory(
+  deps: MemoryModuleDeps,
+  namespace: string,
+  conversationId: string,
+): Promise<void> {
+  try {
+    const cid = conversationId as ConversationId
+    const messages = await deps.repos.messages.listByConversation(cid)
+    const content = formatConversationSummaryMemory(conversationId, messages)
+    if (!content) return
+
+    const lastMessage = [...messages].reverse().find(m => m.content.trim())
+    const memory = await deps.repos.memories.upsertByTag(namespace, `conversation.summary:${conversationId}`, {
+      conversationId: cid,
+      type: 'episodic',
+      content,
+      embedding: null,
+      sourceMessageId: lastMessage?.id ?? null,
+      importance: 0.6,
+      accessCount: 0,
+      lastAccessedAt: null,
+    })
+    deps.bus.emit('MemoryUpdated', {
+      conversationId: cid,
+      namespace,
+      memoryType: memory.type,
+      memoryId: memory.id,
+    })
+  } catch (err) {
+    deps.bus.emit('ErrorOccurred', {
+      scope: 'memory:conversationSummary',
+      message: err instanceof Error ? err.message : String(err),
+      conversationId: conversationId as ConversationId,
+    })
+  }
+}
+
+async function createRequestedSummaryMemory(
+  deps: MemoryModuleDeps,
+  namespace: string,
+  summaryProvider: SummaryProvider,
+  conversationId: ConversationId,
+  userRequest: string,
+  language: UserLanguage,
+): Promise<void> {
+  try {
+    const messages = await deps.repos.messages.listByConversation(conversationId)
+    const recentMessages = messages
+      .filter(m => (m.role === 'user' || m.role === 'assistant') && m.content.trim())
+      .slice(-REQUESTED_SUMMARY_MESSAGE_LIMIT)
+    if (recentMessages.length === 0) return
+
+    const summary = await summaryProvider.summarizeRecentMessages(recentMessages, userRequest, language)
+    if (!summary.trim()) return
+
+    const lastMessage = [...recentMessages].reverse().find(m => m.content.trim())
+    const memory = await deps.repos.memories.insert({
+      id: crypto.randomUUID(),
+      namespace,
+      conversationId,
+      type: 'episodic',
+      content: summary,
+      embedding: null,
+      sourceMessageId: lastMessage?.id ?? null,
+      importance: 0.75,
+      accessCount: 0,
+      lastAccessedAt: null,
+      tag: null,
+      createdAt: Date.now(),
+    })
+    deps.bus.emit('MemoryUpdated', {
+      conversationId,
+      namespace,
+      memoryType: memory.type,
+      memoryId: memory.id,
+    })
+  } catch (err) {
+    deps.bus.emit('ErrorOccurred', {
+      scope: 'memory:requestedSummary',
+      message: err instanceof Error ? err.message : String(err),
+      conversationId,
+    })
   }
 }
 
@@ -176,6 +324,29 @@ export function formatGlobalMemoryContext(memories: Memory[]): string {
   return ['[长期记忆 · 供参考]', ...lines, '---'].join('\n')
 }
 
+export function formatRelevantMemoryContext(memories: Memory[]): string {
+  if (memories.length === 0) return ''
+  const lines = memories.map(m => `- ${memoryTypeLabel(m.type)}：${m.content.trim()}`)
+  return ['[相关长期记忆 · 语义召回]', ...lines, '---'].join('\n')
+}
+
+export function formatConversationSummaryMemory(conversationId: string, messages: Message[]): string {
+  const conversationMessages = messages.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content.trim())
+  if (conversationMessages.length < 2) return ''
+
+  const selected = conversationMessages.slice(-CONVERSATION_SUMMARY_MESSAGE_LIMIT)
+  const lines = selected.map(m => {
+    const role = m.role === 'assistant' ? '助手' : '用户'
+    return `- ${role}：${truncateForConversationSummary(m.content)}`
+  })
+  return [
+    '会话派生记忆：该内容来自一次已关闭会话，用于未来按语义召回，不属于全局默认事实。',
+    `conversation_id=${conversationId}`,
+    '最近对话摘录：',
+    ...lines,
+  ].join('\n')
+}
+
 function memorySortKey(memory: Memory): string {
   return `${memory.type}:${memory.tag ?? ''}:${memory.createdAt}:${memory.id}`
 }
@@ -184,6 +355,12 @@ function memoryTypeLabel(type: MemoryType): string {
   if (type === 'preference') return '偏好'
   if (type === 'episodic') return '情节'
   return '事实'
+}
+
+function truncateForConversationSummary(content: string): string {
+  const normalized = content.trim()
+  if (normalized.length <= CONVERSATION_SUMMARY_MESSAGE_MAX_CHARS) return normalized
+  return `${normalized.slice(0, CONVERSATION_SUMMARY_MESSAGE_MAX_CHARS - 3)}...`
 }
 
 function normalizePathForMemory(value: string): string {

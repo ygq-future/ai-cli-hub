@@ -32,9 +32,15 @@ export const ConfigSchema = z.object({
   DATABASE_URL: z.url(), // zod v4：顶层 z.url()，旧的 z.string().url() 已弃用
 
   // —— 长期记忆 / 嵌入（API，不跑本地模型）——
+  EMBEDDING_API_BASE_URL: z.url().default('https://api.openai.com/v1'),
   EMBEDDING_API_KEY: z.string().min(1),
-  EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
-  MEMORY_RECALL_TOP_K: z.coerce.number().int().positive().default(6),
+  EMBEDDING_MODEL: z.string().default('BAAI/bge-m3'),
+  EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(1024),
+  MEMORY_RECALL_TOP_K: z.coerce.number().int().positive().default(10),
+  MEMORY_SUMMARY_API_BASE_URL: z.string().default(''),
+  MEMORY_SUMMARY_API_KEY: z.string().default(''),
+  MEMORY_SUMMARY_MODEL: z.string().default(''),
+  MEMORY_SUMMARY_MAX_CHARS: z.coerce.number().int().positive().default(600),
 
   // —— 生命周期超时 ——
   // 已启动的 CLI/adapter 空闲超过该时间后自动关闭；conversation 保持 idle，可再次唤醒。
@@ -46,6 +52,8 @@ export const ConfigSchema = z.object({
 
   // —— Agent 职责定位（注入 system hint）——
   AGENT_DESCRIPTION: z.string().default(''),
+  RECENT_CONTEXT_LIMIT: z.coerce.number().int().positive().default(10),
+  RECENT_CONTEXT_MESSAGE_MAX_CHARS: z.coerce.number().int().positive().default(1200),
 
   // —— 媒体/文件入站（M9）——
   MEDIA_DOWNLOAD_DIR: z.string().min(1).default('.data/media'),

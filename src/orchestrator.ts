@@ -34,12 +34,17 @@ export interface SessionOrchestratorDeps {
   adapterFactory?: () => CLIAdapter
   getUserLanguage?: (userId: string) => UserLanguage
   getSystemMemoryHint?: () => Promise<string> | string
+  getRelevantMemoryHint?: (query: string) => Promise<string> | string
   agentDescription?: string
   debugDiagnostics?: boolean
   diagnosticLogger?: (event: string, data: Record<string, unknown>) => void
   turnTimeoutMs?: number
   /** adapter 空闲回收时间；0 表示禁用。默认沿用 AGENT_IDLE_TIMEOUT_MS 的 5 分钟语义。 */
   idleTimeoutMs?: number
+  /** adapter 刚启动时拼入当前 conversation 最近几条历史消息。 */
+  recentContextLimit?: number
+  /** 最近上下文中单条历史消息的最大字符数；超出时保留尾部。 */
+  recentContextMessageMaxChars?: number
 }
 
 interface AdapterEntry {
@@ -57,8 +62,8 @@ interface EnsureAdapterResult {
   started: boolean
 }
 
-const RECENT_CONTEXT_LIMIT = 10
-const RECENT_CONTEXT_MESSAGE_MAX_CHARS = 1200
+const DEFAULT_RECENT_CONTEXT_LIMIT = 10
+const DEFAULT_RECENT_CONTEXT_MESSAGE_MAX_CHARS = 1200
 const DEFAULT_TURN_TIMEOUT_MS = 60_000
 
 export function createSessionOrchestrator(deps: SessionOrchestratorDeps): SessionOrchestrator {
@@ -66,8 +71,11 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   const adapterFactory = deps.adapterFactory ?? createClaudeSdkAdapter
   const getUserLanguage = deps.getUserLanguage ?? (() => 'zh' as const)
   const getSystemMemoryHint = deps.getSystemMemoryHint ?? (() => '')
+  const getRelevantMemoryHint = deps.getRelevantMemoryHint ?? (() => '')
   const idleTimeoutMs = deps.idleTimeoutMs ?? 300_000
   const turnTimeoutMs = deps.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
+  const recentContextLimit = deps.recentContextLimit ?? DEFAULT_RECENT_CONTEXT_LIMIT
+  const recentContextMessageMaxChars = deps.recentContextMessageMaxChars ?? DEFAULT_RECENT_CONTEXT_MESSAGE_MAX_CHARS
   const debugDiagnostics = deps.debugDiagnostics ?? false
 
   const entries = new Map<ConversationId, AdapterEntry>()
@@ -275,6 +283,15 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     }
   }
 
+  async function resolveRelevantMemoryHint(cid: ConversationId, query: string): Promise<string> {
+    try {
+      return await getRelevantMemoryHint(query)
+    } catch (err) {
+      reportError('orchestrator:semanticMemoryRecall', err, cid)
+      return ''
+    }
+  }
+
   function scheduleTurnTimeout(cid: ConversationId, entry: AdapterEntry, inputChars: number) {
     clearTurnTimer(entry)
     if (!debugDiagnostics || turnTimeoutMs <= 0) return
@@ -293,18 +310,31 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   async function withRecentConversationContext(conversationId: ConversationId, currentText: string): Promise<string> {
     try {
       const messages = await repos.messages.listByConversation(conversationId)
-      const previousMessages = dropCurrentUserMessage(messages, currentText).slice(-RECENT_CONTEXT_LIMIT)
+      const previousMessages = dropCurrentUserMessage(messages, currentText)
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .slice(-recentContextLimit)
       if (previousMessages.length === 0) return currentText
 
       const contextLines = previousMessages.map(m => {
         const role = m.role === 'assistant' ? '助手' : m.role === 'system' ? '系统' : '用户'
-        return `- ${role}：${truncateForRecentContext(m.content)}`
+        return `- ${role}：${truncateForRecentContext(m.content, recentContextMessageMaxChars)}`
       })
       return ['[最近对话上下文 · 供延续当前会话]', ...contextLines, '---', '[本次用户输入]', currentText].join('\n')
     } catch (err) {
       reportError('orchestrator:recentContext', err, conversationId)
       return currentText
     }
+  }
+
+  async function withRelevantMemoryContext(
+    conversationId: ConversationId,
+    queryText: string,
+    inputText: string,
+  ): Promise<string> {
+    const memoryHint = await resolveRelevantMemoryHint(conversationId, queryText)
+    if (!memoryHint.trim()) return inputText
+    const userInput = inputText === queryText ? ['[本次用户输入]', inputText].join('\n') : inputText
+    return [memoryHint, userInput].join('\n')
   }
 
   /** 落一条 assistant 消息（本轮全文），失败只报错不阻塞。 */
@@ -372,14 +402,16 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       const result = await ensureAdapter(conversationId)
       if (!result) throw new Error(`会话 ${conversationId} 的 CLI adapter 启动失败`)
       resetIdleTimer(conversationId, result.entry)
-      const input = result.started ? await withRecentConversationContext(conversationId, text) : text
+      const baseInput = result.started ? await withRecentConversationContext(conversationId, text) : text
+      const input = await withRelevantMemoryContext(conversationId, text, baseInput)
       diag('sendUserInput', {
         conversationId,
         userId: result.entry.userId,
         started: result.started,
         originalTextChars: text.length,
         inputChars: input.length,
-        recentContextIncluded: input !== text,
+        recentContextIncluded: baseInput !== text,
+        relevantMemoryIncluded: input !== baseInput,
         adapterState: result.entry.adapter.getState(),
       })
       scheduleTurnTimeout(conversationId, result.entry, input.length)
@@ -415,10 +447,11 @@ function dropCurrentUserMessage(
   return copy
 }
 
-function truncateForRecentContext(content: string): string {
+function truncateForRecentContext(content: string, maxChars: number): string {
   const normalized = content.trim()
-  if (normalized.length <= RECENT_CONTEXT_MESSAGE_MAX_CHARS) return normalized
-  return `${normalized.slice(0, RECENT_CONTEXT_MESSAGE_MAX_CHARS - 3)}...`
+  if (normalized.length <= maxChars) return normalized
+  if (maxChars <= 3) return '.'.repeat(maxChars)
+  return `...${normalized.slice(-(maxChars - 3))}`
 }
 
 function languageHint(lang: UserLanguage): string {

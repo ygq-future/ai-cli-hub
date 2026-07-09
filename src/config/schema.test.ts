@@ -12,11 +12,19 @@ describe('loadConfig', () => {
   test('校验通过并套用默认值', () => {
     const c = loadConfig(VALID)
     expect(c.WHITELIST_USER_IDS).toEqual(['111', '222', '333'])
-    expect(c.EMBEDDING_MODEL).toBe('text-embedding-3-small')
-    expect(c.MEMORY_RECALL_TOP_K).toBe(6)
+    expect(c.EMBEDDING_API_BASE_URL).toBe('https://api.openai.com/v1')
+    expect(c.EMBEDDING_MODEL).toBe('BAAI/bge-m3')
+    expect(c.EMBEDDING_DIMENSIONS).toBe(1024)
+    expect(c.MEMORY_RECALL_TOP_K).toBe(10)
+    expect(c.MEMORY_SUMMARY_API_BASE_URL).toBe('')
+    expect(c.MEMORY_SUMMARY_API_KEY).toBe('')
+    expect(c.MEMORY_SUMMARY_MODEL).toBe('')
+    expect(c.MEMORY_SUMMARY_MAX_CHARS).toBe(600)
     expect(c.AGENT_IDLE_TIMEOUT_MS).toBe(300_000)
     expect(c.SESSION_ARCHIVE_DAYS).toBe(7)
     expect(c.AGENT_DESCRIPTION).toBe('')
+    expect(c.RECENT_CONTEXT_LIMIT).toBe(10)
+    expect(c.RECENT_CONTEXT_MESSAGE_MAX_CHARS).toBe(1200)
     expect(c.MEDIA_DOWNLOAD_DIR).toBe('.data/media')
     expect(c.MEDIA_MAX_FILE_BYTES).toBe(10 * 1024 * 1024)
     expect(c.MEDIA_MAX_TEXT_CHARS).toBe(20_000)
@@ -33,9 +41,38 @@ describe('loadConfig', () => {
   })
 
   test('数值型 env 字符串被强制转换', () => {
-    const c = loadConfig({ ...VALID, MEMORY_RECALL_TOP_K: '10', AGENT_IDLE_TIMEOUT_MS: '60000' })
-    expect(c.MEMORY_RECALL_TOP_K).toBe(10)
+    const c = loadConfig({
+      ...VALID,
+      EMBEDDING_DIMENSIONS: '768',
+      MEMORY_RECALL_TOP_K: '12',
+      AGENT_IDLE_TIMEOUT_MS: '60000',
+      RECENT_CONTEXT_LIMIT: '8',
+      RECENT_CONTEXT_MESSAGE_MAX_CHARS: '900',
+    })
+    expect(c.EMBEDDING_DIMENSIONS).toBe(768)
+    expect(c.MEMORY_RECALL_TOP_K).toBe(12)
     expect(c.AGENT_IDLE_TIMEOUT_MS).toBe(60000)
+    expect(c.RECENT_CONTEXT_LIMIT).toBe(8)
+    expect(c.RECENT_CONTEXT_MESSAGE_MAX_CHARS).toBe(900)
+  })
+
+  test('Embedding API base URL 从 env 读取', () => {
+    const c = loadConfig({ ...VALID, EMBEDDING_API_BASE_URL: 'https://api.example.com/v1' })
+    expect(c.EMBEDDING_API_BASE_URL).toBe('https://api.example.com/v1')
+  })
+
+  test('Memory summary API 配置从 env 读取', () => {
+    const c = loadConfig({
+      ...VALID,
+      MEMORY_SUMMARY_API_BASE_URL: 'https://llm.example.com/v1',
+      MEMORY_SUMMARY_API_KEY: 'sk-summary',
+      MEMORY_SUMMARY_MODEL: 'qwen-summary',
+      MEMORY_SUMMARY_MAX_CHARS: '800',
+    })
+    expect(c.MEMORY_SUMMARY_API_BASE_URL).toBe('https://llm.example.com/v1')
+    expect(c.MEMORY_SUMMARY_API_KEY).toBe('sk-summary')
+    expect(c.MEMORY_SUMMARY_MODEL).toBe('qwen-summary')
+    expect(c.MEMORY_SUMMARY_MAX_CHARS).toBe(800)
   })
 
   test('媒体限制 env 字符串被强制转换', () => {

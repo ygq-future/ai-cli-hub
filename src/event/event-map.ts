@@ -2,7 +2,7 @@
  * Event Bus 类型契约 —— 模块间唯一通信枢纽的 payload 定义。
  * 契约见 docs/03-Interface-Contracts.md §1；新增事件只在此扩展 EventMap 一处。
  */
-import type { CliType, ConversationId, MemoryType, MessageRef, Platform, Unsubscribe } from '../shared'
+import type { CliType, ConversationId, MemoryType, MessageRef, Platform, Unsubscribe, UserLanguage } from '../shared'
 
 export interface EventMap {
   // —— 会话生命周期 ——
@@ -64,6 +64,13 @@ export interface EventMap {
     memoryId: string
     operatorUserId?: string
   }
+  MemorySummaryRequested: {
+    conversationId: ConversationId
+    userId: string
+    language: UserLanguage
+    reason: 'userRememberRequest'
+    text: string
+  }
 
   // —— 错误 ——
   ErrorOccurred: {
@@ -102,6 +109,7 @@ const EVENT_TYPE_REGISTRY: Record<EventType, true> = {
   PTYStarted: true,
   PTYExited: true,
   MemoryUpdated: true,
+  MemorySummaryRequested: true,
   ErrorOccurred: true,
 }
 

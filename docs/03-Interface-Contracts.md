@@ -88,6 +88,13 @@ export interface EventMap {
     memoryId: string;
     operatorUserId?: string;        // 命令操作者，仅用于日志/审计，不作为记忆隔离键
   };
+  MemorySummaryRequested: {
+    conversationId: ConversationId;
+    userId: string;
+    language: 'zh' | 'en';          // 跟随当前用户 /lang，用于摘要输出语言
+    reason: 'userRememberRequest';
+    text: string;
+  };
 
   // —— 错误 ——
   ErrorOccurred: { scope: string; message: string; cause?: unknown; conversationId?: ConversationId };
@@ -305,6 +312,7 @@ export interface MemoryRepository {
   searchByKeyword(namespace: string, query: string, topK: number): Promise<Memory[]>;
   // V1.5：向量检索（embedding 非空时启用）
   searchByVector(namespace: string, embedding: number[], topK: number): Promise<Memory[]>;
+  setEmbedding(id: string, embedding: number[]): Promise<void>;
   touch(id: string): Promise<void>; // access_count++ / last_accessed_at
   delete(id: string): Promise<void>;
 }
@@ -325,14 +333,22 @@ export const ConfigSchema = z.object({
 
   DATABASE_URL: z.string().url(),                 // postgres://...
 
+  EMBEDDING_API_BASE_URL: z.url().default('https://api.openai.com/v1'),
   EMBEDDING_API_KEY: z.string().min(1),
-  EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
-  MEMORY_RECALL_TOP_K: z.coerce.number().default(6),
+  EMBEDDING_MODEL: z.string().default('BAAI/bge-m3'),
+  EMBEDDING_DIMENSIONS: z.coerce.number().default(1024),
+  MEMORY_RECALL_TOP_K: z.coerce.number().default(10),
+  MEMORY_SUMMARY_API_BASE_URL: z.string().default(''),
+  MEMORY_SUMMARY_API_KEY: z.string().default(''),
+  MEMORY_SUMMARY_MODEL: z.string().default(''),
+  MEMORY_SUMMARY_MAX_CHARS: z.coerce.number().default(600),
 
   AGENT_IDLE_TIMEOUT_MS: z.coerce.number().default(300_000), // 已启动 CLI/adapter 空闲回收；conversation 保持 idle
   SESSION_ARCHIVE_DAYS: z.coerce.number().default(7),
 
   AGENT_DESCRIPTION: z.string().default(''),       // Agent 职责定位；注入 system hint
+  RECENT_CONTEXT_LIMIT: z.coerce.number().default(10),
+  RECENT_CONTEXT_MESSAGE_MAX_CHARS: z.coerce.number().default(1200),
 
   MEDIA_DOWNLOAD_DIR: z.string().default('.data/media'),
   MEDIA_MAX_FILE_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),

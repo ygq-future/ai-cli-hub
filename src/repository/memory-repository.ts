@@ -1,8 +1,8 @@
 /**
  * MemoryRepository —— Drizzle 实现（docs/03 §5 / docs/04 §6）。
- * V1：关系 + FTS 关键词召回；向量检索 V1.5 启用（此处留桩）。
+ * V1：关系 + FTS 关键词召回；V1.5：pgvector 近邻召回。
  */
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { Db } from '../storage'
 import { memories } from '../storage/schema'
 import type { MemoryRepository, Memory, NewMemory } from './types'
@@ -71,9 +71,18 @@ export function createMemoryRepository(db: Db): MemoryRepository {
         .limit(topK)
     },
 
-    async searchByVector(_namespace: string, _embedding: number[], _topK: number): Promise<Memory[]> {
-      // V1.5：需 pgvector HNSW 索引 + 回填 embedding，V1 未启用。见 docs/04 §8 / docs/05 V1.5。
-      throw new Error('searchByVector 属 V1.5（pgvector），V1 未启用；请用 searchByKeyword')
+    async searchByVector(namespace: string, embedding: number[], topK: number): Promise<Memory[]> {
+      const queryVector = `[${embedding.join(',')}]`
+      return db
+        .select()
+        .from(memories)
+        .where(and(eq(memories.namespace, namespace), isNotNull(memories.embedding)))
+        .orderBy(sql`${memories.embedding} <=> ${queryVector}::vector`)
+        .limit(topK)
+    },
+
+    async setEmbedding(id: string, embedding: number[]): Promise<void> {
+      await db.update(memories).set({ embedding }).where(eq(memories.id, id))
     },
 
     async touch(id: string): Promise<void> {
