@@ -34,10 +34,11 @@ export interface CommandRouterDeps {
 }
 
 type CwdResolveResult = { ok: true; cwd: string } | { ok: false; message: string }
-type SessionTargetResolveResult = { ok: true; cli: CliType; cwd: string } | { ok: false; message: string }
+type SessionTargetResolveResult =
+  { ok: true; cli: CliType; cwd: string; cliExplicit: boolean; cwdExplicit: boolean } | { ok: false; message: string }
 
-const KNOWN_CLI_TYPES: ReadonlySet<CliType> = new Set(['claude', 'codex', 'gemini'])
-const SUPPORTED_CLI_TYPES: ReadonlySet<CliType> = new Set(['claude'])
+const KNOWN_CLI_TYPES: ReadonlySet<CliType> = new Set(['claude', 'opencode', 'codex', 'gemini'])
+const SUPPORTED_CLI_TYPES: ReadonlySet<CliType> = new Set(['claude', 'opencode'])
 const RECENT_SESSIONS_LIMIT = 10
 const ID_PREFIX_SEARCH_LIMIT = 50
 const SHORT_ID_CHARS = 8
@@ -75,7 +76,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             reply(payload, target.message)
             return true
           }
-          const { cli, cwd } = target
+          const { cli, cwd, cliExplicit, cwdExplicit } = target
           const current = await currentConversation(payload)
           if (current) await sessionManager.close(current.id as ConversationId, 'user')
           const cid = await sessionManager.forceNew({
@@ -84,8 +85,11 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             cli,
             cwd,
             text: payload.text,
+            cliExplicit,
+            cwdExplicit,
           })
-          reply(payload, `已开启新会话\nID: ${cid}\nCLI: ${cli}\nCWD: ${cwd}`)
+          const created = await repos.conversations.findById(cid)
+          reply(payload, `已开启新会话\nID: ${cid}\nCLI: ${created?.cli ?? cli}\nCWD: ${created?.cwd ?? cwd}`)
           return true
         }
 
@@ -132,7 +136,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             )
             return true
           }
-          reply(payload, formatStatus(conv, getUserLanguage(payload.userId), payload.cli, payload.cwd))
+          reply(payload, formatStatus(conv, getUserLanguage(payload.userId), conv.cli as CliType, conv.cwd))
           return true
         }
 
@@ -297,19 +301,19 @@ async function parseSessionTarget(
   resolveCwd: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult,
 ): Promise<SessionTargetResolveResult> {
   const [first, ...rest] = args
-  if (!first) return { ok: true, cli: fallbackCli, cwd: fallbackCwd }
+  if (!first) return { ok: true, cli: fallbackCli, cwd: fallbackCwd, cliExplicit: false, cwdExplicit: false }
 
   if (KNOWN_CLI_TYPES.has(first as CliType)) {
     const cli = first as CliType
     if (!SUPPORTED_CLI_TYPES.has(cli)) return { ok: false, message: `暂不支持 CLI：${cli}` }
-    if (rest.length === 0) return { ok: true, cli, cwd: fallbackCwd }
+    if (rest.length === 0) return { ok: true, cli, cwd: fallbackCwd, cliExplicit: true, cwdExplicit: false }
     const resolved = await resolveCwd(rest.join(' '))
-    return resolved.ok ? { ...resolved, cli } : resolved
+    return resolved.ok ? { ...resolved, cli, cliExplicit: true, cwdExplicit: true } : resolved
   }
 
   if (looksLikeAbsolutePath(first)) {
     const resolved = await resolveCwd(args.join(' '))
-    return resolved.ok ? { ...resolved, cli: fallbackCli } : resolved
+    return resolved.ok ? { ...resolved, cli: fallbackCli, cliExplicit: false, cwdExplicit: true } : resolved
   }
 
   return { ok: false, message: `不支持的 CLI：${first}` }

@@ -290,7 +290,7 @@ export async function collectEnvironmentFacts(config: AppConfig): Promise<Enviro
     },
     {
       tag: 'env.cli',
-      content: ['环境画像：[AI CLI]', '当前已接入 CLI=claude', ...cliFacts].join('\n'),
+      content: ['环境画像：[AI CLI]', '当前已接入 CLI=claude, opencode', ...cliFacts].join('\n'),
     },
     {
       tag: 'env.service_manager',

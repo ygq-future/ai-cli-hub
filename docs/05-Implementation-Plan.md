@@ -16,7 +16,7 @@ flowchart LR
     B --> C[event/ Bus]
     C --> D[storage/ + repository/]
     D --> E[core/ 状态机+路由]
-    E --> F[cli/ ClaudeSdkAdapter<br/>直接依赖 claude-agent-sdk]
+    E --> F[cli/ ClaudeSdkAdapter / OpenCodeSdkAdapter<br/>直接依赖对应 SDK]
     F --> H[aggregator]
     H --> I[transport/ telegram]
     I --> J[memory/]
@@ -61,7 +61,7 @@ flowchart LR
 
 ### M4 — Claude Adapter（SDK 家族，首选）
 
-- `cli/`：`ClaudeSdkAdapter` 实现 `CLIAdapter`（§3.1），内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄。
+- `cli/`：`ClaudeSdkAdapter` 实现 `CLIAdapter`（§3.1），内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄；V2-R3 扩展 `OpenCodeSdkAdapter`，通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并映射 SSE/permission 事件。
   - `sendUserInput` → 流式输入（`AsyncIterable<SDKUserMessage>` / `streamInput`）；`onOutput` ← `SDKMessage`（assistant/tool_use/result）。
   - **审批走 `canUseTool` 回调**：拿到工具名+参数 → `onApprovalRequest` → `bus.emit('ApprovalRequested')`；`resolveApproval(id,'approve'|'reject')` → `resolve({behavior:'allow'|'deny'})`。**无 scraping、无 `Runtime`、无 `ApprovalDetector`。**
   - 生命周期：CLI/adapter 起止/崩溃 → `onExit` → `PTYStarted/PTYExited` 或 adapter exit；`AGENT_IDLE_TIMEOUT_MS` 空闲关闭已启动 CLI/adapter（`query.interrupt()`/close），conversation 保持 `idle`。
@@ -164,7 +164,7 @@ flowchart TD
 对齐 [PRD §8](./01-PRD.md) 交付清单：
 
 - ✅ Bun+TS 架构 / Postgres+Drizzle+Repository / Event Bus / Config
-- ✅ Telegram 接入 / Claude Adapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）/ 状态机会话生命周期
+- ✅ Telegram 接入 / Claude Adapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）/ opencode Adapter（`@opencode-ai/sdk`，SDK 家族）/ 状态机会话生命周期
 - ✅ Message Aggregator / Approval Flow / 永久 Audit
 - ✅ 会话边界（cwd 目标 / `/new` / `/cwd` / `/close` / 归档）
 - ✅ 记忆基础：实例级环境快照记忆 + 命令式全局记忆注入（向量列预留待 V1.5）

@@ -49,6 +49,16 @@ export function createConversationRepository(db: Db): ConversationRepository {
       return row ?? null
     },
 
+    async findLatestByUser(userId: string): Promise<Conversation | null> {
+      const [row] = await db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.userId, userId))
+        .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
+        .limit(1)
+      return row ?? null
+    },
+
     async findById(id: ConversationId): Promise<Conversation | null> {
       const [row] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1)
       return row ?? null
@@ -67,7 +77,7 @@ export function createConversationRepository(db: Db): ConversationRepository {
         .select()
         .from(conversations)
         .where(eq(conversations.userId, userId))
-        .orderBy(desc(conversations.updatedAt))
+        .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
         .limit(limit)
     },
 

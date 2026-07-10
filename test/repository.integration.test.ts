@@ -61,6 +61,9 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     const active = await repos.conversations.findActive('u-int', 'claude', '/tmp/proj')
     expect(active?.id).toBe(cid)
 
+    const latest = await repos.conversations.findLatestByUser('u-int')
+    expect(latest?.id).toBe(cid)
+
     await repos.conversations.updateStatus(cid, 'idle')
     const afterIdle = await repos.conversations.findById(cid)
     expect(afterIdle?.status).toBe('idle')

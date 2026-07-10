@@ -110,6 +110,22 @@ export type AppConfig = z.infer<typeof ConfigSchema>
 /** 校验输入源（默认 process.env）。抽出参数便于测试注入。 */
 export type ConfigSource = Record<string, string | undefined>
 
+const PROXY_ENV_KEYS = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY'] as const
+
+/**
+ * Bun/Windows 可读取小写代理变量，但不会把它们枚举进 `{ ...process.env }`。
+ * SDK 用展开后的 env 拉起子进程，因此启动前统一改写为标准、可枚举的大写键。
+ */
+export function normalizeProxyEnvironment(source: ConfigSource = process.env): void {
+  for (const key of PROXY_ENV_KEYS) {
+    const lowerKey = key.toLowerCase()
+    const value = source[key] ?? source[lowerKey]
+    delete source[key]
+    delete source[lowerKey]
+    if (value !== undefined) source[key] = value
+  }
+}
+
 /**
  * 加载并校验配置。fail-fast：启动即报错，不允许运行期"配置未定义"。
  * @param source 覆盖输入源（测试用）；默认读取 process.env（本模块唯一 env 读取点）。

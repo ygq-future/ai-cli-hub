@@ -1,0 +1,1 @@
+ALTER TYPE "cli" ADD VALUE IF NOT EXISTS 'opencode';

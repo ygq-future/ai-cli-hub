@@ -11,7 +11,7 @@
 
 ```typescript
 export type Platform = 'telegram' | 'qq' | 'websocket';
-export type CliType = 'claude' | 'codex' | 'gemini';
+export type CliType = 'claude' | 'opencode' | 'codex' | 'gemini';
 
 // 持久化会话状态（落库 conversations.status，对应 02-架构 §5.2 状态机；决策 D28）
 // ⚠️ 仅这 5 态入库。审批（waitingApproval）是**运行期** AdapterState，永不落库，见 §3.1。
@@ -143,7 +143,7 @@ export interface ApprovalCard {
 > **接缝在语义化的 `CLIAdapter`，不在 `Runtime`（决策 D11）。** Core / Transport 只依赖 `CLIAdapter`，它说的是**领域语义**（一轮输入 / 流式输出 / 审批请求+决定 / 生命周期），与「字节还是结构化」无关。字节 vs 结构化的差异**封死在 Adapter 内部**。
 >
 > Adapter 分**两个家族**，同实现 `CLIAdapter`、对 Core 完全同形：
-> - **SDK 家族（Claude 等提供 Agent SDK 的 CLI，V1 首选）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄。输出来自结构化 `SDKMessage`，**审批来自 `canUseTool` 回调**（拿到工具名 + 完整参数），无需 scraping、无 `Runtime`、无 `ApprovalDetector`。
+> - **SDK 家族（Claude/opencode 等提供 SDK 的 CLI，首选）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄；`OpenCodeSdkAdapter` 通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并订阅 SSE 事件。输出来自结构化消息/事件，审批来自 SDK 回调或 permission 事件，无需 scraping、无 `Runtime`、无 `ApprovalDetector`。OpenCode text/tool part 只有在其 `messageID` 已由 `message.updated.info.role` 确认为 assistant 时才可转成 `OutputDelta`；user/noReply context part 必须丢弃。
 > - **PTY 家族（无 SDK 的 CLI 备用）**：`XxxPtyAdapter` 内部持 `PtyRuntime`（§3.2）+ 一个 per-CLI `ApprovalDetector`（§3.3）。字节流剥 ANSI 得输出，正则 scraping 认出审批点。**这些脏活被关在 Adapter 内部，不外泄。**
 
 ### 3.1 CLIAdapter（`cli/base.ts`）—— Core / Transport 唯一依赖的语义抽象
@@ -277,6 +277,8 @@ export interface ConversationRepository {
   findActive(userId: string, cli: CliType, cwd: string): Promise<Conversation | null>;
   // 用户最新可复用会话；用于重启后恢复内存目标并复用 idle，不返回 closing/closed。
   findLatestOpenByUser(userId: string): Promise<Conversation | null>;
+  // 用户最近任意会话；没有 open 会话时恢复持久 target cli。
+  findLatestByUser(userId: string): Promise<Conversation | null>;
   findById(id: ConversationId): Promise<Conversation | null>;
   // 用户所有非 closed 会话；新建会话前兜底关闭历史残留。
   listOpenByUser(userId: string): Promise<Conversation[]>;
@@ -397,6 +399,8 @@ export function loadConfig(): AppConfig {
 }
 ```
 
+`config.normalizeProxyEnvironment(source = process.env)` 在 Composition Root 调用 `loadConfig()` 前执行。它把 `http_proxy` / `https_proxy` / `no_proxy` / `all_proxy` 规范为标准大写键，同时保留原值；用于规避 Bun/Windows 中代理变量可读取但不可枚举、导致使用 `{ ...process.env }` 的 SDK 子进程丢失代理的问题。该函数仍位于 `config/`，不放宽其它模块读取 `process.env` 的限制。
+
 ---
 
 ## 7. Composition Root（`main.ts`）装配顺序
@@ -411,6 +415,7 @@ const repos = createRepositories(db);            // repository/
 
 const core = createCoreHub({ bus, repos, config });   // 注入抽象
 core.registerAdapter(new ClaudeSdkAdapter({ bus, config })); // SDK 家族，内部持 query()，无需 runtime
+core.registerAdapter(new OpenCodeSdkAdapter({ bus, config })); // SDK 家族，内部持 opencode server/client，审批经 permission 事件
 createMemoryModule({ bus, repos, config });      // 订阅事件，无需 Core 感知
 
 const telegram = new TelegramTransport({ bus, config });

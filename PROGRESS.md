@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-09 · 阶段：**V2-R2 运维自更新 / 自检测 / 自动拉起进行中**
+> 最后更新：2026-07-10 · 阶段：**V2-R2 运维自更新进行中；V2-R3 opencode provider 连接/SSE/raw 日志与 CLI 目标持久化修复完成**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V2-R2 — 运维自更新 / 自检测 / 自动拉起进行中**（V2 分三轮推进：R1 优化和 bug 修复已完成首批，R2 做运维自更新/自检测/自动拉起，R3 扩展 Transport 与 CLI） |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 首批优化修复已落地；V2-R2 `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启测试入口（Windows 直接拒绝）、重启后主动通知、`.env.example`→`.env` 迁移脚本已接入 |
-| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步；V2-R1 配置语义与阶段状态已同步；V2-R2 `/health`、`/update`、`/restart`、重启通知、`UPDATE_WORKDIR` 默认语义与 env 迁移说明已同步 |
+| 当前里程碑 | **V2-R2 — 运维自更新 / 自检测 / 自动拉起进行中；V2-R3 — CLI 扩展首项已修复真机反馈**（用户明确要求先接入 opencode SDK，作为 D49 顺序的例外） |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 首批优化修复已落地；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知、`.env.example`→`.env` 迁移脚本已接入；V2-R3 `OpenCodeSdkAdapter` 已接入，修复 Bun/Windows 子进程代理变量丢失，按 `message.updated` role 过滤 user/noReply part，审批与 actionable raw 日志白名单已修复；没有 open 会话时可从最近 closed 会话恢复 CLI target |
+| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步；V2-R1/V2-R2 状态同步；V2-R3 opencode SDK adapter、SSE role 边界、raw 白名单、CLI 类型、命令 UX 与 CLI target 持久化语义已同步 |
 | 阻塞项 | 无 |
-| 下一步 | 继续 V2-R2：补部署自检与 PM2/systemd 恢复验证，真机确认 `/update confirm` 后重启链路 |
+| 下一步 | 真机复测 `/new opencode <cwd>` 下普通对话、文件写入审批、approve/reject 与 `/status` 展示；继续 V2-R2 部署自检与 PM2/systemd 恢复验证 |
 
 ---
 
@@ -38,7 +38,7 @@
 | V1.5 | 记忆增强（pgvector） | ✅ 完成 | 默认 BAAI/bge-m3/1024 维/Top-K 10；embedding provider、HNSW 迁移、向量召回注入、自然语言记忆 LLM 摘要已落地 |
 | V2-R1 | 优化和 Bug 修复 | ✅ 首批完成 | 常量配置化、记忆摘要窗口语义收口、移除 `SessionClosed` 非 LLM 自动摘录、Claude SDK 审批 approve 保留原始 tool input、PTY approval 目录说明、async/import 清理、SDK raw JSON 与消息链路 debug 拆分、短问候跳过语义召回、Agent SDK host 指令泄漏清洗 |
 | V2-R2 | 运维自更新 / 自检测 / 自动拉起 | 🟡 进行中 | `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启链路测试入口（Windows 直接拒绝）、重启后主动通知已接入；下一步补部署自检、进程异常退出后的自动拉起与恢复验证 |
-| V2-R3 | Transport 和 CLI 扩展 | ⬜ 未开始 | 在现有架构稳定后，再接入新的 Transport 与 CLI Adapter，保持 Core 零侵入 |
+| V2-R3 | Transport 和 CLI 扩展 | 🟡 进行中 | 用户明确要求先接入 opencode SDK；`OpenCodeSdkAdapter` 已完成并修复真机 SSE user/assistant 角色混流、上下文泄露、审批冒泡与 raw 噪声问题；CLI target 已支持从最近 closed 会话恢复 CLI（不恢复 cwd），Transport 扩展未开始 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
 
@@ -103,6 +103,11 @@
 | D51 | **Agent 临时规划文件统一放 `.planning/` 并忽略提交**：复杂任务可按 `planning-with-files` 使用 `.planning/<plan-id>/task_plan.md`、`findings.md`、`progress.md` 作为临时工作记忆；禁止在项目根目录创建 `task_plan.md`/`progress.md`/`process.md` 等易与 `PROGRESS.md` 混淆的规划文件。`.planning/` 与 `.plan-attestation` 已加入 `.gitignore`。 | 2026-07-09 |
 | D52 | **调试开关分层**：`DEBUG_AGENT_SDK_JSON` 只控制各 Agent SDK/Adapter 的原始 JSON 输出，定位为开发 adapter 时使用；消息链路可观测性改由 `DEBUG_MESSAGE_FLOW` 单独控制，覆盖用户原始输入、注入后的 input、adapter start system hint、全局/相关记忆召回内容与排序、adapter 输出、assistant 落库和 turn timeout。 | 2026-07-09 |
 | D53 | **低信息量问候不触发语义记忆召回**：`hello`、`hi`、`你好`、`在吗` 等明确问候只走最近上下文与正常对话，不调用 embedding/pgvector 相关记忆召回，避免短 query 把无关历史记忆注入 prompt；真正有语义的问题仍按原 Top-K 召回。 | 2026-07-09 |
+| D54 | **opencode 走 SDK 家族 Adapter，不走 PTY scraping**：按用户明确要求提前做 V2-R3 CLI 扩展，新增 `OpenCodeSdkAdapter` 实现 `CLIAdapter`。它通过 `@opencode-ai/sdk` 拉起本机 `opencode serve`，使用 session/event/permission API 映射输入、SSE 输出、审批与中断；SDK 在 adapter 启动时懒加载，测试可注入 fake `createOpencodeFn`。运行环境必须安装 `opencode` CLI；`/health` 对 `cli.opencode` 做非关键检查。数据库 enum 通过 `0003_cli_opencode` 迁移加入 `opencode`。 | 2026-07-09 |
+| D55 | **SDK adapter 上下文注入必须与用户输入分离**：opencode 真机日志确认 `session.prompt` 支持 `noReply`，因此 `CLIAdapter` 增加可选 `sendContext()`，orchestrator 对支持该能力的 SDK adapter 先用 hidden/no-reply 注入最近上下文与相关记忆，再只把用户原文交给 `sendUserInput()`；不支持该能力的 adapter 保留旧的拼接输入兼容路径。opencode SSE 事件按真实 `permission.asked` / `message.part.updated` 处理，reasoning part 不进入用户可见输出；user/noReply context part 统一按 D57 的 message role 边界丢弃。 | 2026-07-10 |
+| D56 | **没有 open 会话时从最近 closed 会话恢复 CLI target，但不恢复 cwd**：普通消息或 `/new` 准备创建新 conversation 前，若用户没有 `idle/starting/running` 等可复用会话，则读取该用户最近一条 conversation 的 `cli` 作为默认目标；`cwd` 仍以当前入站 target、`/cwd` 或 `/new <path>` 为准，避免旧目录覆盖用户刚切换的目录。显式 `/new claude`、`/new opencode` 优先级最高，会覆盖最近 closed 会话中的 CLI。 | 2026-07-10 |
+| D57 | **OpenCode SSE 输出以 message role 为安全边界，raw debug 采用可行动白名单**：`message.part.updated` 同时广播 user/assistant part，Adapter 必须先用 `message.updated.info.id/role` 建立归属，只把 assistant text/tool part 转成输出；不得再用文本内容猜 hidden context。`DEBUG_AGENT_SDK_JSON` 对 OpenCode 只记录 retry/session error、permission、tool、update/dispose 等可行动事件，丢弃 plugin/catalog/server connected/heartbeat/delta/message/busy/idle 噪声；`session.status=retry` 保持 runtime `busy`，idle/error 只收尾一次。启用 HTTP(S) 代理时按官方要求配置 `NO_PROXY=localhost,127.0.0.1`。 | 2026-07-10 |
+| D58 | **Bun/Windows 启动 SDK 子进程前规范代理变量大小写**：真机确认 Bun 1.3.14 在 Windows 上可通过 `process.env.HTTP_PROXY` 读取继承的小写 `http_proxy`，但 `Object.keys(process.env)` / `{ ...process.env }` 不包含这些键；OpenCode SDK 使用展开结果启动 `opencode serve`，导致子进程丢失 HTTP(S) proxy，而 PowerShell 直接启动 TUI 会完整继承，所以只有 SDK provider 连接失败。`config.normalizeProxyEnvironment()` 在 `main()` 加载配置前读取并删除大小写变体、写回可枚举的标准大写 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`/`ALL_PROXY`；不修改代理值，不允许其它模块读取 env。 | 2026-07-10 |
 
 ---
 
@@ -110,18 +115,18 @@
 
 **V2 — 优化维护与扩展，三轮推进**
 
-状态：**V1.5 已完成；V2-R1 首批完成；V2-R2 进行中**。
+状态：**V1.5 已完成；V2-R1 首批完成；V2-R2 进行中；V2-R3 CLI 扩展首项完成，并修复 opencode 真机反馈与 CLI target 持久化语义**。
 
 ### 三轮顺序
 
 1. V2-R1：优化和 bug 修复。先处理现有体验问题、稳定性问题、可观测性缺口和小型代码/文档债务。
 2. V2-R2：运维自更新 / 自检测 / 自动拉起。再实现受控 `/update`、健康检查、异常退出自动恢复和部署自检。
-3. V2-R3：Transport 和 CLI 扩展。最后新增 Transport 与 CLI Adapter，继续遵守依赖矩阵与 Core 零侵入原则。
+3. V2-R3：Transport 和 CLI 扩展。opencode CLI Adapter 已先行完成；后续新增 Transport/CLI 仍继续遵守依赖矩阵与 Core 零侵入原则。
 
 ### 下一步候选
 
 - V2-R2：在 `/health` 与 `/update` 基础上补部署自检，并做 PM2/systemd 自动拉起与恢复验证。
-- V2-R3 预留：新增 Transport 与 CLI Adapter，扩展时不改 Core 分层。
+- V2-R3：真机复测 `/new opencode <cwd>`、普通回复、文件写入 permission 审批、approve/reject 与 `/status` 展示；后续再评估其它 Transport/CLI Adapter。
 
 ---
 
@@ -131,6 +136,10 @@
 
 | 日期 | 内容 |
 |---|---|
+| 2026-07-10 | **opencode SDK provider 连接根因修复完成**：用户重启后再次复现 retry，推翻“仅缺 NO_PROXY/旧 serve 卡死”的初步判断。受控对比确认普通 `opencode run` 与相同 `OPENCODE_CONFIG_CONTENT`/`ai_cli_hub` 均能返回 `OK`；进一步确认 Bun/Windows 可读取继承的小写 proxy 变量，却不会将其枚举进 `{ ...process.env }`，而 `@opencode-ai/sdk` 正用该展开值启动 `opencode serve`，最终子进程只拿到 `ALL_PROXY`、丢失 OpenCode 使用的 HTTP(S) proxy。新增 `config.normalizeProxyEnvironment()` 并在 `main()` 最先调用，补 2 个回归测试；修复后真实 `createOpencode`→`session.create`→`session.prompt(deepseek-v4-flash)` SDK smoke 返回 `OK`。同步架构/接口契约。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`git diff --check` 通过；目标测试 24 pass / 0 fail / 119 expect；全量 `bun test` 非沙箱通过，274 pass / 0 fail / 767 expect。 |
+| 2026-07-10 | **opencode SSE 角色混流与 raw 日志噪声修复完成**：依据 Telegram 真机日志、OpenCode 1.17.17 SDK 类型与官方 SDK/网络文档，确认 `message.part.updated` 会包含 user part；Adapter 新增 `message.updated.info.role`→`part.messageID` 归属过滤，只转发 assistant text/tool，彻底修复首轮 `hello` 实为用户输入回显、下一条输入继续编辑成 `hello看一下...` 的问题。raw debug 改为可行动事件白名单，移除 `plugin.added`、catalog/reference/integration、server connected/heartbeat、delta/message、busy/idle 等噪声；retry 保持 busy，session idle/error 幂等收尾。OpenCode 日志确认原报错来自 `deepseek/deepseek-v4-flash` provider transport 的 `AI_APICallError`，终端/SDK-inline provider URL 与 key 配置一致，当前 7897 代理可达；同步 `.env.example` 与本机 `.env` 的 `NO_PROXY=localhost,127.0.0.1`。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试 63 pass / 0 fail / 211 expect；全量 `bun test` 非沙箱通过，272 pass / 0 fail / 765 expect。 |
+| 2026-07-10 | **CLI target 持久化修复完成**：新增 `ConversationRepository.findLatestByUser()`；`SessionManager.findOrCreate()` 与 `/new` 创建新会话前，在没有 open 会话时读取最近一条 conversation 恢复 CLI target；仅恢复 CLI，不恢复 cwd，保证 `/cwd <path>` 与 `/new <path>` 不被旧会话目录覆盖；显式 `/new claude`、`/new opencode` 会覆盖恢复值。同步接口契约、架构与命令 UX。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 通过；目标测试 `bun test src\core\session-manager.test.ts test\repository.integration.test.ts` 通过，37 pass / 0 fail / 136 expect；全量 `bun test` 非沙箱 `login:false` 通过，270 pass / 0 fail / 754 expect。 |
+| 2026-07-10 | **opencode 真机反馈修复完成**：根据用户 Telegram 日志与 opencode SDK 文档核对，修复三类问题：① 最近上下文/语义记忆不再拼入用户可见输入，支持 `sendContext()` 的 SDK adapter 改用 `session.prompt({ noReply: true })` 隐藏注入，并压制 `noReply` text part 回显；② opencode 事件处理改为真实 SSE 形状，支持 `permission.asked` 冒泡审批，忽略 `server.heartbeat` 与 token 级 `message.part.delta`，reasoning 不进入用户可见输出；③ `/status` 当前会话存在时 Target CLI/CWD 使用当前会话边界，避免显示 `CLI: opencode` 但 `Target CLI: claude`。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；目标测试 35 pass；全量 `bun test` 非沙箱 `login:false` 通过，266 pass / 0 fail / 742 expect。 |
 | 2026-07-03 | 撰写 01-PRD、02-Architecture；确定长期记忆方案；产出护栏文档集；建立本进度文件 |
 | 2026-07-03 | **M0 完成**：搭建 src 骨架（12 模块）、logger(Pino)、shared 基础类型、depcruise 依赖矩阵、ESLint 禁 env 越界；typecheck/lint/start 三项通过 |
 | 2026-07-03 | 补 CLAUDE.md 硬规矩：对齐 PROGRESS.md；禁自动 git commit/push |
@@ -208,6 +217,7 @@
 | 2026-07-09 | **V2-R2 `/restart` Windows 禁用补齐**：`ops/restart` 新增平台 guard，Windows 上 `/restart` 预览与确认都会返回“重启不可用”，不写入 `UPDATE_RESTART_NOTICE_FILE`，不执行 `UPDATE_RESTART_COMMAND`，不安排重启；与 `/update` 的 Linux/VPS 部署边界保持一致。同步 `.env.example`、命令 UX、接口契约、架构摘要与实施计划。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS node_modules EPERM 失败 2 项，非沙箱非登录全量 `bun test` 通过，250 pass / 0 fail。 |
 | 2026-07-09 | **`.env.example` 到 `.env` 迁移脚本接入**：JSON setting 迁移按用户要求暂缓到 R3 扩展后；先新增 `scripts/env-migrate.ts` 与 `bun run env:migrate`，按 `.env.example` 刷新 `.env` 的注释、顺序和缺失默认值，已存在的 active key-value 保持不被覆盖，未出现在模板里的本地 key 保留到末尾，注释掉的可选模板项不会被自动激活；另加 `bun run setting:migrate` 兼容别名，目前仅委托到 env 迁移。同步命令 UX 与规划记录。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS 动态依赖权限失败 2 项，非沙箱非登录全量 `bun test` 通过，255 pass / 0 fail。 |
 | 2026-07-09 | **env 迁移多行值修复**：修复 `.env` 中 `AGENT_DESCRIPTION="...\n..."` 这类引号包裹的多行配置在迁移时只保留第一行、丢失后续行与结束引号的问题；env 迁移 parser 改为按 dotenv entry 解析，未闭合的单/双引号值会持续读取到匹配结束引号并作为一个完整 value 保留。新增回归测试覆盖用户给出的多行 `AGENT_DESCRIPTION` 场景。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun test scripts\env-migrate.test.ts` 通过，env 迁移目标测试 7 pass / 0 fail。 |
+| 2026-07-09 | **V2-R3 opencode SDK Adapter 首版完成**：新增 `@opencode-ai/sdk` 依赖与 `OpenCodeSdkAdapter`，通过懒加载 SDK 拉起 `opencode serve`，创建 opencode session，订阅 `message.part.updated`/`session.idle`/`permission.updated` 事件并映射到现有 `CLIAdapter` 输出、final、审批和中断语义；`promptAsync` 显式使用 `agent: 'ai_cli_hub'` 并携带 system hint，确保语言/记忆注入生效；orchestrator adapter factory 改为按会话 `CliType` 选择 adapter，`main.ts` 注册 claude/opencode；`/new opencode <cwd>` 已放开，`codex/gemini` 仍拒绝；Drizzle enum 与迁移 `0003_cli_opencode` 加入 `opencode`；`/health` 增加非关键 `cli.opencode` 检查，环境画像显示已接入 `claude, opencode`；同步 PRD/架构/接口契约/数据模型/实施计划/命令 UX/PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；目标测试 33 pass / 0 fail；沙箱全量 `bun test` 仍因既有 DOCX/XLS 动态依赖失败 2 项，非沙箱 `login:false` 全量 `bun test` 通过，262 pass / 0 fail / 722 expect；非沙箱动态 import `@opencode-ai/sdk` 成功。 |
 
 ---
 

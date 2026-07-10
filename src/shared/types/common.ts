@@ -4,7 +4,7 @@
  */
 
 export type Platform = 'telegram' | 'qq' | 'websocket'
-export type CliType = 'claude' | 'codex' | 'gemini'
+export type CliType = 'claude' | 'opencode' | 'codex' | 'gemini'
 export type UserLanguage = 'zh' | 'en'
 
 /** 会话状态（对应 docs/02-Architecture.md §5.2 状态机）。 */

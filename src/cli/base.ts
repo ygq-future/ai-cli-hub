@@ -20,6 +20,9 @@ export interface CLIAdapter {
   /** 一轮用户输入（字符串在两家族天然成立，非 PTY 泄漏） */
   sendUserInput(text: string): void
 
+  /** 可选：SDK 家族用于注入隐藏上下文，不应触发模型回复或进入用户可见消息。 */
+  sendContext?(text: string): Promise<void> | void
+
   /** 用户可见输出（语义，非裸字节；Claude SDK 家族只发 result.result） */
   onOutput(handler: (delta: OutputDelta) => void): Unsubscribe
   onApprovalRequest(handler: (req: ApprovalRequest) => void): Unsubscribe

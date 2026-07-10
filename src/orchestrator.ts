@@ -13,7 +13,7 @@
  *  - 助手消息落库：累计本轮输出文本，delta.final 时落一条 assistant 消息。
  *  - adapter.onExit → 冲刷聚合器 + 清理该会话。
  */
-import type { ConversationId, Unsubscribe, UserLanguage } from './shared'
+import type { CliType, ConversationId, Unsubscribe, UserLanguage } from './shared'
 import type { EventBus } from './event'
 import type { Repositories } from './repository'
 import type { MessageAggregator, MessageHandler } from './core'
@@ -31,7 +31,7 @@ export interface SessionOrchestratorDeps {
   repos: Repositories
   aggregator: MessageAggregator
   /** adapter 工厂（默认 Claude SDK 家族）；测试可注入假 adapter。 */
-  adapterFactory?: () => CLIAdapter
+  adapterFactory?: (cli: CliType) => CLIAdapter
   getUserLanguage?: (userId: string) => UserLanguage
   getSystemMemoryHint?: () => Promise<string> | string
   getRelevantMemoryHint?: (query: string) => Promise<string> | string
@@ -81,7 +81,7 @@ const LOW_SIGNAL_MEMORY_QUERIES = new Set([
 
 export function createSessionOrchestrator(deps: SessionOrchestratorDeps): SessionOrchestrator {
   const { bus, repos, aggregator } = deps
-  const adapterFactory = deps.adapterFactory ?? createClaudeSdkAdapter
+  const adapterFactory = deps.adapterFactory ?? (() => createClaudeSdkAdapter())
   const getUserLanguage = deps.getUserLanguage ?? (() => 'zh' as const)
   const getSystemMemoryHint = deps.getSystemMemoryHint ?? (() => '')
   const getRelevantMemoryHint = deps.getRelevantMemoryHint ?? (() => '')
@@ -200,7 +200,11 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       return null
     }
 
-    const adapter = adapterFactory()
+    const adapter = adapterFactory(conv.cli as CliType)
+    if (adapter.cliType !== conv.cli) {
+      reportError('orchestrator:ensureAdapter', new Error(`adapter ${adapter.cliType} 不匹配会话 CLI ${conv.cli}`), cid)
+      return null
+    }
     const entry: AdapterEntry = {
       adapter,
       unsubs: [],
@@ -352,20 +356,27 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   }
 
   async function withRecentConversationContext(conversationId: ConversationId, currentText: string): Promise<string> {
+    const context = await resolveRecentConversationContext(conversationId, currentText)
+    if (!context) return currentText
+    return [context, '---', '[本次用户输入]', currentText].join('\n')
+  }
+
+  async function resolveRecentConversationContext(
+    conversationId: ConversationId,
+    currentText: string,
+  ): Promise<string> {
     try {
       const messages = await repos.messages.listByConversation(conversationId)
       const previousMessages = dropCurrentUserMessage(messages, currentText)
         .sort((a, b) => a.createdAt - b.createdAt)
         .slice(-recentContextLimit)
-      if (previousMessages.length === 0) return currentText
+      if (previousMessages.length === 0) return ''
 
       const contextLines = previousMessages.map(m => {
         const role = m.role === 'assistant' ? '助手' : m.role === 'system' ? '系统' : '用户'
         return `- ${role}：${truncateForRecentContext(m.content, recentContextMessageMaxChars)}`
       })
-      const input = ['[最近对话上下文 · 供延续当前会话]', ...contextLines, '---', '[本次用户输入]', currentText].join(
-        '\n',
-      )
+      const context = ['[最近对话上下文 · 供延续当前会话]', ...contextLines].join('\n')
       diag('recentContextResolved', {
         conversationId,
         included: true,
@@ -378,13 +389,15 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
           contentChars: m.content.length,
           createdAt: m.createdAt,
         })),
-        input,
-        inputChars: input.length,
+        input: [context, '---', '[本次用户输入]', currentText].join('\n'),
+        inputChars: [context, '---', '[本次用户输入]', currentText].join('\n').length,
+        context,
+        contextChars: context.length,
       })
-      return input
+      return context
     } catch (err) {
       reportError('orchestrator:recentContext', err, conversationId)
-      return currentText
+      return ''
     }
   }
 
@@ -488,6 +501,37 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       const result = await ensureAdapter(conversationId)
       if (!result) throw new Error(`会话 ${conversationId} 的 CLI adapter 启动失败`)
       resetIdleTimer(conversationId, result.entry)
+      const adapter = result.entry.adapter
+      if (supportsContextInjection(adapter)) {
+        const recentContext = result.started ? await resolveRecentConversationContext(conversationId, text) : ''
+        const relevantMemoryHint = await resolveRelevantMemoryHint(conversationId, text)
+        const hiddenContext = [recentContext, relevantMemoryHint].filter(part => part.trim()).join('\n\n')
+        if (hiddenContext) {
+          try {
+            await adapter.sendContext(hiddenContext)
+          } catch (err) {
+            reportError('orchestrator:sendContext', err, conversationId)
+          }
+        }
+        diag('sendUserInput', {
+          conversationId,
+          userId: result.entry.userId,
+          started: result.started,
+          originalText: text,
+          input: text,
+          hiddenContext,
+          hiddenContextChars: hiddenContext.length,
+          originalTextChars: text.length,
+          inputChars: text.length,
+          recentContextIncluded: Boolean(recentContext.trim()),
+          relevantMemoryIncluded: Boolean(relevantMemoryHint.trim()),
+          adapterState: adapter.getState(),
+        })
+        scheduleTurnTimeout(conversationId, result.entry, text.length)
+        adapter.sendUserInput(text)
+        return ''
+      }
+
       const baseInput = result.started ? await withRecentConversationContext(conversationId, text) : text
       const input = await withRelevantMemoryContext(conversationId, text, baseInput)
       diag('sendUserInput', {
@@ -503,7 +547,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
         adapterState: result.entry.adapter.getState(),
       })
       scheduleTurnTimeout(conversationId, result.entry, input.length)
-      result.entry.adapter.sendUserInput(input)
+      adapter.sendUserInput(input)
       return '' // 输出经聚合器异步流出，不经 handler 返回值
     },
   }
@@ -517,6 +561,12 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       await Promise.all(cids.map(cid => stopEntry(cid)))
     },
   }
+}
+
+function supportsContextInjection(adapter: CLIAdapter): adapter is CLIAdapter & {
+  sendContext(text: string): Promise<void> | void
+} {
+  return typeof adapter.sendContext === 'function'
 }
 
 function roleDescriptionHint(description: string | undefined): string {

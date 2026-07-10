@@ -35,6 +35,8 @@ export interface SessionManager {
     cli: CliType
     cwd: string
     text: string
+    cliExplicit?: boolean
+    cwdExplicit?: boolean
   }): Promise<ConversationId>
 
   /** 关闭会话（/close 或归档触发）。 */
@@ -62,15 +64,23 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
 
   const sm: SessionManager = {
     async findOrCreate(opts) {
-      const { userId, platform, cli, cwd, text: _text } = opts
+      const { userId, platform, text: _text } = opts
 
-      const current = await resolveCurrentConversation({ userId, platform, cli, cwd })
+      const current = await resolveCurrentConversation({ userId, platform, cli: opts.cli, cwd: opts.cwd })
       if (current) {
         await closeOpenConversations(userId, current.id as ConversationId)
         return current.id as ConversationId
       }
 
       await closeOpenConversations(userId)
+      const { cli, cwd } = await resolvePersistentTarget({
+        userId,
+        platform,
+        cli: opts.cli,
+        cwd: opts.cwd,
+        preserveCli: true,
+        preserveCwd: false,
+      })
 
       // 新建
       const id = crypto.randomUUID() as ConversationId
@@ -104,10 +114,18 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
     },
 
     async forceNew(opts) {
-      const { userId, platform, cli, cwd, text: _text } = opts
+      const { userId, platform, text: _text } = opts
 
       // /new 语义：历史未关闭会话全部关闭，新会话 idle，下一条普通消息懒启动 CLI。
       await closeOpenConversations(userId)
+      const { cli, cwd } = await resolvePersistentTarget({
+        userId,
+        platform,
+        cli: opts.cli,
+        cwd: opts.cwd,
+        preserveCli: !opts.cliExplicit,
+        preserveCwd: false,
+      })
 
       // 再新建
       const id = crypto.randomUUID() as ConversationId
@@ -193,6 +211,27 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
       })
     }
     return latest
+  }
+
+  async function resolvePersistentTarget(opts: {
+    userId: string
+    platform: Platform
+    cli: CliType
+    cwd: string
+    preserveCli: boolean
+    preserveCwd: boolean
+  }): Promise<{ cli: CliType; cwd: string }> {
+    const latest = await repos.conversations.findLatestByUser(opts.userId)
+    const cli = opts.preserveCli && latest ? (latest.cli as CliType) : opts.cli
+    const cwd = opts.preserveCwd && latest ? latest.cwd : opts.cwd
+    if (cli !== opts.cli || cwd !== opts.cwd) {
+      bus.emit('UserTargetChanged', {
+        userId: opts.userId,
+        cli,
+        cwd,
+      })
+    }
+    return { cli, cwd }
   }
 
   async function closeOpenConversations(userId: string, exceptConversationId?: ConversationId) {

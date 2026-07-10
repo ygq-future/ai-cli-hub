@@ -12,13 +12,14 @@ const tick = () => new Promise(r => setTimeout(r, 0))
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 /** 假 adapter：记录调用，允许测试手动触发 output/approval/exit。 */
-function createFakeAdapter(opts?: { onStop?: () => Promise<void> }) {
+function createFakeAdapter(opts?: { onStop?: () => Promise<void>; contextInjection?: boolean }) {
   const outputHandlers: Array<(d: OutputDelta) => void> = []
   const approvalHandlers: Array<(r: ApprovalRequest) => void> = []
   const exitHandlers: Array<(i: ExitInfo) => void> = []
   const calls = {
     start: [] as SpawnOptions[],
     sendUserInput: [] as string[],
+    sendContext: [] as string[],
     resolveApproval: [] as Array<[string, ApprovalAction]>,
     callOrder: [] as string[],
     interrupt: 0,
@@ -57,6 +58,11 @@ function createFakeAdapter(opts?: { onStop?: () => Promise<void> }) {
       return () => {}
     },
     getState: () => 'ready',
+  }
+  if (opts?.contextInjection) {
+    adapter.sendContext = text => {
+      calls.sendContext.push(text)
+    }
   }
   return {
     adapter,
@@ -471,6 +477,48 @@ describe('SessionOrchestrator', () => {
     expect(fake.calls.sendUserInput[0]).toContain('[相关长期记忆 · 语义召回]')
     expect(fake.calls.sendUserInput[0]).toContain('PM2 部署已跑通')
     expect(fake.calls.sendUserInput[0]).toContain('[本次用户输入]\nPM2 怎么重启？')
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('支持隐藏上下文的 adapter 不把最近上下文和相关记忆拼进用户可见输入', async () => {
+    const fake = createFakeAdapter({ contextInjection: true })
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos, messages } = createFakeRepos()
+    messages.push(
+      {
+        id: 'old',
+        conversationId: CID,
+        role: 'user',
+        content: 'old question',
+        createdAt: 1,
+      },
+      {
+        id: 'current',
+        conversationId: CID,
+        role: 'user',
+        content: 'PM2 怎么重启？',
+        createdAt: 2,
+      },
+    )
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => fake.adapter,
+      getRelevantMemoryHint: () => '[相关长期记忆 · 语义召回]\n- 情节：PM2 部署已跑通\n---',
+    })
+
+    await orch.handler.onMessage('PM2 怎么重启？', CID)
+
+    expect(fake.calls.sendUserInput).toEqual(['PM2 怎么重启？'])
+    expect(fake.calls.sendContext).toHaveLength(1)
+    expect(fake.calls.sendContext[0]).toContain('[最近对话上下文 · 供延续当前会话]')
+    expect(fake.calls.sendContext[0]).toContain('old question')
+    expect(fake.calls.sendContext[0]).toContain('[相关长期记忆 · 语义召回]')
+    expect(fake.calls.sendContext[0]).not.toContain('[本次用户输入]')
 
     await orch.destroy()
     agg.destroy()

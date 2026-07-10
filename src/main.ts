@@ -13,13 +13,13 @@ import { access } from 'node:fs/promises'
 import path from 'node:path'
 import { sql } from 'drizzle-orm'
 import { createEventBus } from './event'
-import { loadConfig } from './config'
+import { loadConfig, normalizeProxyEnvironment } from './config'
 import { createLogger, attachEventLogger } from './logger'
 import { closeDb, createDb } from './storage'
 import { createRepositories } from './repository'
 import { createCoreHub } from './core'
 import { createMessageAggregator } from './core'
-import { createClaudeSdkAdapter } from './cli'
+import { createClaudeSdkAdapter, createOpenCodeSdkAdapter } from './cli'
 import { createApprovalAudit } from './audit'
 import { createMemoryModule } from './memory'
 import { createLightOcrProvider, createMediaPreprocessor } from './media'
@@ -37,6 +37,7 @@ import type { Transport } from './shared'
 
 async function main() {
   // —— 1. Config ——
+  normalizeProxyEnvironment()
   const config = loadConfig()
 
   // —— 2. Logger + EventBus ——
@@ -125,11 +126,18 @@ async function main() {
     bus,
     repos,
     aggregator,
-    adapterFactory: () =>
-      createClaudeSdkAdapter({
+    adapterFactory: cli => {
+      if (cli === 'opencode') {
+        return createOpenCodeSdkAdapter({
+          debugRawJson: config.DEBUG_AGENT_SDK_JSON,
+          rawMessageLogger: rawJson => logger.info({ cli: 'opencode', rawJson }, 'Agent SDK raw message'),
+        })
+      }
+      return createClaudeSdkAdapter({
         debugRawJson: config.DEBUG_AGENT_SDK_JSON,
         rawMessageLogger: rawJson => logger.info({ cli: 'claude', rawJson }, 'Agent SDK raw message'),
-      }),
+      })
+    },
     getUserLanguage: telegram.getUserLanguage,
     getSystemMemoryHint: memory.recallGlobalContext,
     getRelevantMemoryHint: memory.recallRelevantContext,

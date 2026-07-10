@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { loadConfig } from './schema'
+import { loadConfig, normalizeProxyEnvironment } from './schema'
 
 const VALID = {
   TELEGRAM_BOT_TOKEN: 'tok',
@@ -177,5 +177,38 @@ describe('loadConfig', () => {
 
   test('非法调试布尔 env 时抛错', () => {
     expect(() => loadConfig({ ...VALID, DEBUG_AGENT_SDK_JSON: 'maybe' })).toThrow(/Invalid config/)
+  })
+})
+
+describe('normalizeProxyEnvironment', () => {
+  test('把小写代理变量规范为可枚举的大写键，供子进程继承', () => {
+    const source: Record<string, string | undefined> = {
+      http_proxy: 'http://127.0.0.1:7897',
+      https_proxy: 'http://127.0.0.1:7897',
+      no_proxy: 'localhost,127.0.0.1',
+      all_proxy: 'http://127.0.0.1:7897',
+      KEEP_ME: 'yes',
+    }
+
+    normalizeProxyEnvironment(source)
+
+    expect(source).toEqual({
+      HTTP_PROXY: 'http://127.0.0.1:7897',
+      HTTPS_PROXY: 'http://127.0.0.1:7897',
+      NO_PROXY: 'localhost,127.0.0.1',
+      ALL_PROXY: 'http://127.0.0.1:7897',
+      KEEP_ME: 'yes',
+    })
+  })
+
+  test('同时存在大小写变量时保留标准大写值', () => {
+    const source: Record<string, string | undefined> = {
+      HTTP_PROXY: 'http://canonical:7897',
+      http_proxy: 'http://lowercase:7897',
+    }
+
+    normalizeProxyEnvironment(source)
+
+    expect(source).toEqual({ HTTP_PROXY: 'http://canonical:7897' })
   })
 })

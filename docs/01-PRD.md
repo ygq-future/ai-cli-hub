@@ -46,7 +46,7 @@
 * **应用示例**：Logger 监听全部事件；Storage 监听 `Message*` 事件进行落盘，均无需修改 Core。
 
 ### 3.4 CLI Adapter & Runtime (命令行适配与运行层)
-* **CLI Adapter（语义接缝）**：所有 CLI 工具实现统一的语义化 `CLIAdapter` 接口（`start` / `stop` / `interrupt` / `sendUserInput` / `onOutput` / `onApprovalRequest` / `resolveApproval` / `onExit` / `getState`）。它说领域语义（一轮输入 / 流式输出 / 审批请求+决定 / 生命周期），与「字节还是结构化」无关。V1 提供 **`ClaudeSdkAdapter`（走 `@anthropic-ai/claude-agent-sdk`）**。
+* **CLI Adapter（语义接缝）**：所有 CLI 工具实现统一的语义化 `CLIAdapter` 接口（`start` / `stop` / `interrupt` / `sendUserInput` / `onOutput` / `onApprovalRequest` / `resolveApproval` / `onExit` / `getState`）。它说领域语义（一轮输入 / 流式输出 / 审批请求+决定 / 生命周期），与「字节还是结构化」无关。当前提供 **`ClaudeSdkAdapter`（走 `@anthropic-ai/claude-agent-sdk`）** 与 **`OpenCodeSdkAdapter`（走 `@opencode-ai/sdk`，需本机 `opencode` CLI）**。
 * **两个家族**：**SDK 家族（首选）** 内部持 `query()` 句柄，输出/审批结构化（`SDKMessage` + `canUseTool`），无需 scraping；**PTY 家族（无 SDK 的 CLI 备用）** 内部持 `PtyRuntime`（node-pty 字节容器）+ `ApprovalDetector`（正则 scraping）。接缝在 Adapter、不在 Runtime——两形态的差异封在 Adapter 内部（详见 [02 §3.4](./02-Architecture.md) 与决策 D11）。
 * **Approval**：SDK 家族经 `canUseTool` 结构化直达（拿到工具名+参数）；PTY 家族由 per-CLI `ApprovalDetector` 从字节流 scraping。两者最终统一发 `ApprovalRequested`。
 
@@ -140,7 +140,7 @@ src/
 ✅ Event Bus 模块间通信机制
 ✅ Config Module 统一配置中心
 ✅ Telegram Bot Transport 接入
-✅ Claude Adapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）
+✅ Claude Adapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）与 opencode Adapter（`@opencode-ai/sdk`，SDK 家族）
 ✅ 基于状态机的 Session 生命周期管理
 ✅ Message Aggregator 流式聚合渲染
 ✅ Approval Flow (Markdown卡片与回调拦截)

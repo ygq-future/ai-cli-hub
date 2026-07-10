@@ -38,6 +38,7 @@ export function createHealthReporter(deps: HealthReporterDeps): HealthReporter {
         deps.checkDirectory(deps.config.DEFAULT_CWD).then(check => ({ ...check, name: 'default_cwd', critical: true })),
         deps.checkDirectory(deps.config.MEDIA_DOWNLOAD_DIR).then(check => ({ ...check, name: 'media_dir' })),
         deps.checkCommand('claude').then(check => ({ ...check, name: 'cli.claude', critical: true })),
+        deps.checkCommand('opencode').then(check => ({ ...check, name: 'cli.opencode' })),
       ])
 
       return formatHealthReport({

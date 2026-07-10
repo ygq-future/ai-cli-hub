@@ -10,4 +10,5 @@ export type {
   AdapterState,
 } from './base'
 export { createClaudeSdkAdapter } from './claude/claude-sdk-adapter'
+export { createOpenCodeSdkAdapter } from './opencode/opencode-sdk-adapter'
 export { formatOutputDelta } from './format-output'

@@ -30,6 +30,7 @@ describe('health reporter', () => {
     expect(report).toContain('OK default_cwd: /app ok')
     expect(report).toContain('OK media_dir: /app/.data/media ok')
     expect(report).toContain('OK cli.claude: claude ok')
+    expect(report).toContain('OK cli.opencode: opencode ok')
   })
 
   test('critical down check makes overall status down', () => {

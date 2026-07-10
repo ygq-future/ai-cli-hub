@@ -58,6 +58,13 @@ function createMockRepos() {
             .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)[0] ?? null
         )
       },
+      async findLatestByUser(userId: string) {
+        return (
+          Object.values(conversations)
+            .filter(c => c.userId === userId)
+            .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)[0] ?? null
+        )
+      },
       async findById(id: string) {
         return conversations[id] ?? null
       },
@@ -69,7 +76,7 @@ function createMockRepos() {
       async listRecentByUser(userId: string, limit: number) {
         return Object.values(conversations)
           .filter(c => c.userId === userId)
-          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)
           .slice(0, limit)
       },
       async updateStatus(id: string, status: string) {
@@ -365,6 +372,38 @@ describe('SessionManager', () => {
 
     expect(afterClose).not.toBe(oldIdle)
     expect(afterClose).not.toBe(latest)
+  })
+
+  test('findOrCreate 无 open 会话时用最近 closed 会话恢复 cli，但保留当前 cwd target', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const targetChanges: unknown[] = []
+    bus.on('UserTargetChanged', p => targetChanges.push(p))
+
+    const opencode = await sm.forceNew({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'opencode',
+      cwd: '/opencode-project',
+      text: '/new opencode',
+      cliExplicit: true,
+      cwdExplicit: true,
+    })
+    await sm.close(opencode, 'user')
+
+    const restored = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/default',
+      text: 'hello after restart',
+    })
+
+    const conv = await repos.conversations.findById(restored)
+    expect(conv?.cli).toBe('opencode')
+    expect(conv?.cwd).toBe('/default')
+    expect(targetChanges.at(-1)).toEqual({ userId: 'u1', cli: 'opencode', cwd: '/default' })
   })
 
   test('close 将会话从 running 转 closed', async () => {
@@ -731,6 +770,140 @@ describe('CommandRouter', () => {
     expect((replies[0] as { content: string }).content).toContain('暂不支持 CLI：codex')
   })
 
+  test('/new 支持 opencode CLI', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+    })
+
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: '/new opencode /tmp',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    expect(replies.length).toBe(1)
+    expect((replies[0] as { content: string }).content).toContain('CLI: opencode')
+    expect((await repos.conversations.listRecentByUser('u1', 1))[0]?.cli).toBe('opencode')
+  })
+
+  test('/new 无参数时用最近 closed 会话恢复 cli，但保留当前 cwd target', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+    })
+    const old = await sm.forceNew({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'opencode',
+      cwd: '/opencode-project',
+      text: '/new opencode',
+      cliExplicit: true,
+      cwdExplicit: true,
+    })
+    await sm.close(old, 'user')
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/default',
+      text: '/new',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    const created = (await repos.conversations.listRecentByUser('u1', 10)).find(c => c.status === 'idle')
+    expect(created?.cli).toBe('opencode')
+    expect(created?.cwd).toBe('/default')
+    expect((replies[0] as { content: string }).content).toContain('CLI: opencode')
+    expect((replies[0] as { content: string }).content).toContain('CWD: /default')
+  })
+
+  test('/new 只指定 cwd 时沿用最近 closed 会话 cli，但使用新 cwd', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      resolveCwd: cwd => ({ ok: true, cwd }),
+    })
+    const old = await sm.forceNew({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'opencode',
+      cwd: '/opencode-project',
+      text: '/new opencode',
+      cliExplicit: true,
+      cwdExplicit: true,
+    })
+    await sm.close(old, 'user')
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/default',
+      text: '/new /next-project',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    const created = (await repos.conversations.listRecentByUser('u1', 10)).find(c => c.status === 'idle')
+    expect(created?.cli).toBe('opencode')
+    expect(created?.cwd).toBe('/next-project')
+  })
+
+  test('/new 显式指定 cli 时覆盖最近 closed 会话 cli', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+    })
+    const old = await sm.forceNew({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'opencode',
+      cwd: '/opencode-project',
+      text: '/new opencode',
+      cliExplicit: true,
+      cwdExplicit: true,
+    })
+    await sm.close(old, 'user')
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'opencode',
+      cwd: '/opencode-project',
+      text: '/new claude',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    const created = (await repos.conversations.listRecentByUser('u1', 10)).find(c => c.status === 'idle')
+    expect(created?.cli).toBe('claude')
+    expect(created?.cwd).toBe('/opencode-project')
+  })
+
   test('/status 展示完整 conversationId', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()
@@ -760,6 +933,41 @@ describe('CommandRouter', () => {
     })
 
     expect((replies[0] as { content: string }).content).toContain(`ID: ${cid}`)
+  })
+
+  test('/status 当前会话存在时 Target 使用当前会话边界', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+    })
+    await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'opencode',
+      cwd: '/project',
+      text: 'hi',
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old-target',
+      text: '/status',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    const content = (replies[0] as { content: string }).content
+    expect(content).toContain('CLI: opencode')
+    expect(content).toContain('Target CLI: opencode')
+    expect(content).toContain('Target CWD: /project')
+    expect(content).not.toContain('Target CLI: claude')
   })
 
   test('/audit 展示当前会话审批记录', async () => {

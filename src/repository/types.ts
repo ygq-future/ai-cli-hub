@@ -26,6 +26,8 @@ export interface ConversationRepository {
   findActive(userId: string, cli: CliType, cwd: string): Promise<Conversation | null>
   /** 用户最新可复用会话：用于进程重启后恢复内存目标并复用 idle；不复用 closing/closed。 */
   findLatestOpenByUser(userId: string): Promise<Conversation | null>
+  /** 用户最近任意会话：用于没有 open 会话时恢复持久 target cli。 */
+  findLatestByUser(userId: string): Promise<Conversation | null>
   findById(id: ConversationId): Promise<Conversation | null>
   /** 用户所有未 closed 会话：新建会话前兜底关闭历史残留。 */
   listOpenByUser(userId: string): Promise<Conversation[]>

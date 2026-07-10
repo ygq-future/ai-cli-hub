@@ -47,7 +47,7 @@ flowchart TD
 | `/restart` | `[confirm]` | 受控重启 | Windows 上直接拒绝；非 Windows 无参数只展示计划；`/restart confirm` 不更新代码，只写入重启通知 marker 并延迟交给守护器重启；用于验证重启与主动通知链路 |
 | `/forget` | `<memoryId>` | 删除实例级全局长期记忆 | 支持唯一短前缀；前缀不唯一时拒绝删除；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 
-> 参数缺省：`/new` 不带参数则使用当前目标 `cli`、当前目标 `cwd`（若无则用 `DEFAULT_CWD`）。V1 当前只接入 `claude`，`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
+> 参数缺省：`/new` 不带参数则使用当前目标 `cli`、当前目标 `cwd`（若无则用 `DEFAULT_CWD`）。如果进程重启或 `/close` 后没有 open 会话导致当前目标 CLI 丢失，会从该用户最近一条 closed 会话恢复 CLI；显式 `/new claude` 或 `/new opencode` 始终覆盖该恢复值。当前已接入 `claude` 与 `opencode`；`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
 > 普通文本里的“记住/记一下/记录/remember this”等自然语言记忆请求不是 `/remember`：它不会写入 global 记忆，也不会进入 Claude SDK；系统会按 `MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 读取当前 conversation 最近的 user/assistant 消息调用 LLM 摘要，摘要语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述，写入 conversation-derived episodic 记忆并用于后续 embedding 召回。
 
 ---

@@ -44,7 +44,7 @@ flowchart TB
     end
 
     subgraph Exec["执行层 CLI Adapter（语义接缝）"]
-        CA[ClaudeSdkAdapter<br/>SDK 家族·首选]
+        CA[Claude/OpenCode SDK Adapter<br/>SDK 家族·首选]
         RT[PtyRuntime + ApprovalDetector<br/>PTY 家族·无 SDK 时备用]
     end
 
@@ -192,7 +192,10 @@ interface CLIAdapter {
 
 Adapter 分**两个家族**，同实现 `CLIAdapter`、对 Core 完全同形：
 
-- **SDK 家族（V1 首选，Claude 走这条）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄。输出来自结构化 `SDKMessage`；**审批来自 `canUseTool` 回调**——直接拿到工具名 + 完整参数，回 `allow`/`deny`。**无需 scraping、无 `Runtime`、无 `ApprovalDetector`**。那个"上下选、反色高亮"的 TUI 菜单只是渲染，程序接口里根本不存在。
+- **SDK 家族（首选，Claude/opencode 走这条）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄；`OpenCodeSdkAdapter` 通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并订阅事件。输出来自结构化消息/事件；**审批来自 SDK 结构化回调或 permission 事件**。**无需 scraping、无 `Runtime`、无 `ApprovalDetector`**。TUI 菜单只是渲染，程序接口里走 SDK。OpenCode 的 `message.part.updated` 同时包含 user/assistant part，Adapter 必须用 `message.updated.info.role` 与 `part.messageID` 关联，只转发 assistant part；raw debug 只保留 retry/session error、permission、tool 等可行动事件，不记录 plugin/catalog/heartbeat/delta/message 等启动或高频噪声。
+
+Windows 下 Composition Root 在加载配置前调用 `config.normalizeProxyEnvironment()`：Bun 可读取继承的小写 proxy 变量却不会把它们枚举进 `{ ...process.env }`，而 OpenCode SDK 正是通过该展开结果拉起 `opencode serve`，所以必须先规范为可枚举的大写键。
+
 - **PTY 家族（无 SDK 的 CLI 备用）**：`XxxPtyAdapter` 内部持 `PtyRuntime` + 一个 per-CLI `ApprovalDetector`。字节流剥 ANSI 得输出，正则 scraping 认出审批点，写 `y\r`/`n\r` 应答。scraping 随目标 TUI 版本漂移、脆，故仅在**没有 SDK** 时退而求其次。
 
 - **PtyRuntime** 是 PTY 家族的底层字节容器（`node-pty`），**仅 PTY 家族使用**；SDK 家族的 Adapter 既不实现也不使用它。
@@ -201,7 +204,7 @@ Adapter 分**两个家族**，同实现 `CLIAdapter`、对 Core 完全同形：
 ```mermaid
 flowchart LR
     Core -->|abstract| Adapter[CLIAdapter 语义接缝]
-    Adapter -.implements.-> SdkA[ClaudeSdkAdapter<br/>SDK 家族·首选]
+    Adapter -.implements.-> SdkA[Claude/OpenCode SDK Adapter<br/>SDK 家族·首选]
     Adapter -.implements.-> PtyA[XxxPtyAdapter<br/>PTY 家族·备用]
     SdkA --> SDK[claude-agent-sdk<br/>query + canUseTool]
     PtyA --> Runtime[PtyRuntime]
@@ -382,7 +385,7 @@ flowchart TD
 ```
 
 - **默认复用**：普通消息优先复用该用户最新可复用会话（`idle/starting/running`）；若 Transport 重启丢失内存目标，用该会话的 `cli/cwd` 恢复目标并继续复用 `idle`。
-- **`/new`**：强制开新会话；新建前兜底关闭该用户所有非 `closed` 历史会话，新会话初始 `idle`。
+- **`/new`**：强制开新会话；新建前兜底关闭该用户所有非 `closed` 历史会话，新会话初始 `idle`。若没有 open 会话且入站目标 CLI 只是默认值，则从该用户最近 closed 会话恢复 CLI；显式 `/new <cli>` 覆盖恢复值。
 - **`/cwd`**：无参数显示当前目标 cwd；带路径时关闭当前会话、更新目标 cwd，不创建 conversation，下一条普通消息再新建。
 - **`/close`**：显式结束，触发归档并生成 episodic 摘要（见 §7）。
 - **自动归档**：超过 `SESSION_ARCHIVE_DAYS` 无活动的 `idle` 会话自动转 `closed` 并生成摘要。
@@ -593,7 +596,7 @@ flowchart TB
 | `event/` | Event Bus | 类型安全 EventEmitter |
 | `config/` | 配置中心 | Zod |
 | `transport/` | 接入层 | Telegraf（TG）/ NapCat+Koishi（QQ） |
-| `cli/` | Adapter（语义接缝） | 自研（base + `ClaudeSdkAdapter` 走 `@anthropic-ai/claude-agent-sdk`） |
+| `cli/` | Adapter（语义接缝） | 自研（base + `ClaudeSdkAdapter` 走 `@anthropic-ai/claude-agent-sdk`；`OpenCodeSdkAdapter` 走 `@opencode-ai/sdk`） |
 | `runtime/` | PTY 家族字节容器（仅无 SDK 的 CLI 用） | node-pty |
 | `approval/` | PTY 家族审批 scraping（SDK 家族无需） | 正则匹配 |
 | `repository/` | 数据抽象 | Repository 接口 |
@@ -614,7 +617,7 @@ flowchart TD
     CFG --> BUS[创建 EventBus]
     BUS --> DB[初始化 Storage + Repositories]
     DB --> CORE[创建 Core Hub 注入 Bus/Repo]
-    CORE --> REG[注册 Adapters: ClaudeSdkAdapter]
+    CORE --> REG[注册 Adapters: ClaudeSdkAdapter / OpenCodeSdkAdapter]
     REG --> TP[启动 Transports: TelegramTransport]
     TP --> READY[系统就绪]
 ```
@@ -674,5 +677,5 @@ flowchart LR
 | 6 | 记忆归属实例级 namespace，不按 Transport user_id 隔离 | 个人 VPS 的 Telegram/QQ/WebSocket 操作者本质共享同一套环境事实与全局记忆；`user_id` 只服务会话隔离/鉴权/审批操作者 | 需用 `namespace` 支撑未来多人格/工作区；全局事实由 `conversation_id` 是否为空区分 |
 | 7 | 嵌入走 API 而非本地模型 | VPS 不跑模型，省内存运维 | 有网络延迟与调用成本 → 强制异步批量，V1 可先不用 |
 | 8 | 向量召回分阶段（V1.5 上 pgvector） | V1 先跑通命令式记忆与环境注入，不被召回调优拖慢 | V1 无语义模糊召回 |
-| 9 | 会话边界 = cwd 目标 + `/new` + `/cwd` + 归档 | 贴合 CLI 控制语义，会话按项目目录隔离；记忆在 namespace 内共享并通过 `conversation_id` 标注来源 | `conversations` 需加 `cwd` 字段；用户目标 cwd 当前为运行期状态，后续偏好模块持久化 |
+| 9 | 会话边界 = cwd 目标 + `/new` + `/cwd` + 归档 | 贴合 CLI 控制语义，会话按项目目录隔离；记忆在 namespace 内共享并通过 `conversation_id` 标注来源；无 open 会话时可从最近 closed 会话恢复用户最近 CLI | `conversations` 需加 `cwd` 字段；用户目标 cwd 当前为运行期状态，后续偏好模块持久化 |
 | 10 | **执行层接缝在语义化 `CLIAdapter`，非 `Runtime`；Claude 走 Agent SDK，PTY 家族仅作无 SDK 备用**（详见 D11） | 审批/输出结构化（`canUseTool`+`SDKMessage`）根治"解析 TUI 菜单"的脆性；接缝在 Adapter 才能同时容纳字节与结构化两形态；厂商中立靠"每 CLI 一个 Adapter"而非共享 SDK 基类 | SDK 依赖 +5.5MB（含原生二进制，依赖树干净、peerDeps zod^4 与本项目一致）；`Runtime`/`ApprovalDetector` 降级为 PTY 家族专属 |
