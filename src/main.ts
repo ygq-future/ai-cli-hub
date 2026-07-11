@@ -13,7 +13,7 @@ import { access } from 'node:fs/promises'
 import path from 'node:path'
 import { sql } from 'drizzle-orm'
 import { createEventBus } from './event'
-import { loadConfig, normalizeProxyEnvironment } from './config'
+import { loadConfig } from './config'
 import { createLogger, attachEventLogger } from './logger'
 import { closeDb, createDb } from './storage'
 import { createRepositories } from './repository'
@@ -37,7 +37,6 @@ import type { Transport, UserLanguage } from './shared'
 
 async function main() {
   // —— 1. Config ——
-  normalizeProxyEnvironment()
   const config = loadConfig()
 
   // —— 2. Logger + EventBus ——

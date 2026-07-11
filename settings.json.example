@@ -1,0 +1,83 @@
+{
+  "$description": "配置模板，复制为 settings.json 或运行 bun setting:migrate 生成。可选值用 null 或空字符串，必填项填真实值。",
+  "transport": {
+    "httpProxy": "",
+    "httpsProxy": "",
+    "noProxy": "localhost,127.0.0.1",
+    "telegramBotToken": "",
+    "qqBotAppId": "",
+    "qqBotAppSecret": "",
+    "qqBotWsProxy": "",
+    "qqBotOpenIdDiscovery": false,
+    "whitelistUserIds": []
+  },
+  "database": {
+    "host": "127.0.0.1",
+    "port": 5432,
+    "db": "ai_cli_hub",
+    "username": "hub",
+    "password": "password"
+  },
+  "memory": {
+    "embedding": {
+      "apiBaseUrl": "https://api.openai.com/v1",
+      "apiKey": "",
+      "model": "BAAI/bge-m3",
+      "dimensions": 1024
+    },
+    "recallTopK": 10,
+    "summary": {
+      "apiBaseUrl": "",
+      "apiKey": "",
+      "model": "",
+      "requestedSummaryMessageLimit": 10,
+      "maxChars": 600
+    }
+  },
+  "lifecycle": {
+    "agentIdleTimeoutMs": 300000,
+    "agentTurnTimeoutMs": 60000,
+    "serviceShutdownTimeoutMs": 15000,
+    "sessionArchiveDays": 7
+  },
+  "session": {
+    "defaultCwd": null,
+    "agentDescription": "你是运行在个人 VPS 上的 AI CLI 远程会话管理助手，负责协助用户安全、高效地管理本机项目、命令执行、审批和长期记忆。",
+    "recentContextLimit": 10,
+    "recentContextMessageMaxChars": 1200
+  },
+  "aggregator": {
+    "debounceMs": 400,
+    "minEditIntervalMs": 1000,
+    "maxChunkChars": 4096
+  },
+  "media": {
+    "downloadDir": ".data/media",
+    "maxFileBytes": 10485760,
+    "maxTextChars": 20000,
+    "parseTimeoutMs": 30000
+  },
+  "ocr": {
+    "apiBaseUrl": "",
+    "apiTimeoutMs": 30000
+  },
+  "envProbe": {
+    "timeoutMs": 1500
+  },
+  "ops": {
+    "workdir": null,
+    "commandTimeoutMs": 120000,
+    "requireCleanWorktree": true,
+    "restartCommand": "pm2",
+    "restartArgs": ["restart", "ai-cli-hub"],
+    "restartDelayMs": 1500,
+    "restartNoticeFile": ".data/update-restart-notice.json"
+  },
+  "logging": {
+    "level": "info"
+  },
+  "debug": {
+    "agentSdkJson": false,
+    "messageFlow": false
+  }
+}

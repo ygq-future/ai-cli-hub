@@ -6,11 +6,50 @@ import type { ConversationId } from '../shared'
 import { collectEnvironmentFacts, createMemoryModule, formatGlobalMemoryContext } from './index'
 
 const CONFIG = loadConfig({
-  TELEGRAM_BOT_TOKEN: 'token',
-  WHITELIST_USER_IDS: 'u1',
-  DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
-  EMBEDDING_API_KEY: 'sk-test',
-  DEFAULT_CWD: 'D:/workspace/project',
+  transport: {
+    httpProxy: '',
+    httpsProxy: '',
+    noProxy: 'localhost,127.0.0.1',
+    telegramBotToken: 'token',
+    qqBotAppId: '',
+    qqBotAppSecret: '',
+    qqBotWsProxy: '',
+    qqBotOpenIdDiscovery: false,
+    whitelistUserIds: ['u1'],
+  },
+  database: { host: '127.0.0.1', port: 5432, db: 'ai_cli_hub', username: 'user', password: 'pass' },
+  memory: {
+    embedding: { apiBaseUrl: 'https://api.openai.com/v1', apiKey: 'sk-test', model: 'BAAI/bge-m3', dimensions: 1024 },
+    recallTopK: 10,
+    summary: { apiBaseUrl: '', apiKey: '', model: '', requestedSummaryMessageLimit: 10, maxChars: 600 },
+  },
+  lifecycle: {
+    agentIdleTimeoutMs: 300_000,
+    agentTurnTimeoutMs: 60_000,
+    serviceShutdownTimeoutMs: 15_000,
+    sessionArchiveDays: 7,
+  },
+  session: {
+    defaultCwd: 'D:/workspace/project',
+    agentDescription: '',
+    recentContextLimit: 10,
+    recentContextMessageMaxChars: 1200,
+  },
+  aggregator: { debounceMs: 400, minEditIntervalMs: 1000, maxChunkChars: 4096 },
+  media: { downloadDir: '.data/media', maxFileBytes: 10_485_760, maxTextChars: 20_000, parseTimeoutMs: 30_000 },
+  ocr: { apiBaseUrl: '', apiTimeoutMs: 30_000 },
+  envProbe: { timeoutMs: 1500 },
+  ops: {
+    workdir: null,
+    commandTimeoutMs: 120_000,
+    requireCleanWorktree: true,
+    restartCommand: 'pm2',
+    restartArgs: ['restart', 'ai-cli-hub'],
+    restartDelayMs: 1500,
+    restartNoticeFile: '.data/update-restart-notice.json',
+  },
+  logging: { level: 'info' },
+  debug: { agentSdkJson: false, messageFlow: false },
 })
 
 function createMemoryRepos() {

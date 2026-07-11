@@ -7,17 +7,55 @@ import { createQQTransport } from './qq-transport'
 
 const CID = 'conv-qq' as never
 
-function fakeConfig(extra: Record<string, string> = {}) {
-  return loadConfig({
-    TELEGRAM_BOT_TOKEN: '',
-    QQBOT_APP_ID: 'app-id',
-    QQBOT_APP_SECRET: 'app-secret',
-    WHITELIST_USER_IDS: 'qq-openid,tg-id',
-    DATABASE_URL: 'postgres://u:p@localhost:5432/db',
-    EMBEDDING_API_KEY: 'sk-test',
-    DEFAULT_CWD: '/workspace',
-    ...extra,
+function fakeConfig(extra?: Partial<ReturnType<typeof loadConfig>>) {
+  const base = loadConfig({
+    transport: {
+      httpProxy: '',
+      httpsProxy: '',
+      noProxy: 'localhost,127.0.0.1',
+      telegramBotToken: '',
+      qqBotAppId: 'app-id',
+      qqBotAppSecret: 'app-secret',
+      qqBotWsProxy: '',
+      qqBotOpenIdDiscovery: false,
+      whitelistUserIds: ['qq-openid', 'tg-id'],
+    },
+    database: { host: '127.0.0.1', port: 5432, db: 'ai_cli_hub', username: 'u', password: 'p' },
+    memory: {
+      embedding: { apiBaseUrl: 'https://api.openai.com/v1', apiKey: 'sk-test', model: 'BAAI/bge-m3', dimensions: 1024 },
+      recallTopK: 10,
+      summary: { apiBaseUrl: '', apiKey: '', model: '', requestedSummaryMessageLimit: 10, maxChars: 600 },
+    },
+    lifecycle: {
+      agentIdleTimeoutMs: 300_000,
+      agentTurnTimeoutMs: 60_000,
+      serviceShutdownTimeoutMs: 15_000,
+      sessionArchiveDays: 7,
+    },
+    session: {
+      defaultCwd: '/workspace',
+      agentDescription: '',
+      recentContextLimit: 10,
+      recentContextMessageMaxChars: 1200,
+    },
+    aggregator: { debounceMs: 400, minEditIntervalMs: 1000, maxChunkChars: 4096 },
+    media: { downloadDir: '.data/media', maxFileBytes: 10_485_760, maxTextChars: 20_000, parseTimeoutMs: 30_000 },
+    ocr: { apiBaseUrl: '', apiTimeoutMs: 30_000 },
+    envProbe: { timeoutMs: 1500 },
+    ops: {
+      workdir: null,
+      commandTimeoutMs: 120_000,
+      requireCleanWorktree: true,
+      restartCommand: 'pm2',
+      restartArgs: ['restart', 'ai-cli-hub'],
+      restartDelayMs: 1500,
+      restartNoticeFile: '.data/update-restart-notice.json',
+    },
+    logging: { level: 'info' },
+    debug: { agentSdkJson: false, messageFlow: false },
   })
+  if (extra) return { ...base, ...extra }
+  return base
 }
 
 function tick(): Promise<void> {
@@ -126,7 +164,7 @@ describe('QQTransport 官方 C2C 入站', () => {
     const fake = createFakeClient()
     const transport = createQQTransport({
       bus,
-      config: fakeConfig({ QQBOT_OPENID_DISCOVERY: 'true' }),
+      config: fakeConfig({ QQBOT_OPENID_DISCOVERY: true }),
       client: fake.client,
     })
     await transport.start()
@@ -470,7 +508,7 @@ describe('QQTransport 媒体入站', () => {
     const fake = createFakeClient()
     const transport = createQQTransport({
       bus,
-      config: fakeConfig({ MEDIA_MAX_FILE_BYTES: '1000' }),
+      config: fakeConfig({ MEDIA_MAX_FILE_BYTES: 1000 }),
       client: fake.client,
       mediaPreprocessor: fakeMediaPreprocessor(),
       downloadQQFile: async () => `/media/should-not-download.jpg`,

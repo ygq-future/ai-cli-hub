@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-11 · 阶段：**V2 全部完成；下一步 V3（JSON setting 迁移 + 优化维护）**
+> 最后更新：2026-07-11 · 阶段：**V3 JSON setting 迁移进行中**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V2 全部完成；V3 待启动（JSON setting 迁移 + 优化维护）** |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力（附件下载/OCR/懒加载/语音 ASR/emoji 归一化）；opencode 审批展示已按官方 SDK 类型对齐。会话以 `(platform,userId)` 隔离。 |
+| 当前里程碑 | **V3 JSON setting 迁移（进行中）** |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力（附件下载/OCR/懒加载/语音 ASR/emoji 归一化）；opencode 审批展示已按官方 SDK 类型对齐。会话以 `(platform,userId)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 13 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
-| 下一步 | V3：JSON setting 迁移（暂缓至 R3 后，含 `scripts/setting-migrate.ts` + `bun run setting:migrate`）；日常优化与维护 |
+| 下一步 | V3：真机验证重写后的 `bun setting` 全屏 TUI + `bun dev` 从 settings.json 启动正常；日常优化与维护 |
 
 ---
 
@@ -113,6 +113,9 @@
 | D61 | **QQ OpenID 采用受控发现，不放宽白名单**：`QQBOT_OPENID_DISCOVERY` 默认 `false`；临时开启时，未授权 C2C sender 的 OpenID 只记录一次本机 `qq:openid-discovery` 结构化日志，不向陌生用户回复、也不发布 `MessageReceived`。管理员将该 OpenID 加入 `WHITELIST_USER_IDS` 后必须关闭开关并重启。 | 2026-07-11 |
 | D62 | **QQ 媒体能力复用现有 `MediaPreprocessor` 管道，不另建独立处理链**：QQ 附件（`attachments[]`，含图片/GIF表情/文件/语音/视频）下载后映射为共享 `InboundAttachment`，与 Telegram 走同一 `mediaPreprocessor.preprocess()`；图片/JPG/GIF 表情走 OCR，非图片文件元数据登记并懒加载，语音用 QQ 内置 ASR（`asr_refer_text`）；QQ 无独立 sticker/emoji 概念，GIF 表情包归入 `photo`。大小/超时受 `MEDIA_MAX_FILE_BYTES`/`MEDIA_PARSE_TIMEOUT_MS` 统一保护。 | 2026-07-11 |
 | D63 | **opencode 审批事件按官方 SDK 类型修正**：`permissionToApproval` 以 `properties.permission`（`"bash"`/`"edit"`/`"glob"`）为工具类型，bash 时从 `metadata.command` 提取标题；detail JSON 不再包含不存在的 `title`/`description`/`type` 字段（`type` 在外层 event，`title`/`description` 在官方 `EventPermissionAsked` 中不存在）。`summarizeApprovalDetail` 改以 `permission` 字段识别 opencode 来源，从 `metadata.command` 提取命令并从 `metadata.filepath`/`metadata.diff` 提取编辑信息。 | 2026-07-11 |
+| D64 | **配置全面迁移到 `settings.json`**：`.env` 废弃，所有配置改为 13 分类嵌套 JSON（camelCase）。`loadConfig` 读 JSON → Zod 校验 → 展平为兼容 `AppConfig`（向下兼容所有消费者）。`DATABASE_URL` 从 host/port/db/username/password 拆分配置拼装。代理变量（httpProxy/httpsProxy/noProxy）由 `loadConfig` 写回 `process.env`（Bun fetch 需要）。`bun setting:migrate` 全量同步（补新/删旧/保留值/首次从 .env 导入）；`bun setting` 交互式 3 层菜单（@inquirer/prompts）。`settings.json` gitignore，`settings.json.example` 提交。 | 2026-07-11 |
+| D65 | **setting 交互编辑器改用 `@clack/prompts`（放弃手写 ANSI 全屏 TUI）**：手写 ANSI 全屏双面板在真机翻车（左侧面板不显示、布局错乱，终端尺寸/cup 定位/背景色渲染兼容性差），改用成熟的 `@clack/prompts` 流式交互。三层循环：主菜单 `select` 选分类 → 字段 `select`（hint 显示类型+当前值）→ 按类型编辑（`text`/`password`/`confirm`/`select`）。每次编辑确认后立即写盘 + Zod 校验（复用 `src/config/schema` 的 `SettingsJsonSchema`），校验错误显示在主菜单与 `p.log.warn`。`password` 用 clack 独立 `p.password()` prompt（mask 输入，留空保留原值）。TTY 检测 + `import.meta.main` 守卫。新增 `scripts/setting.test.ts` 18 个纯函数测试（字段定义/嵌套读写/hint 格式化/校验）。依赖新增 `@clack/prompts@1.7.0`。 | 2026-07-11 |
+| D66 | **setting 脚本用 tsx(Node) 跑，避开 Bun readline 兼容问题**：clack core 依赖 `node:readline.emitKeypressEvents` 解析按键，Bun 实现不完整——多字节按键序列（方向键/ESC）偶发解析失败，状态机卡住，单字节回车能触发新事件解锁（真机表现为"卡死，按回车恢复"）。修复：`bun setting` 底层改为 `tsx scripts/setting.ts`（Node + esbuild 转译，readline 稳定），`setting.ts` 的 `Bun.write` 换成 `writeFileSync` 去掉 Bun 运行时依赖。依赖新增 `tsx@4.23.0`（放 dependencies，VPS 运行需要）。用户仍跑 `bun setting`，底层 tsx 透明。`setting-migrate` 等非交互脚本保持 bun 跑（无 readline 问题）。 | 2026-07-11 |
 
 ---
 
@@ -132,7 +135,7 @@
 
 > **V3 聚焦 JSON setting 迁移与日常优化维护，不新增功能模块。**
 
-- **JSON setting 迁移**：`scripts/setting-migrate.ts`，把 `.env.example` 结构化配置项映射为 `.claude/settings.json`，按现有 env 值刷新。此项在 V2-R2 暂缓至 R3 后（日志 2026-07-09），是 V3 首个任务。
+- **JSON setting 迁移**：`scripts/setting-migrate.ts` + `scripts/setting.ts`，把 `.env.example` 结构化配置项迁移为 `settings.json`（13 分类嵌套 JSON），`loadConfig` 改为读 JSON 不再读 env。✅ 已完成（2026-07-11）。
 - **日常维护**：依赖升级、测试稳态、日志降噪、性能微调。后续需求按需排入。
 
 ---
@@ -148,7 +151,11 @@
 | 2026-07-10 | **CLI target 持久化修复完成**：新增 `ConversationRepository.findLatestByUser()`；`SessionManager.findOrCreate()` 与 `/new` 创建新会话前，在没有 open 会话时读取最近一条 conversation 恢复 CLI target；仅恢复 CLI，不恢复 cwd，保证 `/cwd <path>` 与 `/new <path>` 不被旧会话目录覆盖；显式 `/new claude`、`/new opencode` 会覆盖恢复值。同步接口契约、架构与命令 UX。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 通过；目标测试 `bun test src\core\session-manager.test.ts test\repository.integration.test.ts` 通过，37 pass / 0 fail / 136 expect；全量 `bun test` 非沙箱 `login:false` 通过，270 pass / 0 fail / 754 expect。 |
 | 2026-07-10 | **opencode 真机反馈修复完成**：根据用户 Telegram 日志与 opencode SDK 文档核对，修复三类问题：① 最近上下文/语义记忆不再拼入用户可见输入，支持 `sendContext()` 的 SDK adapter 改用 `session.prompt({ noReply: true })` 隐藏注入，并压制 `noReply` text part 回显；② opencode 事件处理改为真实 SSE 形状，支持 `permission.asked` 冒泡审批，忽略 `server.heartbeat` 与 token 级 `message.part.delta`，reasoning 不进入用户可见输出；③ `/status` 当前会话存在时 Target CLI/CWD 使用当前会话边界，避免显示 `CLI: opencode` 但 `Target CLI: claude`。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；目标测试 35 pass；全量 `bun test` 非沙箱 `login:false` 通过，266 pass / 0 fail / 742 expect。 |
 | 2026-07-11 | **V2-R3 QQ Bot 真机联调修复完成**：真机发现多项问题并逐一修复：① WebSocket 即 `code=1006` 断开——`ws` 库不读 `HTTPS_PROXY` 环境变量，新增 `HttpsProxyAgent` 注入与 `QQBOT_WS_PROXY` 配置（回退到 `HTTPS_PROXY`/`ALL_PROXY`），`fetch` 成功但 `ws` 直连被墙的问题解决；② 重连固定 2s 触发 `/gateway` 限流 `40023001`——改为指数退避（2s→4s→8s→…→60s 上限），READY 成功后重置计数器；③ `ws` error 事件 `ErrorEvent` 被 `String()` 转成 `[object ErrorEvent]` 丢失真因——`errorMessage` 强化提取 `message`/`error`/`code`/`type`；④ WebSocket `open` 事件无日志——新增 `open` handler 输出"WebSocket 已连接，等待 Gateway HELLO(op=10)"；⑤ Markdown 不渲染 + 审批按钮不显示——`sendC2CMessage` 统一改用 `msg_type=2` + 独立 `markdown`/`keyboard` 顶层字段；⑥ 无效 `group_id` 导致键盘消息 400 报错——移除按钮对象的 `group_id` 字段；⑦ 审批按钮点击后一直转圈提示"请求第三方失败"——新增 `ackInteraction` 在收到 `INTERACTION_CREATE` 后立即 `PUT /interactions/{id} code=0`（5s 时效）；⑧ 已审批按钮仍可重复点击无提示——二次点击发"此次审批已处理过，无需重复操作"；⑨ 审批详情大段 JSON 杂乱——新增 `summarizeApprovalDetail` 提取文件路径/变更行数/命令/说明。`main.ts` 起動失败不拖垮进程（`try/catch` + 后台重连）。同步 PROGRESS 与文档。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 全绿；全量 `bun test` 通过，286 pass / 0 fail / 799 expect。 |
-| 2026-07-11 | **QQ 媒体能力与 opencode 审批展示修复完成**：QQ Transport 接入 `mediaPreprocessor`，`onC2CMessage` 改为异步媒体管道：解析 `attachments[]`（图片/文件/语音/视频）→ 下载到 `MEDIA_DOWNLOAD_DIR` → 映射为 `InboundAttachment` → 走 mediaPreprocessor（图片 OCR、emoji 归一化、非图片懒加载、语音 ASR 文本注入）。`QQTransportDeps` 新增 `mediaPreprocessor`/`downloadQQFile` 注入，`main.ts` 注入。`permissionToApproval` 按官方 opencode SDK `EventPermissionAsked` 类型修正——`permission` 字段替代旧 `type` 字段，bash 时从 `metadata.command` 提取命令标题。`summarizeApprovalDetail` 按官方类型重写：opencode 路径识别 `permission` 字段，从 `metadata.command`/`metadata.filepath`/`metadata.diff` 提取摘要；与 `p.command` 重复时自动去重。Telegram `ApprovalRequested` 展示不受影响（仍用 `doSendApproval` 独立模板）。新增 7 项 QQ 媒体测试 + 更新 opencode 测试匹配新 JSON 字段名。V2-R2 标记完成，V2 阶段闭环。自动验收：`bun run format`、`bun run typecheck`、`bun run lint`、`bun run format:check` 全绿；全量 `bun test` 通过，294 pass / 0 fail / 814 expect。 |
+| 2026-07-11 | **V3 JSON setting 迁移完成**：配置文件从 `.env`（39 个扁平 UPPER_SNAKE_CASE 键）完全迁移到 `settings.json`（13 分类嵌套 camelCase JSON）。`src/config/schema.ts` 重写：`SettingsJsonSchema` 嵌套 Zod 校验 → `flattenSettings` 展平为兼容 `AppConfig`（所有消费者零改动）；`loadConfig` 改读 settings.json，拼装 DATABASE_URL（host/port/db/username/password），代理变量写回 process.env。新增 `settings.json.example`（模板，提交 git），`settings.json`（本地，gitignore）。新增 `scripts/setting-migrate.ts`（全量同步：补新 key + 删旧 key + 保留值 + 首次从 .env 导入 40 项）和 `scripts/setting.ts`（`@inquirer/prompts` 交互式 3 层菜单，13 分类浏览编辑）。新增 `bun setting` 和 `bun setting:migrate` 脚本。废弃 `.env`（`.env.example` 顶部标注迁移提示）。PROGRESS 记录 D64。自动验收：`bun run format`、`bun run typecheck`、`bun run lint`、`bun run format:check` 全绿；全量 `bun test` 通过，294 pass / 0 fail / 815 expect。 |
+| 2026-07-11 | **setting TUI 重写为全屏双面板**：原 `scripts/setting.ts` 手写 ANSI TUI 实现糙（永不 resolve 的 Promise、hack 全局 settings、padding 错位、无校验、中文输入丢失、背景色断色），完全重写。新实现：左侧 13 分类导航 + 右侧字段编辑双面板，Tokyonight 配色，alternate screen buffer，`wrapBg()` 解决背景断色，accent 竖条选中高亮，类型着色与 typeTag（str/secret/num/bool/list/enum/ms），底部状态栏（NORMAL/EDIT 模式 + 快捷键 + 位置 + Zod 校验状态）。三种编辑交互：text 行内输入带光标（←/→/Home/End/Ctrl+W）、bool Space 立即切换、enum ←→ 选择。复用 `SettingsJsonSchema` 实时校验。每次编辑立即写盘。TTY 检测 + `import.meta.main` 守卫。新增 `scripts/setting.test.ts` 11 smoke test（导航/字段/编辑/enum/flash/小终端/校验）。PROGRESS 记录 D65。自动验收：`bun run format`/`typecheck`/`lint`/`format:check` 全绿；`bun test scripts/setting.test.ts` 11 pass / 0 fail / 20 expect；depcruise 113 模块 0 违规。 |
+| 2026-07-11 | **setting 编辑器改用 @clack/prompts**：手写 ANSI 全屏双面板真机翻车（左侧面板不显示、布局错乱，终端尺寸/cup 定位/背景色兼容性差），改用 `@clack/prompts@1.7.0` 流式交互。三层循环：主菜单 select 选分类 → 字段 select（hint 显示类型+当前值掩码）→ 按类型编辑（text/password/confirm/select）。password 用 clack 独立 `p.password()` prompt（mask，留空保留原值）。每次编辑立即写盘 + Zod 校验，错误显示在主菜单与 log.warn。TTY 检测 + `import.meta.main` 守卫。`scripts/setting.test.ts` 改为 18 个纯函数测试（字段定义/嵌套读写/hint/校验）。依赖新增 `@clack/prompts`。PROGRESS D65 修订。自动验收：format/typecheck/lint/format:check 全绿；18 pass / 0 fail / 282 expect；depcruise 113 模块 0 违规。 |
+| 2026-07-11 | **setting 卡死修复（Bun readline → tsx/Node）**：clack 真机偶发卡死——进入子项编辑时 ESC/输入无效，按回车恢复；从子项返回二级再操作也卡。根因：clack core 用 `node:readline.emitKeypressEvents` + `stdin.on('keypress')` 解析按键，Bun 的 readline 实现不完整，多字节按键序列（方向键/ESC）偶发解析失败导致状态机卡住，单字节回车触发新 keypress 解锁。修复：`bun setting` 底层改为 `tsx scripts/setting.ts`（Node + esbuild 转译，readline 稳定），`setting.ts` 的 `Bun.write` → `writeFileSync` 去掉 Bun 运行时依赖。依赖新增 `tsx@4.23.0`（dependencies）。用户仍跑 `bun setting`，tsx 透明。自动验收：format/typecheck/lint/format:check 全绿；18 pass / 0 fail；depcruise 0 违规；非 TTY 跑 `bun run setting` 正确触发 TTY 守卫。PROGRESS 记录 D66。 |
+| 2026-07-11 | **setting 启动自动执行 migrate**：用户反馈 `bun setting` 应在进入交互前先执行 `bun setting:migrate` 的全量同步（尤其首次无 settings.json 时根据 example + .env 生成初始配置），此前 `setting.ts` 的 `loadSettings` 只克隆 example 未导入 .env。重构：`setting-migrate.ts` 把 main 逻辑抽成 `export function migrateSettings()`（返回 `{settings, stats, created, changed}`），加 `import.meta.main` 守卫，`Bun.write`→`writeFileSync`（让 tsx/Node 也能 import）；`setting.ts` 的 `loadSettings` 改为调用 `migrateSettings()`，删掉本地 `deepClone`/`syncNewKeys`，`main` 在 `p.intro` 后按 `created`/`changed` 用 `p.log.info` 提示同步结果。`setting-migrate.ts` 各函数（`ENV_TO_JSON_PATH`/`parseDatabaseUrl`/`coerceEnvValue`/`parseEnvFile`/`deepMerge`）改为 export。新增 3 个 `migrateSettings` 测试（首次创建从 .env 导入 / 已存在保留值 / example 新增 key 补默认）。自动验收：format/typecheck/lint/format:check 全绿；21 pass / 0 fail / 298 expect；depcruise 0 违规。 |
 | 2026-07-03 | 撰写 01-PRD、02-Architecture；确定长期记忆方案；产出护栏文档集；建立本进度文件 |
 | 2026-07-03 | **M0 完成**：搭建 src 骨架（12 模块）、logger(Pino)、shared 基础类型、depcruise 依赖矩阵、ESLint 禁 env 越界；typecheck/lint/start 三项通过 |
 | 2026-07-03 | 补 CLAUDE.md 硬规矩：对齐 PROGRESS.md；禁自动 git commit/push |

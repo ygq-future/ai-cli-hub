@@ -51,7 +51,7 @@ core/ ──❌禁止──▶ 任何具体实现(telegraf/node-pty/drizzle)
 | `storage/` | Drizzle, `shared/` | 其它全部业务模块 |
 | `audit/` | `event/`, `repository/`, `shared/` | `core/`, `transport/`, `cli/`, `runtime/`, `storage/` |
 | `memory/` | `event/`, `repository/`, `shared/`, `config/` | `core/`, `transport/` |
-| `config/` | `process.env`（**全局唯一**）, Zod | 无（叶子） |
+| `config/` | `settings.json`（**全局唯一配置源**）, Zod | 无（叶子） |
 | `shared/` | 无 | 一切业务模块 |
 
 > 只有 **Composition Root（`src/main.ts`）** 允许 import 具体实现并装配。运行期各模块只面向接口。
@@ -82,7 +82,7 @@ src/
 
 ## 5. 编码规范（AI 每次落笔遵守）
 
-1. **配置**：任何环境变量只经 `config/` 的强类型 `AppConfig` 读取。**禁止在其它任何文件出现 `process.env`。**
+1. **配置**：任何环境变量只经 `config/` 的强类型 `AppConfig` 读取。**配置源为 `settings.json`，禁止通过 `process.env` 读取业务配置。** 代理变量（HTTP_PROXY等）由 `loadConfig` 写回 env。
 2. **SQL**：任何数据库操作只经 `repository/` 的方法。**Core 与业务模块禁止出现 SQL/Drizzle 查询。**
 3. **通信**：模块间不直接相互调用，**一律通过 Event Bus 发布/订阅**（`bus.emit` / `bus.on`）。事件与 payload 以 [03-契约](./docs/03-Interface-Contracts.md) 的 `EventMap` 为准。
 4. **契约优先**：实现任何 Transport/Adapter/Repository 前，先看 03 的接口定义，严格实现，不擅自改签名。
