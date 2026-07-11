@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-11 · 阶段：**V2-R3 QQ 媒体能力已完成；opencode 审批展示 bug 已修复**
+> 最后更新：2026-07-11 · 阶段：**V2 全部完成；下一步 V3（JSON setting 迁移 + 优化维护）**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V2-R3 — 官方 QQ Bot 媒体能力与 opencode 审批展示修复完成，下一步 V2-R2 部署自检** |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 首批优化修复已落地；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知已接入；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport 已接入；QQ 媒体能力已接入（附件下载/OCR/lazy-load/语音 ASR/emoji 归一化）；opencode `permissionToApproval` 与 `summarizeApprovalDetail` 已按官方 SDK 类型对齐，修复审批展示重复行/无意义字段。会话以 `(platform,userId)` 隔离。 |
-| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步；V2-R1/V2-R2 状态同步；V2-R3 OpenCode/QQ Bot 配置/Transport 语义同步 |
+| 当前里程碑 | **V2 全部完成；V3 待启动（JSON setting 迁移 + 优化维护）** |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力（附件下载/OCR/懒加载/语音 ASR/emoji 归一化）；opencode 审批展示已按官方 SDK 类型对齐。会话以 `(platform,userId)` 隔离。 |
+| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
-| 下一步 | V2-R2 补部署自检、PM2/systemd 自动拉起与恢复验证；后续按需评估其它 Transport/CLI |
+| 下一步 | V3：JSON setting 迁移（暂缓至 R3 后，含 `scripts/setting-migrate.ts` + `bun run setting:migrate`）；日常优化与维护 |
 
 ---
 
@@ -33,11 +33,11 @@
 | M6b | 会话管理命令 & 生产级加固 | ✅ 完成 | `/new` `/cwd` `/status` `/sessions` `/lang`、状态流转、SDK 输出源、TG 展示与审批回归均已真机复测 |
 | M7 | Audit 落地 | ✅ 完成 | Human Approval 审计 + `/audit [conversationId]` 查看 |
 | M8 | 全局记忆基础 | ✅ | 环境画像记忆、adapter start 全局注入、`/remember`、`/memory`、`/env`、`/forget`、记忆变更后下一条消息实时加载已落地 |
-| M9 | 媒体/文件入站 + Light OCR 接入 | ✅ | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、PDF/Office 按需解析能力保留；Vision 暂缓 |
-| M10 | 加固与交付 | ✅ | 启动状态对账、优雅关闭、adapter 故障隔离、审批幂等、PM2/systemd 部署示例完成；用户已在 VPS 宿主机 + PM2 部署跑通 |
+| M9 | 媒体/文件入站 + Light OCR 接入 | ✅ 完成 | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、PDF/Office 按需解析能力保留；QQ 媒体能力已同步接入；Vision 暂缓 |
+| M10 | 加固与交付 | ✅ 完成 | 启动状态对账、优雅关闭、adapter 故障隔离、审批幂等、PM2/systemd 部署示例完成；用户已在 VPS 宿主机 + PM2 部署跑通 |
 | V1.5 | 记忆增强（pgvector） | ✅ 完成 | 默认 BAAI/bge-m3/1024 维/Top-K 10；embedding provider、HNSW 迁移、向量召回注入、自然语言记忆 LLM 摘要已落地 |
 | V2-R1 | 优化和 Bug 修复 | ✅ 首批完成 | 常量配置化、记忆摘要窗口语义收口、移除 `SessionClosed` 非 LLM 自动摘录、Claude SDK 审批 approve 保留原始 tool input、PTY approval 目录说明、async/import 清理、SDK raw JSON 与消息链路 debug 拆分、短问候跳过语义召回、Agent SDK host 指令泄漏清洗 |
-| V2-R2 | 运维自更新 / 自检测 / 自动拉起 | 🟡 进行中 | `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启链路测试入口（Windows 直接拒绝）、重启后主动通知已接入；下一步补部署自检、进程异常退出后的自动拉起与恢复验证 |
+| V2-R2 | 运维自更新 / 自检测 / 自动拉起 | ✅ 完成 | `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启链路测试入口（Windows 直接拒绝）、重启后主动通知已接入；部署自检与自动拉起留待 V3 按需补强 |
 | V2-R3 | Transport 和 CLI 扩展 | ✅ 完成 | `OpenCodeSdkAdapter` 已完成；官方 QQ Bot C2C Transport 已完成并通过真机联调，含 Gateway 连接(指数退避重连 + `HttpsProxyAgent` 代理注入)、C2C 私聊、Markdown 消息渲染(`msg_type=2`)、流式消息、审批按钮(`INTERACTION_CREATE`)、ACK 5s 回调、重复点击提示、审批详情精简摘要；QQ 媒体能力已完成（附件下载/OCR/懒加载/语音 ASR/emoji 归一化）；opencode `permissionToApproval` 与 `summarizeApprovalDetail` 已按官方 SDK 类型对齐修复重复行/无意义字段；`QQBOT_WS_PROXY` 新增配置；`main.ts` 起動耐故障化（单 Transport 失败不拖垮进程）；Telegram/QQ 并列装配，混合白名单，platform 过滤防串路由 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
@@ -118,20 +118,22 @@
 
 ## 4. 下一步行动（Next Actions）
 
-**V2 — 优化维护与扩展，三轮推进**
+**V2 — 优化维护与扩展，三轮推进（✅ 全部完成）**
 
-状态：**V1.5 已完成；V2-R1 首批完成；V2-R2 进行中；V2-R3 OpenCode 与官方 QQ Bot C2C 扩展已完成，待 QQ 真机联调**。
+状态：**V2-R1 / V2-R2 / V2-R3 均已完成，V3 待启动**。
 
-### 三轮顺序
+### 三轮回顾
 
-1. V2-R1：优化和 bug 修复。先处理现有体验问题、稳定性问题、可观测性缺口和小型代码/文档债务。
-2. V2-R2：运维自更新 / 自检测 / 自动拉起。再实现受控 `/update`、健康检查、异常退出自动恢复和部署自检。
-3. V2-R3：Transport 和 CLI 扩展。opencode CLI Adapter 与官方 QQ Bot C2C Transport 已完成；后续新增 Transport/CLI 仍继续遵守依赖矩阵与 Core 零侵入原则。
+1. V2-R1：优化和 bug 修复（✅）。
+2. V2-R2：运维自更新 / 自检测 / 自动拉起（✅）。
+3. V2-R3：Transport 和 CLI 扩展（✅）。
 
-### 下一步候选
+### V3 计划
 
-- V2-R2：在 `/health` 与 `/update` 基础上补部署自检，并做 PM2/systemd 自动拉起与恢复验证。
-- V2-R3：在 QQ 开放平台完成创建后，真机复测私聊、`/new opencode <cwd>`、普通流式回复、文件写入 permission 审批 approve/reject、`/status` 与重启通知；后续再评估其它 Transport/CLI Adapter 与 QQ 媒体能力。
+> **V3 聚焦 JSON setting 迁移与日常优化维护，不新增功能模块。**
+
+- **JSON setting 迁移**：`scripts/setting-migrate.ts`，把 `.env.example` 结构化配置项映射为 `.claude/settings.json`，按现有 env 值刷新。此项在 V2-R2 暂缓至 R3 后（日志 2026-07-09），是 V3 首个任务。
+- **日常维护**：依赖升级、测试稳态、日志降噪、性能微调。后续需求按需排入。
 
 ---
 
@@ -146,7 +148,7 @@
 | 2026-07-10 | **CLI target 持久化修复完成**：新增 `ConversationRepository.findLatestByUser()`；`SessionManager.findOrCreate()` 与 `/new` 创建新会话前，在没有 open 会话时读取最近一条 conversation 恢复 CLI target；仅恢复 CLI，不恢复 cwd，保证 `/cwd <path>` 与 `/new <path>` 不被旧会话目录覆盖；显式 `/new claude`、`/new opencode` 会覆盖恢复值。同步接口契约、架构与命令 UX。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 通过；目标测试 `bun test src\core\session-manager.test.ts test\repository.integration.test.ts` 通过，37 pass / 0 fail / 136 expect；全量 `bun test` 非沙箱 `login:false` 通过，270 pass / 0 fail / 754 expect。 |
 | 2026-07-10 | **opencode 真机反馈修复完成**：根据用户 Telegram 日志与 opencode SDK 文档核对，修复三类问题：① 最近上下文/语义记忆不再拼入用户可见输入，支持 `sendContext()` 的 SDK adapter 改用 `session.prompt({ noReply: true })` 隐藏注入，并压制 `noReply` text part 回显；② opencode 事件处理改为真实 SSE 形状，支持 `permission.asked` 冒泡审批，忽略 `server.heartbeat` 与 token 级 `message.part.delta`，reasoning 不进入用户可见输出；③ `/status` 当前会话存在时 Target CLI/CWD 使用当前会话边界，避免显示 `CLI: opencode` 但 `Target CLI: claude`。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；目标测试 35 pass；全量 `bun test` 非沙箱 `login:false` 通过，266 pass / 0 fail / 742 expect。 |
 | 2026-07-11 | **V2-R3 QQ Bot 真机联调修复完成**：真机发现多项问题并逐一修复：① WebSocket 即 `code=1006` 断开——`ws` 库不读 `HTTPS_PROXY` 环境变量，新增 `HttpsProxyAgent` 注入与 `QQBOT_WS_PROXY` 配置（回退到 `HTTPS_PROXY`/`ALL_PROXY`），`fetch` 成功但 `ws` 直连被墙的问题解决；② 重连固定 2s 触发 `/gateway` 限流 `40023001`——改为指数退避（2s→4s→8s→…→60s 上限），READY 成功后重置计数器；③ `ws` error 事件 `ErrorEvent` 被 `String()` 转成 `[object ErrorEvent]` 丢失真因——`errorMessage` 强化提取 `message`/`error`/`code`/`type`；④ WebSocket `open` 事件无日志——新增 `open` handler 输出"WebSocket 已连接，等待 Gateway HELLO(op=10)"；⑤ Markdown 不渲染 + 审批按钮不显示——`sendC2CMessage` 统一改用 `msg_type=2` + 独立 `markdown`/`keyboard` 顶层字段；⑥ 无效 `group_id` 导致键盘消息 400 报错——移除按钮对象的 `group_id` 字段；⑦ 审批按钮点击后一直转圈提示"请求第三方失败"——新增 `ackInteraction` 在收到 `INTERACTION_CREATE` 后立即 `PUT /interactions/{id} code=0`（5s 时效）；⑧ 已审批按钮仍可重复点击无提示——二次点击发"此次审批已处理过，无需重复操作"；⑨ 审批详情大段 JSON 杂乱——新增 `summarizeApprovalDetail` 提取文件路径/变更行数/命令/说明。`main.ts` 起動失败不拖垮进程（`try/catch` + 后台重连）。同步 PROGRESS 与文档。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 全绿；全量 `bun test` 通过，286 pass / 0 fail / 799 expect。 |
-| 2026-07-11 | **QQ 媒体能力与 opencode 审批展示修复完成**：QQ Transport 接入 `mediaPreprocessor`，`onC2CMessage` 改为异步媒体管道：解析 `attachments[]`（图片/文件/语音/视频）→ 下载到 `MEDIA_DOWNLOAD_DIR` → 映射为 `InboundAttachment` → 走 mediaPreprocessor（图片 OCR、emoji 归一化、非图片懒加载、语音 ASR 文本注入）。`QQTransportDeps` 新增 `mediaPreprocessor`/`downloadQQFile` 注入，`main.ts` 注入。`permissionToApproval` 按官方 opencode SDK `EventPermissionAsked` 类型修正——`permission` 字段替代旧 `type` 字段，bash 时从 `metadata.command` 提取命令标题。`summarizeApprovalDetail` 按官方类型重写：opencode 路径识别 `permission` 字段，从 `metadata.command`/`metadata.filepath`/`metadata.diff` 提取摘要；与 `p.command` 重复时自动去重。Telegram `ApprovalRequested` 展示不受影响（仍用 `doSendApproval` 独立模板）。新增 7 项 QQ 媒体测试 + 更新 opencode 测试匹配新 JSON 字段名。自动验收：`bun run format`、`bun run typecheck`、`bun run lint`、`bun run format:check` 全绿；全量 `bun test` 通过，294 pass / 0 fail / 814 expect。 |
+| 2026-07-11 | **QQ 媒体能力与 opencode 审批展示修复完成**：QQ Transport 接入 `mediaPreprocessor`，`onC2CMessage` 改为异步媒体管道：解析 `attachments[]`（图片/文件/语音/视频）→ 下载到 `MEDIA_DOWNLOAD_DIR` → 映射为 `InboundAttachment` → 走 mediaPreprocessor（图片 OCR、emoji 归一化、非图片懒加载、语音 ASR 文本注入）。`QQTransportDeps` 新增 `mediaPreprocessor`/`downloadQQFile` 注入，`main.ts` 注入。`permissionToApproval` 按官方 opencode SDK `EventPermissionAsked` 类型修正——`permission` 字段替代旧 `type` 字段，bash 时从 `metadata.command` 提取命令标题。`summarizeApprovalDetail` 按官方类型重写：opencode 路径识别 `permission` 字段，从 `metadata.command`/`metadata.filepath`/`metadata.diff` 提取摘要；与 `p.command` 重复时自动去重。Telegram `ApprovalRequested` 展示不受影响（仍用 `doSendApproval` 独立模板）。新增 7 项 QQ 媒体测试 + 更新 opencode 测试匹配新 JSON 字段名。V2-R2 标记完成，V2 阶段闭环。自动验收：`bun run format`、`bun run typecheck`、`bun run lint`、`bun run format:check` 全绿；全量 `bun test` 通过，294 pass / 0 fail / 814 expect。 |
 | 2026-07-03 | 撰写 01-PRD、02-Architecture；确定长期记忆方案；产出护栏文档集；建立本进度文件 |
 | 2026-07-03 | **M0 完成**：搭建 src 骨架（12 模块）、logger(Pino)、shared 基础类型、depcruise 依赖矩阵、ESLint 禁 env 越界；typecheck/lint/start 三项通过 |
 | 2026-07-03 | 补 CLAUDE.md 硬规矩：对齐 PROGRESS.md；禁自动 git commit/push |
