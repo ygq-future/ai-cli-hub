@@ -23,7 +23,7 @@ flowchart TD
 - **非白名单**：Transport 层直接丢弃，**不回任何提示**（避免暴露存在性）。
 - **命令**：以 `/` 开头，由 Transport 解析后转 Core 对应动作（多数不进 CLI）。
 - **普通文本**：`emit('MessageReceived')`，走会话路由 → CLI。
-- **emoji / sticker / 文件**：先做文件预处理。Unicode emoji 做文本归一化；sticker/custom emoji 第一版只解析 metadata；Telegram 可下载附件（`photo/document/audio/voice/video/video_note/animation`；任意普通文件走 `document`，未知来源可归为 `other`）下载到受控目录并记录 metadata/local_path。只有图片/photo 上传时可立即 OCR；PDF/Word/Excel/text/audio/video 等非图片文件全部懒加载，用户明确要求后才读取、解析、OCR、转写、转换或移动。
+- **emoji / sticker / 文件**：先做文件预处理。Unicode emoji 做文本归一化；sticker/custom emoji 第一版只解析 metadata；Telegram 可下载附件（`photo/document/audio/voice/video/video_note/animation`；任意普通文件走 `document`，未知来源可归为 `other`）下载到受控目录并记录 metadata/local_path。QQ Bot V1 只接入官方 C2C 文本、流式消息和审批回调键盘，媒体能力后续扩展。只有图片/photo 上传时可立即 OCR；PDF/Word/Excel/text/audio/video 等非图片文件全部懒加载，用户明确要求后才读取、解析、OCR、转写、转换或移动。
 
 ---
 
@@ -56,8 +56,8 @@ flowchart TD
 
 | 用户动作 | 会话结果 |
 |---|---|
-| 普通发消息 | 命中 `(user, cli, cwd)` 活跃会话则复用；否则新建 |
-| `/new` | 强制新建，旧会话关闭；新建会话初始为 `idle`，第一条普通消息懒启动 CLI |
+| 普通发消息 | 命中 `(platform, user)` scope 的活跃会话则复用；否则新建。CLI/cwd 是当前目标，不划分会话 |
+| `/new` | 强制新建，关闭同 `(platform,user)` scope 旧会话；新建会话初始为 `idle`，第一条普通消息懒启动 CLI |
 | `/cwd` | 无参数仅查看当前目标 cwd |
 | `/cwd <path>` | 关闭当前会话并切换当前用户目标 cwd；不创建 conversation，下一条普通消息在新 cwd 新建 |
 | `/close` | 当前会话关闭；不自动写长期记忆，下条消息将开新会话 |
@@ -148,9 +148,9 @@ Markdown 卡片 + 内联按钮：
 | `/env` 执行 | 立即刷新环境快照并返回 `env.*` 记忆；probe 失败项显示 `missing` 或 `unknown`，不阻塞服务 |
 | `/health` 执行 | 返回 live self-check；关键检查失败时 Status 为 `down`，非关键检查失败时为 `degraded` |
 | `/update` 执行 | Windows 上直接返回“自更新不可用”且不执行命令；非 Windows 无参数返回预检计划；必须发送 `/update confirm` 才执行；工作树不干净或任一步失败时停止且不安排重启 |
-| `/update confirm` 成功 | 返回自更新报告，并在 `UPDATE_RESTART_DELAY_MS` 后执行 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动并连接 Telegram 后主动通知“服务已重启完成，可以继续发送消息” |
+| `/update confirm` 成功 | 返回自更新报告，并在 `UPDATE_RESTART_DELAY_MS` 后执行 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动并连接对应 Transport 后主动通知“服务已重启完成，可以继续发送消息” |
 | `/restart` 执行 | Windows 上直接返回“重启不可用”且不执行命令；非 Windows 无参数返回重启预检计划；必须发送 `/restart confirm` 才执行；不执行 git pull、依赖安装、迁移或检查 |
-| `/restart confirm` 成功 | 返回重启安排，并在 `UPDATE_RESTART_DELAY_MS` 后执行同一组 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动并连接 Telegram 后主动通知原 chat |
+| `/restart confirm` 成功 | 返回重启安排，并在 `UPDATE_RESTART_DELAY_MS` 后执行同一组 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动并连接对应 Transport 后主动通知原 chat |
 | adapter 重启后继续同一会话 | 下一条 user message 会携带当前 conversation 最近 `RECENT_CONTEXT_LIMIT` 条历史消息；单条超长时按 `RECENT_CONTEXT_MESSAGE_MAX_CHARS` 保留尾部，避免丢失上一轮最新结论 |
 | CLI 运行中 `/new` | ℹ️ 已关闭当前会话，已为你开启新会话 |
 | 进程被空闲回收后发消息 | （静默唤醒，重启进程，用户无感）|
@@ -165,11 +165,17 @@ Markdown 卡片 + 内联按钮：
 > 与 [03 §6 ConfigSchema](./03-Interface-Contracts.md) 逐项对齐。放项目根目录，实际值写入 `.env`（勿提交）。新增配置后可运行 `bun run env:migrate`，用 `.env.example` 刷新 `.env` 的注释、顺序和缺失默认值，同时保留已有 `.env` 的 active key-value；引号包裹的多行值会作为同一个配置保留，未出现在模板中的本地 key 会被保留在文件末尾。
 
 ```dotenv
-# ── Telegram ──
-TELEGRAM_BOT_TOKEN=123456:ABC-your-bot-token
+# ── Telegram（可选）──
+# TELEGRAM_BOT_TOKEN=123456:ABC-your-bot-token
 
-# ── 白名单（逗号分隔的 user id）──
-WHITELIST_USER_IDS=11111111,22222222
+# ── 腾讯官方 QQ Bot（可选，必须成对配置）──
+# QQBOT_APP_ID=your-qqbot-app-id
+# QQBOT_APP_SECRET=your-qqbot-app-secret
+# QQ OpenID 不可预先取得时，临时启用：发送一次私聊后从服务日志复制 OpenID，加入白名单后关闭。
+# QQBOT_OPENID_DISCOVERY=false
+
+# ── 白名单（TG numeric ID 与 QQ user OpenID 可混合）──
+WHITELIST_USER_IDS=11111111,qq-user-openid
 
 # ── 数据库（Postgres）──
 DATABASE_URL=postgres://hub:password@localhost:5432/ai_cli_hub

@@ -25,7 +25,7 @@
 | 向量 | **pgvector** | 同库；V1 预留列，V1.5 启用 |
 | 嵌入 | **API**（`text-embedding-3-small`） | 不跑本地模型；异步批量 |
 | Telegram | **Telegraf** | 封装在 `transport/telegram` |
-| QQ | **NapCat + Koishi** | 封装在 `transport/qq` |
+| QQ | **腾讯官方 QQ Bot Gateway + HTTP API**（`ws` + Bun `fetch`） | 封装在 `transport/qq`；只接官方机器人，不接个人 QQ 协议 |
 | 日志 | **Pino** | 结构化 |
 | 校验 | **Zod** | 仅用于 `config/` |
 | 守护 | PM2 / systemd | 部署期 |

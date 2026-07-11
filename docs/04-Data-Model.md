@@ -49,13 +49,15 @@ export const conversations = pgTable('conversations', {
   platform:   platformEnum('platform').notNull(),
   userId:     text('user_id').notNull(),
   cli:        cliEnum('cli').notNull(),
-  cwd:        text('cwd').notNull(),                       // 会话边界：项目目录
+  cwd:        text('cwd').notNull(),                       // 当前目标目录，不参与会话 scope
   status:     sessionStatusEnum('status').notNull().default('idle'),
   createdAt:  bigint('created_at', { mode: 'number' }).notNull(),
   updatedAt:  bigint('updated_at', { mode: 'number' }).notNull(),
 }, (t) => ({
-  // 会话边界定位：(user, cli, cwd) 唯一活跃会话。见 02-架构 §5.1
-  activeLookup: index('idx_conv_active').on(t.userId, t.cli, t.cwd, t.status),
+  // 会话 scope：(platform, user) 唯一未关闭会话。见 02-架构 §5.1
+  scopeRecent: index('idx_conv_scope_recent').on(t.platform, t.userId, t.updatedAt),
+  openScope: uniqueIndex('uniq_conv_open_scope').on(t.platform, t.userId)
+    .where(sql`${t.status} <> 'closed'`),
   // 归档扫描：按 status + updatedAt
   archiveScan:  index('idx_conv_archive').on(t.status, t.updatedAt),
 }));
@@ -64,7 +66,7 @@ export type Conversation    = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 ```
 
-> 边界规则：普通消息优先复用该用户最新可复用会话（`idle/starting/running`），即使 Transport 重启丢失内存目标，也会用该会话的 `cli/cwd` 恢复目标并复用 `idle`。新建会话前必须兜底关闭该用户所有非 `closed` 历史会话，保证同一用户至多一条未关闭会话；`/cwd <path>` 只切目标目录并关闭当前会话，不插入新记录。
+> 边界规则：普通消息优先复用同 `(platform,user_id)` scope 最新可复用会话（`idle/starting/running`），即使 Transport 重启丢失内存目标，也会用该会话的 `cli/cwd` 恢复目标并复用 `idle`。新建会话前只关闭同 scope 的非 `closed` 历史会话，数据库部分唯一索引保证每个 scope 至多一条未关闭会话；`/cwd <path>` 只切目标目录并关闭当前会话，不插入新记录。
 
 ---
 
@@ -173,7 +175,8 @@ export type NewMemory = typeof memories.$inferInsert;
 
 | 表 | 索引 | 服务查询 |
 |---|---|---|
-| conversations | `(user_id, cli, cwd, status)` | 会话边界定位（复用/新建） |
+| conversations | unique `(platform, user_id) WHERE status <> 'closed'` | 每个 scope 仅一条未关闭会话 |
+| conversations | `(platform, user_id, updated_at)` | scope 内最新会话定位（复用/新建/目标恢复） |
 | conversations | `(status, updated_at)` | 归档扫描 `listStaleIdle` |
 | messages | `(conversation_id, created_at)` | 历史查看、审计与后续摘要；当前不做完整上下文回放 |
 | audit_logs | `(conversation_id, created_at)` | 审计查询 |

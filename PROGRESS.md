@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-10 · 阶段：**V2-R2 运维自更新进行中；V2-R3 opencode provider 连接/SSE/raw 日志与 CLI 目标持久化修复完成**
+> 最后更新：2026-07-11 · 阶段：**V2-R2 运维自更新进行中；V2-R3 官方 QQ Bot 与跨平台会话 scope 完成，待真机联调**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V2-R2 — 运维自更新 / 自检测 / 自动拉起进行中；V2-R3 — CLI 扩展首项已修复真机反馈**（用户明确要求先接入 opencode SDK，作为 D49 顺序的例外） |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 首批优化修复已落地；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知、`.env.example`→`.env` 迁移脚本已接入；V2-R3 `OpenCodeSdkAdapter` 已接入，修复 Bun/Windows 子进程代理变量丢失，按 `message.updated` role 过滤 user/noReply part，审批与 actionable raw 日志白名单已修复；没有 open 会话时可从最近 closed 会话恢复 CLI target |
-| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步；V2-R1/V2-R2 状态同步；V2-R3 opencode SDK adapter、SSE role 边界、raw 白名单、CLI 类型、命令 UX 与 CLI target 持久化语义已同步 |
+| 当前里程碑 | **V2-R2 — 运维自更新 / 自检测 / 自动拉起进行中；V2-R3 — 官方 QQ Bot 与跨平台会话 scope 完成，待真机联调** |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 首批优化修复已落地；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知、`.env.example`→`.env` 迁移脚本已接入；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport 已接入。会话以 `(platform,userId)` 隔离，数据库保证每个 scope 至多一条未关闭会话；QQ OpenID 可通过默认关闭的本机日志发现开关安全采集 |
+| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5 embedding 默认参数同步；V2-R1/V2-R2 状态同步；V2-R3 OpenCode 与官方 QQ Bot 配置/Transport 语义同步 |
 | 阻塞项 | 无 |
-| 下一步 | 真机复测 `/new opencode <cwd>` 下普通对话、文件写入审批、approve/reject 与 `/status` 展示；继续 V2-R2 部署自检与 PM2/systemd 恢复验证 |
+| 下一步 | 在 QQ 开放平台创建机器人后真机配置 `QQBOT_APP_ID`/`QQBOT_APP_SECRET`；首次通过 `QQBOT_OPENID_DISCOVERY=true` 从本机日志采集 OpenID，写入混合白名单后关闭该开关；执行迁移并复测私聊、跨平台同 ID 隔离、`/new opencode <cwd>`、流式回复、文件写入审批 approve/reject、`/status` 与重启通知；继续 V2-R2 部署自检与 PM2/systemd 恢复验证 |
 
 ---
 
@@ -38,7 +38,7 @@
 | V1.5 | 记忆增强（pgvector） | ✅ 完成 | 默认 BAAI/bge-m3/1024 维/Top-K 10；embedding provider、HNSW 迁移、向量召回注入、自然语言记忆 LLM 摘要已落地 |
 | V2-R1 | 优化和 Bug 修复 | ✅ 首批完成 | 常量配置化、记忆摘要窗口语义收口、移除 `SessionClosed` 非 LLM 自动摘录、Claude SDK 审批 approve 保留原始 tool input、PTY approval 目录说明、async/import 清理、SDK raw JSON 与消息链路 debug 拆分、短问候跳过语义召回、Agent SDK host 指令泄漏清洗 |
 | V2-R2 | 运维自更新 / 自检测 / 自动拉起 | 🟡 进行中 | `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启链路测试入口（Windows 直接拒绝）、重启后主动通知已接入；下一步补部署自检、进程异常退出后的自动拉起与恢复验证 |
-| V2-R3 | Transport 和 CLI 扩展 | 🟡 进行中 | 用户明确要求先接入 opencode SDK；`OpenCodeSdkAdapter` 已完成并修复真机 SSE user/assistant 角色混流、上下文泄露、审批冒泡与 raw 噪声问题；CLI target 已支持从最近 closed 会话恢复 CLI（不恢复 cwd），Transport 扩展未开始 |
+| V2-R3 | Transport 和 CLI 扩展 | 🟡 进行中 | `OpenCodeSdkAdapter` 已完成；官方 QQ Bot C2C Transport 已完成，使用 `ws` + Bun `fetch` 对接 token/Gateway/API，支持混合白名单、文本命令、官方流式消息、审批回调键盘与 Telegram/QQ 并列装配；待 QQ 真机联调，后续再评估其它 Transport/CLI 与 QQ 媒体能力 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
 
@@ -108,6 +108,9 @@
 | D56 | **没有 open 会话时从最近 closed 会话恢复 CLI target，但不恢复 cwd**：普通消息或 `/new` 准备创建新 conversation 前，若用户没有 `idle/starting/running` 等可复用会话，则读取该用户最近一条 conversation 的 `cli` 作为默认目标；`cwd` 仍以当前入站 target、`/cwd` 或 `/new <path>` 为准，避免旧目录覆盖用户刚切换的目录。显式 `/new claude`、`/new opencode` 优先级最高，会覆盖最近 closed 会话中的 CLI。 | 2026-07-10 |
 | D57 | **OpenCode SSE 输出以 message role 为安全边界，raw debug 采用可行动白名单**：`message.part.updated` 同时广播 user/assistant part，Adapter 必须先用 `message.updated.info.id/role` 建立归属，只把 assistant text/tool part 转成输出；不得再用文本内容猜 hidden context。`DEBUG_AGENT_SDK_JSON` 对 OpenCode 只记录 retry/session error、permission、tool、update/dispose 等可行动事件，丢弃 plugin/catalog/server connected/heartbeat/delta/message/busy/idle 噪声；`session.status=retry` 保持 runtime `busy`，idle/error 只收尾一次。启用 HTTP(S) 代理时按官方要求配置 `NO_PROXY=localhost,127.0.0.1`。 | 2026-07-10 |
 | D58 | **Bun/Windows 启动 SDK 子进程前规范代理变量大小写**：真机确认 Bun 1.3.14 在 Windows 上可通过 `process.env.HTTP_PROXY` 读取继承的小写 `http_proxy`，但 `Object.keys(process.env)` / `{ ...process.env }` 不包含这些键；OpenCode SDK 使用展开结果启动 `opencode serve`，导致子进程丢失 HTTP(S) proxy，而 PowerShell 直接启动 TUI 会完整继承，所以只有 SDK provider 连接失败。`config.normalizeProxyEnvironment()` 在 `main()` 加载配置前读取并删除大小写变体、写回可枚举的标准大写 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`/`ALL_PROXY`；不修改代理值，不允许其它模块读取 env。 | 2026-07-10 |
+| D59 | **QQ 只接腾讯官方 QQ Bot，不接个人 QQ 协议**：按用户确认，新增 `QQTransport` 直接使用 QQ Bot AppID/AppSecret、官方 Gateway/WebSocket 与 HTTP API；不引入 NapCat、Koishi、OneBot 或 OpenClaw 插件宿主。实现使用 `ws` + Bun 原生 `fetch`，私聊输出使用官方 C2C `stream_messages`，审批使用 `INTERACTION_CREATE` 回调键盘。Telegram/QQ 在 Composition Root 并列装配；Transport 必须按 `platform` 过滤 Session/CommandReply，避免跨平台串路由。`WHITELIST_USER_IDS` 保持单一字符串数组，可混合 Telegram numeric ID 与 QQ user OpenID；Core 保持零修改。 | 2026-07-11 |
+| D60 | **会话 scope 统一为 `(platform, userId)`**：CLI/cwd 是当前 target 属性，不参与隔离。Repository、SessionManager、命令查询、语言/目标事件与 adapter 生命周期均按 scope 过滤；数据库 `uniq_conv_open_scope` partial unique index（`status <> 'closed'`）保证每个 scope 至多一条未关闭 conversation。迁移先按更新时间保留最新记录并关闭历史重复开放记录。D4/D27/D38/D56 的用户级或 cli/cwd 边界表述均由本决策取代。长期记忆仍遵循 D36 的实例级 global 语义。 | 2026-07-11 |
+| D61 | **QQ OpenID 采用受控发现，不放宽白名单**：`QQBOT_OPENID_DISCOVERY` 默认 `false`；临时开启时，未授权 C2C sender 的 OpenID 只记录一次本机 `qq:openid-discovery` 结构化日志，不向陌生用户回复、也不发布 `MessageReceived`。管理员将该 OpenID 加入 `WHITELIST_USER_IDS` 后必须关闭开关并重启。 | 2026-07-11 |
 
 ---
 
@@ -115,18 +118,18 @@
 
 **V2 — 优化维护与扩展，三轮推进**
 
-状态：**V1.5 已完成；V2-R1 首批完成；V2-R2 进行中；V2-R3 CLI 扩展首项完成，并修复 opencode 真机反馈与 CLI target 持久化语义**。
+状态：**V1.5 已完成；V2-R1 首批完成；V2-R2 进行中；V2-R3 OpenCode 与官方 QQ Bot C2C 扩展已完成，待 QQ 真机联调**。
 
 ### 三轮顺序
 
 1. V2-R1：优化和 bug 修复。先处理现有体验问题、稳定性问题、可观测性缺口和小型代码/文档债务。
 2. V2-R2：运维自更新 / 自检测 / 自动拉起。再实现受控 `/update`、健康检查、异常退出自动恢复和部署自检。
-3. V2-R3：Transport 和 CLI 扩展。opencode CLI Adapter 已先行完成；后续新增 Transport/CLI 仍继续遵守依赖矩阵与 Core 零侵入原则。
+3. V2-R3：Transport 和 CLI 扩展。opencode CLI Adapter 与官方 QQ Bot C2C Transport 已完成；后续新增 Transport/CLI 仍继续遵守依赖矩阵与 Core 零侵入原则。
 
 ### 下一步候选
 
 - V2-R2：在 `/health` 与 `/update` 基础上补部署自检，并做 PM2/systemd 自动拉起与恢复验证。
-- V2-R3：真机复测 `/new opencode <cwd>`、普通回复、文件写入 permission 审批、approve/reject 与 `/status` 展示；后续再评估其它 Transport/CLI Adapter。
+- V2-R3：在 QQ 开放平台完成创建后，真机复测私聊、`/new opencode <cwd>`、普通流式回复、文件写入 permission 审批 approve/reject、`/status` 与重启通知；后续再评估其它 Transport/CLI Adapter 与 QQ 媒体能力。
 
 ---
 
@@ -140,6 +143,8 @@
 | 2026-07-10 | **opencode SSE 角色混流与 raw 日志噪声修复完成**：依据 Telegram 真机日志、OpenCode 1.17.17 SDK 类型与官方 SDK/网络文档，确认 `message.part.updated` 会包含 user part；Adapter 新增 `message.updated.info.role`→`part.messageID` 归属过滤，只转发 assistant text/tool，彻底修复首轮 `hello` 实为用户输入回显、下一条输入继续编辑成 `hello看一下...` 的问题。raw debug 改为可行动事件白名单，移除 `plugin.added`、catalog/reference/integration、server connected/heartbeat、delta/message、busy/idle 等噪声；retry 保持 busy，session idle/error 幂等收尾。OpenCode 日志确认原报错来自 `deepseek/deepseek-v4-flash` provider transport 的 `AI_APICallError`，终端/SDK-inline provider URL 与 key 配置一致，当前 7897 代理可达；同步 `.env.example` 与本机 `.env` 的 `NO_PROXY=localhost,127.0.0.1`。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试 63 pass / 0 fail / 211 expect；全量 `bun test` 非沙箱通过，272 pass / 0 fail / 765 expect。 |
 | 2026-07-10 | **CLI target 持久化修复完成**：新增 `ConversationRepository.findLatestByUser()`；`SessionManager.findOrCreate()` 与 `/new` 创建新会话前，在没有 open 会话时读取最近一条 conversation 恢复 CLI target；仅恢复 CLI，不恢复 cwd，保证 `/cwd <path>` 与 `/new <path>` 不被旧会话目录覆盖；显式 `/new claude`、`/new opencode` 会覆盖恢复值。同步接口契约、架构与命令 UX。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 通过；目标测试 `bun test src\core\session-manager.test.ts test\repository.integration.test.ts` 通过，37 pass / 0 fail / 136 expect；全量 `bun test` 非沙箱 `login:false` 通过，270 pass / 0 fail / 754 expect。 |
 | 2026-07-10 | **opencode 真机反馈修复完成**：根据用户 Telegram 日志与 opencode SDK 文档核对，修复三类问题：① 最近上下文/语义记忆不再拼入用户可见输入，支持 `sendContext()` 的 SDK adapter 改用 `session.prompt({ noReply: true })` 隐藏注入，并压制 `noReply` text part 回显；② opencode 事件处理改为真实 SSE 形状，支持 `permission.asked` 冒泡审批，忽略 `server.heartbeat` 与 token 级 `message.part.delta`，reasoning 不进入用户可见输出；③ `/status` 当前会话存在时 Target CLI/CWD 使用当前会话边界，避免显示 `CLI: opencode` 但 `Target CLI: claude`。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；目标测试 35 pass；全量 `bun test` 非沙箱 `login:false` 通过，266 pass / 0 fail / 742 expect。 |
+| 2026-07-11 | **V2-R3 腾讯官方 QQ Bot C2C Transport 完成**：按用户确认不接 NapCat/Koishi/OneBot，而以 `ws` + Bun `fetch` 直接对接腾讯 QQ Bot AppID/AppSecret、官方 Gateway、心跳/reconnect、C2C 文本 API、`stream_messages` 与 `INTERACTION_CREATE` 回调键盘；新增 `QQTransport`，行为对齐 Telegram 的白名单、`/start`/`/help`/`/lang`、会话映射、流式回复、审批 approve/reject 幂等与重启主动通知。Composition Root 改为并列启用 Telegram/QQ，QQ 配置为空时不启动；`WHITELIST_USER_IDS` 支持 TG numeric ID 与 QQ user OpenID 混合；Telegram 订阅加 platform 过滤以防跨平台串路由。新增 `ws` / `@types/ws`、QQ Transport 单测，更新 `.env.example`、README、PRD、架构、接口契约、命令 UX、实施计划与 PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；沙箱 `bun test` 受既有 DOCX/XLS 动态依赖权限失败 2 项，非沙箱 `bun test` 通过，281 pass / 0 fail / 786 expect。 |
+| 2026-07-11 | **跨平台会话 scope 与 QQ OpenID 发现完成**：会话隔离从旧的用户/CLI/cwd 组合改为 `(platform,userId)`，同一平台同一用户仅允许一条未关闭 conversation；CLI/cwd 仅为当前 target。Repository、SessionManager、CommandRouter、用户语言/target 事件、orchestrator adapter 清理全部按 platform 过滤；新增 `0004_conversation_platform_user_scope`，先关闭历史重复开放会话再创建 partial unique index。新增默认关闭的 `QQBOT_OPENID_DISCOVERY`：开启时未授权 C2C sender 的 OpenID 仅一次写入本机结构化日志，不回复、不进入 Core。同步 README、环境示例、PRD/架构/接口契约/数据模型/命令 UX/实施计划和 PROGRESS。自动验收：`bun run format`、`bun run typecheck`、`bun run lint` 通过；定向测试 118 pass / 0 fail。 |
 | 2026-07-03 | 撰写 01-PRD、02-Architecture；确定长期记忆方案；产出护栏文档集；建立本进度文件 |
 | 2026-07-03 | **M0 完成**：搭建 src 骨架（12 模块）、logger(Pino)、shared 基础类型、depcruise 依赖矩阵、ESLint 禁 env 越界；typecheck/lint/start 三项通过 |
 | 2026-07-03 | 补 CLAUDE.md 硬规矩：对齐 PROGRESS.md；禁自动 git commit/push |

@@ -20,10 +20,10 @@ function createMockRepos() {
   const auditLogs: AuditLog[] = []
   const memories: Memory[] = []
 
-  function findActive(userId: string, cli: string, cwd: string): Conversation | null {
+  function findActive(platform: string, userId: string): Conversation | null {
     const latest =
       Object.values(conversations)
-        .filter(c => c.userId === userId && c.cli === cli && c.cwd === cwd)
+        .filter(c => c.platform === platform && c.userId === userId)
         .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)[0] ?? null
     if (latest?.status === 'closed' || latest?.status === 'closing') return null
     return latest
@@ -48,34 +48,36 @@ function createMockRepos() {
         conversations[conv.id] = conv
         return conv
       },
-      async findActive(userId: string, cli: string, cwd: string) {
-        return findActive(userId, cli, cwd)
+      async findActive(platform: string, userId: string) {
+        return findActive(platform, userId)
       },
-      async findLatestOpenByUser(userId: string) {
+      async findLatestOpenByUser(platform: string, userId: string) {
         return (
           Object.values(conversations)
-            .filter(c => c.userId === userId && c.status !== 'closed' && c.status !== 'closing')
+            .filter(
+              c => c.platform === platform && c.userId === userId && c.status !== 'closed' && c.status !== 'closing',
+            )
             .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)[0] ?? null
         )
       },
-      async findLatestByUser(userId: string) {
+      async findLatestByUser(platform: string, userId: string) {
         return (
           Object.values(conversations)
-            .filter(c => c.userId === userId)
+            .filter(c => c.platform === platform && c.userId === userId)
             .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)[0] ?? null
         )
       },
       async findById(id: string) {
         return conversations[id] ?? null
       },
-      async listOpenByUser(userId: string) {
+      async listOpenByUser(platform: string, userId: string) {
         return Object.values(conversations)
-          .filter(c => c.userId === userId && c.status !== 'closed')
+          .filter(c => c.platform === platform && c.userId === userId && c.status !== 'closed')
           .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)
       },
-      async listRecentByUser(userId: string, limit: number) {
+      async listRecentByUser(platform: string, userId: string, limit: number) {
         return Object.values(conversations)
-          .filter(c => c.userId === userId)
+          .filter(c => c.platform === platform && c.userId === userId)
           .sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt)
           .slice(0, limit)
       },
@@ -247,7 +249,27 @@ describe('SessionManager', () => {
     const cid1 = await sm.findOrCreate({ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/a', text: 'hi' })
     const cid2 = await sm.findOrCreate({ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/b', text: 'hi' })
     expect(cid2).toBe(cid1)
-    expect(targetChanges).toEqual([{ userId: 'u1', cli: 'claude', cwd: '/a' }])
+    expect(targetChanges).toEqual([{ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/a' }])
+  })
+
+  test('相同 userId 的不同平台会话相互隔离，/new 不会关闭另一平台', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const telegram = await sm.findOrCreate({
+      userId: 'same-id',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/tg',
+      text: 'hi',
+    })
+    const qq = await sm.findOrCreate({ userId: 'same-id', platform: 'qq', cli: 'opencode', cwd: '/qq', text: 'hi' })
+
+    await sm.forceNew({ userId: 'same-id', platform: 'telegram', cli: 'claude', cwd: '/next', text: '/new' })
+
+    expect((await repos.conversations.findById(telegram))?.status).toBe('closed')
+    expect((await repos.conversations.findById(qq))?.status).toBe('idle')
+    expect(await repos.conversations.findLatestOpenByUser('qq', 'same-id')).toMatchObject({ id: qq, cli: 'opencode' })
   })
 
   test('forceNew 关闭旧活跃会话再新建', async () => {
@@ -403,7 +425,7 @@ describe('SessionManager', () => {
     const conv = await repos.conversations.findById(restored)
     expect(conv?.cli).toBe('opencode')
     expect(conv?.cwd).toBe('/default')
-    expect(targetChanges.at(-1)).toEqual({ userId: 'u1', cli: 'opencode', cwd: '/default' })
+    expect(targetChanges.at(-1)).toEqual({ userId: 'u1', platform: 'telegram', cli: 'opencode', cwd: '/default' })
   })
 
   test('close 将会话从 running 转 closed', async () => {
@@ -739,7 +761,7 @@ describe('CommandRouter', () => {
     })
 
     expect((await repos.conversations.findById(cid))?.status).toBe('closed')
-    expect(targetChanges).toEqual([{ userId: 'u1', cwd: '/new' }])
+    expect(targetChanges).toEqual([{ userId: 'u1', platform: 'telegram', cwd: '/new' }])
     expect(replies.length).toBe(1)
     expect((replies[0] as { content: string }).content).toContain('已切换工作目录')
   })
@@ -794,7 +816,7 @@ describe('CommandRouter', () => {
 
     expect(replies.length).toBe(1)
     expect((replies[0] as { content: string }).content).toContain('CLI: opencode')
-    expect((await repos.conversations.listRecentByUser('u1', 1))[0]?.cli).toBe('opencode')
+    expect((await repos.conversations.listRecentByUser('telegram', 'u1', 1))[0]?.cli).toBe('opencode')
   })
 
   test('/new 无参数时用最近 closed 会话恢复 cli，但保留当前 cwd target', async () => {
@@ -828,7 +850,7 @@ describe('CommandRouter', () => {
       ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
     })
 
-    const created = (await repos.conversations.listRecentByUser('u1', 10)).find(c => c.status === 'idle')
+    const created = (await repos.conversations.listRecentByUser('telegram', 'u1', 10)).find(c => c.status === 'idle')
     expect(created?.cli).toBe('opencode')
     expect(created?.cwd).toBe('/default')
     expect((replies[0] as { content: string }).content).toContain('CLI: opencode')
@@ -865,7 +887,7 @@ describe('CommandRouter', () => {
       ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
     })
 
-    const created = (await repos.conversations.listRecentByUser('u1', 10)).find(c => c.status === 'idle')
+    const created = (await repos.conversations.listRecentByUser('telegram', 'u1', 10)).find(c => c.status === 'idle')
     expect(created?.cli).toBe('opencode')
     expect(created?.cwd).toBe('/next-project')
   })
@@ -899,7 +921,7 @@ describe('CommandRouter', () => {
       ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
     })
 
-    const created = (await repos.conversations.listRecentByUser('u1', 10)).find(c => c.status === 'idle')
+    const created = (await repos.conversations.listRecentByUser('telegram', 'u1', 10)).find(c => c.status === 'idle')
     expect(created?.cli).toBe('claude')
     expect(created?.cwd).toBe('/opencode-project')
   })

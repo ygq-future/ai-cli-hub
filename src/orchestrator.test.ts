@@ -664,7 +664,7 @@ describe('SessionOrchestrator', () => {
     expect(fake.calls.start[0]!.systemLanguageHint).toContain('中文')
 
     lang = 'en'
-    bus.emit('UserLanguageChanged', { userId: 'u1', language: 'en' })
+    bus.emit('UserLanguageChanged', { userId: 'u1', platform: 'telegram', language: 'en' })
     await tick()
     await orch.handler.onMessage('two', CID)
 

@@ -58,10 +58,10 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     const byId = await repos.conversations.findById(cid)
     expect(byId?.userId).toBe('u-int')
 
-    const active = await repos.conversations.findActive('u-int', 'claude', '/tmp/proj')
+    const active = await repos.conversations.findActive('telegram', 'u-int')
     expect(active?.id).toBe(cid)
 
-    const latest = await repos.conversations.findLatestByUser('u-int')
+    const latest = await repos.conversations.findLatestByUser('telegram', 'u-int')
     expect(latest?.id).toBe(cid)
 
     await repos.conversations.updateStatus(cid, 'idle')
@@ -70,13 +70,14 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
 
     const stale = await repos.conversations.listStaleIdle(Date.now() + 1_000)
     expect(stale.some(c => c.id === cid)).toBe(true)
+    await repos.conversations.updateStatus(cid, 'closed')
   })
 
   test('ConversationRepository：reconcileRuntimeStatuses 重启对账运行期状态', async () => {
     await repos.conversations.create({
       id: startingCid,
       platform: 'telegram',
-      userId: 'u-int',
+      userId: 'u-int-starting',
       cli: 'claude',
       cwd: '/tmp/reconcile-starting',
       status: 'starting',
@@ -86,7 +87,7 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     await repos.conversations.create({
       id: closingCid,
       platform: 'telegram',
-      userId: 'u-int',
+      userId: 'u-int-closing',
       cli: 'claude',
       cwd: '/tmp/reconcile-closing',
       status: 'closing',

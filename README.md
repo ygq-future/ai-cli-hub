@@ -24,7 +24,7 @@ This project acts as an intelligent "Session Manager", allowing you to interact 
 - **CLI Adapter:** Claude Agent SDK first; `node-pty` is reserved for CLI tools without SDK support.
 - **Database:** Postgres (with `pgvector` for long-term memory)
 - **ORM:** [Drizzle ORM](https://orm.drizzle.team/)
-- **Bot Frameworks:** `telegraf` (Telegram), `napcat` / `koishi` (QQ)
+- **Bot Transports:** `telegraf` (Telegram), Tencent Official QQ Bot Gateway/API (`ws` + `fetch`)
 - **Validation & Config:** `zod`
 - **Logging:** `pino`
 
@@ -60,13 +60,19 @@ bun test
 Copy `.env.example` to `.env` and fill in at least:
 
 - `DATABASE_URL`: Postgres connection string.
-- `TELEGRAM_BOT_TOKEN`: Telegram bot token.
-- `WHITELIST_USER_IDS`: comma-separated Telegram user ids allowed to control the hub.
+- `TELEGRAM_BOT_TOKEN`: optional Telegram bot token.
+- `QQBOT_APP_ID` / `QQBOT_APP_SECRET`: optional Tencent Official QQ Bot credentials; configure both or neither.
+- `QQBOT_OPENID_DISCOVERY`: default `false`; temporarily enable it to log the OpenID of an unapproved QQ C2C sender, without replying to or routing that message.
+- `WHITELIST_USER_IDS`: comma-separated mixed Telegram numeric IDs and QQ user OpenIDs allowed to control the hub.
 - `DEFAULT_CWD`: default workspace directory for new sessions.
 - `AGENT_DESCRIPTION`: optional role hint injected when the adapter starts.
 - `OCR_API_BASE_URL`: optional Light OCR API base URL; leave empty to disable image OCR.
 
 All environment variables are parsed only by `src/config/`.
+
+### Tencent Official QQ Bot
+
+Open [QQ Bot quick registration](https://q.qq.com/qqbot/openclaw/login.html), create a bot, and copy its AppID and AppSecret into `QQBOT_APP_ID` and `QQBOT_APP_SECRET`. QQ does not expose a human-readable QQ number as the API user identity; it sends a user OpenID. To obtain it safely, set `QQBOT_OPENID_DISCOVERY=true`, restart the service, send the bot one C2C message, copy the logged OpenID into `WHITELIST_USER_IDS`, then immediately disable the flag and restart. The discovery message is not replied to and never enters Core. QQ C2C text, official streaming replies, slash commands, and approval buttons are supported; Telegram and QQ can run together.
 
 ---
 
@@ -99,7 +105,7 @@ sudo systemctl enable --now ai-cli-hub
 sudo journalctl -u ai-cli-hub -f
 ```
 
-The process handles `SIGTERM` by stopping Telegram ingress, flushing message drafts, stopping active adapters, destroying modules, and closing the Bun SQL client. On startup, runtime-only conversation states left by a previous process are reconciled back to persisted-safe states.
+The process handles `SIGTERM` by stopping all enabled Transport ingress, flushing message drafts, stopping active adapters, destroying modules, and closing the Bun SQL client. On startup, runtime-only conversation states left by a previous process are reconciled back to persisted-safe states.
 
 ---
 

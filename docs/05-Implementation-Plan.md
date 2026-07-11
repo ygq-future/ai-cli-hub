@@ -55,7 +55,7 @@ flowchart LR
 ### M3 — Core 状态机与会话生命周期
 
 - `core/`：`SessionManager`（状态机，合法迁移见 02-架构 §5.2）、`Auth`（白名单二次校验）、`MessageRouter`。
-- 会话边界：`findActive(user,cli,cwd)` 复用 / `/new` 关闭旧会话后新建 / `/cwd` 切目标目录 / 归档扫描。
+- 会话 scope：`findActive(platform,user)` 复用 / `/new` 关闭同 scope 旧会话后新建 / `/cwd` 切目标目录 / 归档扫描；CLI/cwd 不是隔离维度。
 - 进程占位：先用 **MockRuntime** 打通"收消息→路由→存库→回消息"闭环。
 - **验收**：状态机单测覆盖全部合法/非法迁移；用 Mock 打通端到端（无真实 PTY）；进程回收→会话转 `idle` 而非 `closed`。
 
@@ -164,7 +164,7 @@ flowchart TD
 对齐 [PRD §8](./01-PRD.md) 交付清单：
 
 - ✅ Bun+TS 架构 / Postgres+Drizzle+Repository / Event Bus / Config
-- ✅ Telegram 接入 / Claude Adapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）/ opencode Adapter（`@opencode-ai/sdk`，SDK 家族）/ 状态机会话生命周期
+- ✅ Telegram + 腾讯官方 QQ Bot C2C 接入 / Claude Adapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）/ opencode Adapter（`@opencode-ai/sdk`，SDK 家族）/ 状态机会话生命周期
 - ✅ Message Aggregator / Approval Flow / 永久 Audit
 - ✅ 会话边界（cwd 目标 / `/new` / `/cwd` / `/close` / 归档）
 - ✅ 记忆基础：实例级环境快照记忆 + 命令式全局记忆注入（向量列预留待 V1.5）
