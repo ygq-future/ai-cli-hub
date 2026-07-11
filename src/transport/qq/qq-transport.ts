@@ -1,7 +1,19 @@
 /** 腾讯官方 QQ Bot Transport：仅 C2C 私聊，行为与 TelegramTransport 同构。 */
+import { mkdir } from 'node:fs/promises'
+import path from 'node:path'
 import type { AppConfig } from '../../config'
 import type { EventBus } from '../../event'
-import type { CliType, ConversationId, MessageRef, Platform, Transport, Unsubscribe, UserLanguage } from '../../shared'
+import type {
+  CliType,
+  ConversationId,
+  InboundAttachment,
+  MediaPreprocessor,
+  MessageRef,
+  Platform,
+  Transport,
+  Unsubscribe,
+  UserLanguage,
+} from '../../shared'
 import {
   createQQBotClient,
   type QQBotClient,
@@ -33,6 +45,10 @@ export interface QQTransportDeps {
   bus: EventBus
   config: AppConfig
   client?: QQBotClient
+  /** 媒体预处理器（Composition Root 注入；缺省为原文透传）。 */
+  mediaPreprocessor?: MediaPreprocessor
+  /** 测试注入：绕过真实 QQ 附件下载。 */
+  downloadQQFile?: (url: string, opts: { fileName?: string; fileSize?: number }) => Promise<string>
 }
 
 export interface QQTransport extends Transport {
@@ -52,15 +68,59 @@ function randomSequence(): number {
   return Math.floor(Math.random() * 65_536)
 }
 
+/** 将 QQ 附件 content_type 映射为共享附件 kind。表情包（GIF/PNG/JPEG）归入 photo。 */
+function mapQQContentType(contentType: unknown): InboundAttachment['kind'] {
+  const t = String(contentType ?? '').toLowerCase()
+  if (t.startsWith('image/')) return 'photo'
+  if (t === 'file') return 'document'
+  if (t === 'voice') return 'voice'
+  if (t.startsWith('video/')) return 'video'
+  return 'other'
+}
+
+function sanitizeFileName(name: string): string {
+  const forbidden = new Set(['<', '>', ':', '"', '/', '\\', '|', '?', '*'])
+  const cleaned = [...name]
+    .map(ch => {
+      const code = ch.codePointAt(0) ?? 0
+      return code < 32 || forbidden.has(ch) ? '_' : ch
+    })
+    .join('')
+    .trim()
+  return cleaned || 'qq-file'
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
 /** 把 opencode / claude 的审批 detail JSON 精简为 2-3 行可读摘要，避免 QQ 消息被大段 JSON 淹没。 */
 function summarizeApprovalDetail(detail: string): string {
   try {
     const obj = JSON.parse(detail) as Record<string, unknown>
     const lines: string[] = []
 
-    // opencode: { type, patterns, metadata: { filepath, diff }, always }
-    if (obj.type === 'edit' || obj.metadata) {
+    // claude: { command, description }
+    if (typeof obj.command === 'string') lines.push(`命令：${obj.command}`)
+    if (typeof obj.description === 'string' && obj.description) lines.push(`说明：${obj.description}`)
+
+    // opencode: { permission: "bash"|"edit"|..., patterns, metadata, tool, always }
+    if (typeof obj.permission === 'string') {
       const meta = (obj.metadata as Record<string, unknown>) ?? {}
+
+      if (typeof meta.command === 'string' && meta.command) {
+        lines.push(`命令：${meta.command}`)
+      }
       if (typeof meta.filepath === 'string') lines.push(`文件：${meta.filepath}`)
       if (typeof meta.diff === 'string') {
         const added = (meta.diff.match(/^\+(?!\+\+)/gm) ?? []).length
@@ -68,10 +128,6 @@ function summarizeApprovalDetail(detail: string): string {
         lines.push(`变更：+${added}/-${removed} 行`)
       }
     }
-
-    // claude: { command, description }
-    if (typeof obj.command === 'string') lines.push(`命令：${obj.command}`)
-    if (typeof obj.description === 'string' && obj.description) lines.push(`说明：${obj.description}`)
 
     if (Array.isArray(obj.always) && (obj.always as string[]).includes('*')) {
       lines.push('(此工具已设为始终允许，后续调用将不再询问)')
@@ -118,6 +174,13 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       appSecret: config.QQBOT_APP_SECRET,
       wsProxy: config.QQBOT_WS_PROXY || undefined,
     })
+  const mediaPreprocessor =
+    deps.mediaPreprocessor ??
+    ({
+      preprocess(input) {
+        return Promise.resolve({ text: input.text, warnings: [] })
+      },
+    } satisfies MediaPreprocessor)
   const whitelist = new Set(config.WHITELIST_USER_IDS)
   const userContext = new Map<string, QQInboundContext>()
   const userLang = new Map<string, UserLanguage>()
@@ -144,6 +207,33 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
   function targetCwd(userId: string): string {
     return userCwd.get(userId) ?? config.DEFAULT_CWD
   }
+
+  async function defaultDownloadQQFile(url: string, opts: { fileName?: string; fileSize?: number }): Promise<string> {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`QQ 文件下载失败：HTTP ${response.status}`)
+    const bytes = await response.arrayBuffer()
+    if (bytes.byteLength > config.MEDIA_MAX_FILE_BYTES) {
+      throw new Error(`文件过大：${bytes.byteLength} bytes，限制 ${config.MEDIA_MAX_FILE_BYTES} bytes。`)
+    }
+    const baseName = opts.fileName ?? `qq-file-${crypto.randomUUID().slice(0, 8)}`
+    const dir = path.resolve(config.MEDIA_DOWNLOAD_DIR)
+    await mkdir(dir, { recursive: true })
+    const localPath = path.join(dir, `${Date.now()}-${sanitizeFileName(baseName)}`)
+    await Bun.write(localPath, bytes)
+    return localPath
+  }
+
+  function downloadQQFile(url: string, opts: { fileName?: string; fileSize?: number }): Promise<string> {
+    if (opts.fileSize && opts.fileSize > config.MEDIA_MAX_FILE_BYTES) {
+      throw new Error(`文件过大：${opts.fileSize} bytes，限制 ${config.MEDIA_MAX_FILE_BYTES} bytes。`)
+    }
+    return withTimeout(
+      (deps.downloadQQFile ?? defaultDownloadQQFile)(url, opts),
+      config.MEDIA_PARSE_TIMEOUT_MS,
+      'QQ file download',
+    )
+  }
+
   function rememberSession(p: {
     conversationId?: ConversationId
     platform?: Platform
@@ -186,7 +276,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       ref: { platform: 'qq', chatId: context.chatId, nativeId: context.messageId },
     })
   }
-  function onC2CMessage(data: Record<string, unknown>) {
+  async function onC2CMessage(data: Record<string, unknown>) {
     const author = asRecord(data.author)
     const userId = String(author.user_openid ?? data.author_openid ?? '')
     const messageId = String(data.id ?? '')
@@ -204,7 +294,58 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
     }
     const context: QQInboundContext = { userId, chatId: userId, messageId, eventId }
     userContext.set(userId, context)
-    emitIncoming(context, String(data.content ?? ''))
+
+    const text = String(data.content ?? '')
+    const rawAttachments: Array<Record<string, unknown>> = Array.isArray(data.attachments) ? data.attachments : []
+
+    // 命令直接走发布流程（不经过媒体预处理）
+    const commandName = text ? parseCommandName(text) : null
+    if (commandName) {
+      emitIncoming(context, text)
+      return
+    }
+
+    // —— 媒体入站：下载附件 + ASR 文本 + 媒体预处理（与 TG 同构）——
+    try {
+      const attachments: InboundAttachment[] = []
+      for (const att of rawAttachments) {
+        const url = String(att.url ?? '')
+        if (!url) continue
+        const fileName = att.filename ? String(att.filename) : undefined
+        const fileSize = typeof att.size === 'number' ? att.size : undefined
+        const mimeType = att.content_type ? String(att.content_type) : undefined
+        const kind = mapQQContentType(mimeType)
+        const localPath = await downloadQQFile(url, { fileName, fileSize })
+        attachments.push({
+          kind,
+          fileId: url,
+          fileName,
+          mimeType,
+          fileSize,
+          localPath,
+        })
+      }
+
+      // QQ 语音消息内置 ASR，文本直接注入
+      const asrTexts = rawAttachments
+        .filter(a => a.asr_refer_text)
+        .map(a => `[Voice ASR: ${a.asr_refer_text}]`)
+        .join('\n')
+      const fullText = [text, asrTexts].filter(Boolean).join('\n') || '[media message]'
+
+      const result = await withTimeout(
+        mediaPreprocessor.preprocess({
+          text: fullText,
+          attachments,
+        }),
+        config.MEDIA_PARSE_TIMEOUT_MS,
+        'QQ media preprocessing',
+      )
+      emitIncoming(context, result.text)
+    } catch (err) {
+      reportError('qq:media', err)
+      void sendToContext(context, `附件处理失败：${err instanceof Error ? err.message : String(err)}`).catch(() => {})
+    }
   }
   function onInteraction(data: Record<string, unknown>) {
     const resolved = asRecord(asRecord(data.data).resolved)
@@ -246,7 +387,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       .catch(err => reportError('qq:approval-result', err))
   }
   function onGatewayEvent(event: QQGatewayEvent) {
-    if (event.type === 'C2C_MESSAGE_CREATE') onC2CMessage(event.data)
+    if (event.type === 'C2C_MESSAGE_CREATE') void onC2CMessage(event.data).catch(err => reportError('qq:c2c', err))
     if (event.type === 'INTERACTION_CREATE') onInteraction(event.data)
   }
 
@@ -312,7 +453,10 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       // opencode 的 detail 是 JSON（包含 diff / filepath / metadata 等），直接展示太杂乱；
       // claude 的 detail 是 JSON（command / description），同样需要提取。
       const summary = summarizeApprovalDetail(p.detail)
-      const content = `⚠️ 需要授权\n\n命令：${p.command}\n\n${summary}`
+      // 当 summary 第一行恰好和 p.command 相同时去重，避免重复行。
+      const firstLine = summary.split('\n')[0] ?? ''
+      const dedupedSummary = firstLine === `命令：${p.command}` ? summary.split('\n').slice(1).join('\n') : summary
+      const content = [`⚠️ 需要授权`, '', `命令：${p.command}`, dedupedSummary].filter(Boolean).join('\n')
       void sendToContext(context, content, approvalKeyboard(p.approvalId))
         .then(() =>
           approvals.set(p.approvalId, { conversationId: p.conversationId, chatId: context.chatId, resolved: false }),

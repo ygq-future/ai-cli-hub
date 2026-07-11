@@ -123,7 +123,7 @@ async function main() {
     transports.push(createTelegramTransport({ bus, config, mediaPreprocessor }))
   }
   if (config.QQBOT_APP_ID) {
-    transports.push(createQQTransport({ bus, config }))
+    transports.push(createQQTransport({ bus, config, mediaPreprocessor }))
   }
   if (!transports.length) {
     throw new Error('At least one transport must be configured: TELEGRAM_BOT_TOKEN or QQBOT_APP_ID/QQBOT_APP_SECRET.')

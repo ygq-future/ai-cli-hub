@@ -208,14 +208,17 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
   }
 
   function permissionToApproval(permission: Record<string, unknown>): ApprovalRequest {
-    const type = readString(permission, 'type') ?? readString(permission, 'permission') ?? 'permission'
-    const command = readString(permission, 'title') ?? type
+    // 官方类型：新版 permission.asked 有 permission 字段（bash/edit/glob…），旧版用 type
+    const perm = readString(permission, 'permission') ?? readString(permission, 'type') ?? 'permission'
+    const meta = asRecord(permission.metadata) ?? {}
+    // 优先用 title（旧版），否则 bash 时从 metadata.command 提取标题
+    const command =
+      readString(permission, 'title') ?? (perm === 'bash' ? readString(meta, 'command') : undefined) ?? perm
     return {
       approvalId: readString(permission, 'id') ?? '',
       command,
       detail: JSON.stringify({
-        type,
-        pattern: permission.pattern,
+        permission: perm,
         patterns: permission.patterns,
         metadata: permission.metadata,
         tool: permission.tool,

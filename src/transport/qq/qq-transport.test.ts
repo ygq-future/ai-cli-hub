@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { loadConfig } from '../../config'
 import { createEventBus } from '../../event'
 import type { QQBotClient, QQGatewayEvent, QQKeyboard, QQStreamRequest } from './qq-bot-client'
+import type { MediaPreprocessInput, MediaPreprocessResult, MediaPreprocessor } from '../../shared'
 import { createQQTransport } from './qq-transport'
 
 const CID = 'conv-qq' as never
@@ -246,5 +247,243 @@ describe('QQTransport 出站流式与审批', () => {
 
     expect(approved).toEqual([{ conversationId: CID, approvalId: 'approval-1', operator: 'qq-openid' }])
     expect(fake.messages.some(message => message.content.includes('已批准'))).toBe(true)
+  })
+})
+
+describe('QQTransport 媒体入站', () => {
+  function fakeMediaPreprocessor(): MediaPreprocessor & { calls: MediaPreprocessInput[] } {
+    const calls: MediaPreprocessInput[] = []
+    return {
+      calls,
+      async preprocess(input: MediaPreprocessInput): Promise<MediaPreprocessResult> {
+        calls.push(input)
+        const lines: string[] = [input.text || '[media message]']
+        if (input.attachments?.length) {
+          lines.push(`[attachments: ${input.attachments.map(a => a.kind).join(',')}]`)
+        }
+        return { text: lines.join('\n'), warnings: [] }
+      },
+    }
+  }
+
+  function c2cWithAttachments(
+    userId = 'qq-openid',
+    content = '',
+    attachments: Array<Record<string, unknown>> = [],
+  ): QQGatewayEvent {
+    return {
+      type: 'C2C_MESSAGE_CREATE',
+      data: {
+        id: 'message-att-1',
+        event_id: 'event-att-1',
+        content,
+        author: { user_openid: userId },
+        attachments,
+      },
+    }
+  }
+
+  test('图片附件下载后走 mediaPreprocessor（kind=photo）', async () => {
+    const bus = createEventBus()
+    const fake = createFakeClient()
+    const preprocessor = fakeMediaPreprocessor()
+    const downloads: Array<{ url: string }> = []
+    const transport = createQQTransport({
+      bus,
+      config: fakeConfig(),
+      client: fake.client,
+      mediaPreprocessor: preprocessor,
+      downloadQQFile: async (url, _opts) => {
+        downloads.push({ url })
+        return `/media/qq-${Date.now()}.jpg`
+      },
+    })
+    await transport.start()
+    const received: Array<{ text: string }> = []
+    bus.on('MessageReceived', p => received.push(p))
+
+    fake.emit(
+      c2cWithAttachments('qq-openid', '看看这张图', [
+        { content_type: 'image/jpeg', url: 'https://qq.example.com/img.jpg', filename: 'photo.jpg', size: 12345 },
+      ]),
+    )
+    await tick()
+
+    expect(downloads.length).toBe(1)
+    expect(preprocessor.calls.length).toBe(1)
+    expect(preprocessor.calls[0]?.attachments).toEqual([
+      expect.objectContaining({ kind: 'photo', fileName: 'photo.jpg', mimeType: 'image/jpeg', fileSize: 12345 }),
+    ])
+    expect(received.length).toBe(1)
+    expect(received[0]?.text).toContain('[attachments: photo]')
+  })
+
+  test('GIF 表情包按 image/gif → kind=photo 归类', async () => {
+    const bus = createEventBus()
+    const fake = createFakeClient()
+    const preprocessor = fakeMediaPreprocessor()
+    const transport = createQQTransport({
+      bus,
+      config: fakeConfig(),
+      client: fake.client,
+      mediaPreprocessor: preprocessor,
+      downloadQQFile: async () => `/media/qq-sticker.gif`,
+    })
+    await transport.start()
+
+    fake.emit(
+      c2cWithAttachments('qq-openid', '', [
+        { content_type: 'image/gif', url: 'https://qq.example.com/sticker.gif', filename: 'sticker.gif', size: 9999 },
+      ]),
+    )
+    await tick()
+
+    expect(preprocessor.calls[0]?.attachments).toEqual([
+      expect.objectContaining({ kind: 'photo', mimeType: 'image/gif' }),
+    ])
+  })
+
+  test('普通文件按 file → kind=document 归类', async () => {
+    const bus = createEventBus()
+    const fake = createFakeClient()
+    const preprocessor = fakeMediaPreprocessor()
+    const transport = createQQTransport({
+      bus,
+      config: fakeConfig(),
+      client: fake.client,
+      mediaPreprocessor: preprocessor,
+      downloadQQFile: async () => `/media/qq-doc.pdf`,
+    })
+    await transport.start()
+
+    fake.emit(
+      c2cWithAttachments('qq-openid', '帮我看看这个文档', [
+        { content_type: 'file', url: 'https://qq.example.com/doc.pdf', filename: 'report.pdf', size: 50000 },
+      ]),
+    )
+    await tick()
+
+    expect(preprocessor.calls[0]?.attachments).toEqual([
+      expect.objectContaining({ kind: 'document', fileName: 'report.pdf', mimeType: 'file' }),
+    ])
+  })
+
+  test('语音消息注入 ASR 文本并归类为 voice', async () => {
+    const bus = createEventBus()
+    const fake = createFakeClient()
+    const preprocessor = fakeMediaPreprocessor()
+    const transport = createQQTransport({
+      bus,
+      config: fakeConfig(),
+      client: fake.client,
+      mediaPreprocessor: preprocessor,
+      downloadQQFile: async () => `/media/qq-voice.wav`,
+    })
+    await transport.start()
+
+    fake.emit(
+      c2cWithAttachments('qq-openid', '', [
+        {
+          content_type: 'voice',
+          url: 'https://qq.example.com/voice.wav',
+          filename: 'voice.wav',
+          size: 8000,
+          asr_refer_text: '你好请问在吗',
+        },
+      ]),
+    )
+    await tick()
+
+    expect(preprocessor.calls[0]?.text).toContain('[Voice ASR: 你好请问在吗]')
+    expect(preprocessor.calls[0]?.attachments).toEqual([expect.objectContaining({ kind: 'voice' })])
+  })
+
+  test('无附件纯文本仍走 mediaPreprocessor（emoji 归一化）', async () => {
+    const bus = createEventBus()
+    const fake = createFakeClient()
+    const preprocessor = fakeMediaPreprocessor()
+    const transport = createQQTransport({
+      bus,
+      config: fakeConfig(),
+      client: fake.client,
+      mediaPreprocessor: preprocessor,
+    })
+    await transport.start()
+    const received: Array<{ text: string }> = []
+    bus.on('MessageReceived', p => received.push(p))
+
+    fake.emit(c2c('qq-openid', 'hello 😊'))
+    await tick()
+
+    expect(preprocessor.calls.length).toBe(1)
+    expect(preprocessor.calls[0]?.text).toBe('hello 😊')
+    expect(received[0]?.text).toContain('hello')
+  })
+
+  test('attachments 没有 url 时跳过下载（空附件列表）', async () => {
+    const bus = createEventBus()
+    const fake = createFakeClient()
+    const preprocessor = fakeMediaPreprocessor()
+    const transport = createQQTransport({
+      bus,
+      config: fakeConfig(),
+      client: fake.client,
+      mediaPreprocessor: preprocessor,
+    })
+    await transport.start()
+
+    fake.emit(c2cWithAttachments('qq-openid', 'hi', [{ content_type: 'image/png', filename: 'no-url.png', size: 100 }]))
+    await tick()
+
+    // 没有 url → 不下载 → 附件列表为空
+    expect(preprocessor.calls[0]?.attachments?.length).toBe(0)
+  })
+
+  test('媒体预处理失败时发送错误提示', async () => {
+    const bus = createEventBus()
+    const fake = createFakeClient()
+    const transport = createQQTransport({
+      bus,
+      config: fakeConfig(),
+      client: fake.client,
+      mediaPreprocessor: {
+        async preprocess() {
+          throw new Error('OCR service unavailable')
+        },
+      },
+      downloadQQFile: async () => `/media/qq-img.jpg`,
+    })
+    await transport.start()
+
+    fake.emit(
+      c2cWithAttachments('qq-openid', '', [
+        { content_type: 'image/jpeg', url: 'https://qq.example.com/img.jpg', filename: 'img.jpg', size: 1234 },
+      ]),
+    )
+    await tick()
+
+    expect(fake.messages.some(m => m.content.includes('OCR service unavailable'))).toBe(true)
+  })
+
+  test('文件超过 MEDIA_MAX_FILE_BYTES 不下载并报错', async () => {
+    const bus = createEventBus()
+    const fake = createFakeClient()
+    const transport = createQQTransport({
+      bus,
+      config: fakeConfig({ MEDIA_MAX_FILE_BYTES: '1000' }),
+      client: fake.client,
+      mediaPreprocessor: fakeMediaPreprocessor(),
+      downloadQQFile: async () => `/media/should-not-download.jpg`,
+    })
+    await transport.start()
+
+    fake.emit(
+      c2cWithAttachments('qq-openid', '', [
+        { content_type: 'image/jpeg', url: 'https://qq.example.com/large.jpg', filename: 'large.jpg', size: 50000 },
+      ]),
+    )
+    await tick()
+
+    expect(fake.messages.some(m => m.content.includes('文件过大'))).toBe(true)
   })
 })

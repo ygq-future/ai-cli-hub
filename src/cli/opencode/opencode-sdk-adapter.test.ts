@@ -273,7 +273,13 @@ describe('OpenCodeSdkAdapter', () => {
       {
         approvalId: 'perm1',
         command: 'Run shell command',
-        detail: JSON.stringify({ type: 'bash', pattern: 'rm *', metadata: { command: 'rm *' } }),
+        detail: JSON.stringify({
+          permission: 'bash',
+          patterns: undefined,
+          metadata: { command: 'rm *' },
+          tool: undefined,
+          always: undefined,
+        }),
       },
     ])
 
@@ -388,10 +394,11 @@ describe('OpenCodeSdkAdapter', () => {
         approvalId: 'perm-edit',
         command: 'edit',
         detail: JSON.stringify({
-          type: 'edit',
+          permission: 'edit',
           patterns: ['opencode-smoke.txt'],
           metadata: { filepath: '/tmp/project/opencode-smoke.txt', diff: '+hello opencode' },
           tool: { messageID: 'm1', callID: 'call1' },
+          always: undefined,
         }),
       },
     ])
