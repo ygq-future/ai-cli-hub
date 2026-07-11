@@ -10,7 +10,7 @@ import type {
   Conversation,
   NewConversation,
   ConversationId,
-  CliType,
+  Platform,
   SessionStatus,
 } from './types'
 
@@ -22,23 +22,24 @@ export function createConversationRepository(db: Db): ConversationRepository {
       return row
     },
 
-    async findActive(userId: string, cli: CliType, cwd: string): Promise<Conversation | null> {
+    async findActive(platform: Platform, userId: string): Promise<Conversation | null> {
       const [row] = await db
         .select()
         .from(conversations)
-        .where(and(eq(conversations.userId, userId), eq(conversations.cli, cli), eq(conversations.cwd, cwd)))
+        .where(and(eq(conversations.platform, platform), eq(conversations.userId, userId)))
         .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
         .limit(1)
       if (row?.status === 'closed' || row?.status === 'closing') return null
       return row ?? null
     },
 
-    async findLatestOpenByUser(userId: string): Promise<Conversation | null> {
+    async findLatestOpenByUser(platform: Platform, userId: string): Promise<Conversation | null> {
       const [row] = await db
         .select()
         .from(conversations)
         .where(
           and(
+            eq(conversations.platform, platform),
             eq(conversations.userId, userId),
             ne(conversations.status, 'closed'),
             ne(conversations.status, 'closing'),
@@ -49,11 +50,11 @@ export function createConversationRepository(db: Db): ConversationRepository {
       return row ?? null
     },
 
-    async findLatestByUser(userId: string): Promise<Conversation | null> {
+    async findLatestByUser(platform: Platform, userId: string): Promise<Conversation | null> {
       const [row] = await db
         .select()
         .from(conversations)
-        .where(eq(conversations.userId, userId))
+        .where(and(eq(conversations.platform, platform), eq(conversations.userId, userId)))
         .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
         .limit(1)
       return row ?? null
@@ -64,19 +65,25 @@ export function createConversationRepository(db: Db): ConversationRepository {
       return row ?? null
     },
 
-    listOpenByUser(userId: string): Promise<Conversation[]> {
+    listOpenByUser(platform: Platform, userId: string): Promise<Conversation[]> {
       return db
         .select()
         .from(conversations)
-        .where(and(eq(conversations.userId, userId), ne(conversations.status, 'closed')))
+        .where(
+          and(
+            eq(conversations.platform, platform),
+            eq(conversations.userId, userId),
+            ne(conversations.status, 'closed'),
+          ),
+        )
         .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
     },
 
-    listRecentByUser(userId: string, limit: number): Promise<Conversation[]> {
+    listRecentByUser(platform: Platform, userId: string, limit: number): Promise<Conversation[]> {
       return db
         .select()
         .from(conversations)
-        .where(eq(conversations.userId, userId))
+        .where(and(eq(conversations.platform, platform), eq(conversations.userId, userId)))
         .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
         .limit(limit)
     },

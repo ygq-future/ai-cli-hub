@@ -2,9 +2,9 @@
  * main.ts —— Composition Root：唯一装配具体实现的地方。
  *
  * 装配顺序（按依赖方向）：
- *  config → logger → bus → db → repositories → audit → memory → aggregator → telegramTransport → orchestrator → coreHub
+ *  config → logger → bus → db → repositories → audit → memory → aggregator → transports → orchestrator → coreHub
  *
- * 优雅关闭信号：SIGINT/SIGTERM → transport.stop → orchestrator.destroy → memory.destroy → audit.destroy → aggregator.destroy → coreHub.destroy
+ * 优雅关闭信号：SIGINT/SIGTERM → transports.stop → orchestrator.destroy → memory.destroy → audit.destroy → aggregator.destroy → coreHub.destroy
  *
  * 依赖矩阵（CLAUDE.md §3）：只有本文件允许 import 具体实现并装配。
  */
@@ -32,8 +32,8 @@ import {
   type HealthCheckResult,
 } from './ops'
 import { createSessionOrchestrator } from './orchestrator'
-import { createTelegramTransport } from './transport'
-import type { Transport } from './shared'
+import { createQQTransport, createTelegramTransport } from './transport'
+import type { Transport, UserLanguage } from './shared'
 
 async function main() {
   // —— 1. Config ——
@@ -109,7 +109,7 @@ async function main() {
     maxChunkChars: config.AGGREGATOR_MAX_CHUNK_CHARS,
   })
 
-  // —— 8. Media + Telegram Transport ——
+  // —— 8. Media + Transports ——
   const ocrProvider = createLightOcrProvider({
     baseUrl: config.OCR_API_BASE_URL,
     timeoutMs: config.OCR_API_TIMEOUT_MS,
@@ -118,8 +118,23 @@ async function main() {
     maxTextChars: config.MEDIA_MAX_TEXT_CHARS,
     ocrProvider,
   })
-  const telegram = createTelegramTransport({ bus, config, mediaPreprocessor })
-  const transport: Transport = telegram
+  const transports: Transport[] = []
+  if (config.TELEGRAM_BOT_TOKEN) {
+    transports.push(createTelegramTransport({ bus, config, mediaPreprocessor }))
+  }
+  if (config.QQBOT_APP_ID) {
+    transports.push(createQQTransport({ bus, config }))
+  }
+  if (!transports.length) {
+    throw new Error('At least one transport must be configured: TELEGRAM_BOT_TOKEN or QQBOT_APP_ID/QQBOT_APP_SECRET.')
+  }
+  const userLanguages = new Map<string, UserLanguage>()
+  const languageKey = (platform: string, userId: string) => `${platform}:${userId}`
+  const unsubscribeLanguage = bus.on('UserLanguageChanged', p =>
+    userLanguages.set(languageKey(p.platform, p.userId), p.language),
+  )
+  const getUserLanguage = (platform: 'telegram' | 'qq' | 'websocket', userId: string): UserLanguage =>
+    userLanguages.get(languageKey(platform, userId)) ?? 'zh'
 
   // —— 9. Orchestrator（adapter 编排，每会话一个 adapter）——
   const orch = createSessionOrchestrator({
@@ -138,7 +153,7 @@ async function main() {
         rawMessageLogger: rawJson => logger.info({ cli: 'claude', rawJson }, 'Agent SDK raw message'),
       })
     },
-    getUserLanguage: telegram.getUserLanguage,
+    getUserLanguage,
     getSystemMemoryHint: memory.recallGlobalContext,
     getRelevantMemoryHint: memory.recallRelevantContext,
     agentDescription: config.AGENT_DESCRIPTION,
@@ -156,7 +171,7 @@ async function main() {
     repos,
     config,
     handler: orch.handler,
-    getUserLanguage: telegram.getUserLanguage,
+    getUserLanguage,
     resolveCwd,
     refreshEnvironmentSnapshot: memory.refreshEnvironmentSnapshot,
     getHealthReport: health.getReport,
@@ -175,7 +190,7 @@ async function main() {
     try {
       await withTimeout(
         (async () => {
-          await transport.stop()
+          await Promise.all(transports.map(transport => transport.stop()))
           aggregator.flushAll()
           await orch.destroy()
           memory.destroy()
@@ -184,6 +199,7 @@ async function main() {
           coreHub.destroy()
           await closeDb(db)
           detachLogger()
+          unsubscribeLanguage()
         })(),
         config.SERVICE_SHUTDOWN_TIMEOUT_MS,
         'shutdown',
@@ -200,10 +216,36 @@ async function main() {
 
   // —— 启动 ——
   logger.info({ cwd: config.DEFAULT_CWD }, 'AI CLI Hub 启动')
-  await transport.start()
-  await notifyRestartComplete(restartNotices, transport, logger)
+  logger.info(
+    {
+      transports: transports.map(t => t.platform),
+      telegram: Boolean(config.TELEGRAM_BOT_TOKEN),
+      qq: Boolean(config.QQBOT_APP_ID),
+    },
+    '已装配 Transport 列表',
+  )
+  let readyCount = 0
+  for (const transport of transports) {
+    logger.info({ platform: transport.platform }, '正在启动 Transport…')
+    try {
+      await transport.start()
+      readyCount += 1
+      logger.info({ platform: transport.platform }, 'Transport 已就绪')
+    } catch (err) {
+      // 单个 Transport 起不来（如 QQ Gateway 未 READY）不应拖垮整个进程与其它 Transport。
+      // QQ 内部会在后台持续重连；此处仅告警并继续。
+      logger.error(
+        { err, platform: transport.platform },
+        'Transport 启动失败（其余 Transport 继续运行，该 Transport 将在后台重试）',
+      )
+    }
+  }
+  if (readyCount === 0) {
+    logger.error('没有任何 Transport 成功就绪，请检查 Token/网络/代理配置；进程保持存活以便后台重连。')
+  }
+  await notifyRestartComplete(restartNotices, transports, logger)
 
-  // 主进程保持存活（transport.start() 只启 bot，不阻塞；此处挂起防 main 退出）
+  // 主进程保持存活（Transport start() 只建立入站连接，不阻塞；此处挂起防 main 退出）
   await new Promise(() => {})
 }
 
@@ -326,12 +368,14 @@ function firstLine(value: string): string {
 
 async function notifyRestartComplete(
   store: ReturnType<typeof createRestartNoticeStore>,
-  transport: Transport,
+  transports: Transport[],
   logger: ReturnType<typeof createLogger>,
 ): Promise<void> {
   try {
     const notice = await store.consume()
     if (!notice) return
+    const transport = transports.find(item => item.platform === notice.ref.platform)
+    if (!transport) throw new Error(`Restart notice transport unavailable: ${notice.ref.platform}`)
     await transport.sendMessage(notice.ref.chatId, '✅ 服务已重启完成，可以继续发送消息。')
   } catch (err) {
     logger.error({ err }, 'Failed to send restart completion notification')

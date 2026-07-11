@@ -5,7 +5,7 @@
  * 实体类型（Conversation/Message/...）源自 storage/ 的 $inferSelect/$inferInsert（docs/04），
  * 在此再导出，令 core/ 经 repository/ 获取领域类型而无需直连 storage/（遵依赖矩阵）。
  */
-import type { CliType, SessionStatus, ConversationId, MessageId } from '../shared'
+import type { CliType, Platform, SessionStatus, ConversationId, MessageId } from '../shared'
 import type {
   Conversation,
   NewConversation,
@@ -18,20 +18,20 @@ import type {
 } from '../storage'
 
 export type { Conversation, NewConversation, Message, NewMessage, AuditLog, NewAuditLog, Memory, NewMemory }
-export type { CliType, SessionStatus, ConversationId, MessageId }
+export type { CliType, Platform, SessionStatus, ConversationId, MessageId }
 
 export interface ConversationRepository {
   create(c: NewConversation): Promise<Conversation>
-  /** 会话边界定位：仅最新同边界会话未 closed/closing 时复用；避免 /close 后翻出旧 idle。 */
-  findActive(userId: string, cli: CliType, cwd: string): Promise<Conversation | null>
-  /** 用户最新可复用会话：用于进程重启后恢复内存目标并复用 idle；不复用 closing/closed。 */
-  findLatestOpenByUser(userId: string): Promise<Conversation | null>
-  /** 用户最近任意会话：用于没有 open 会话时恢复持久 target cli。 */
-  findLatestByUser(userId: string): Promise<Conversation | null>
+  /** scope=(platform,userId) 内最新未 closed/closing 会话；cli/cwd 是会话属性而非隔离维度。 */
+  findActive(platform: Platform, userId: string): Promise<Conversation | null>
+  /** scope 内最新可复用会话；用于进程重启后恢复目标并复用 idle。 */
+  findLatestOpenByUser(platform: Platform, userId: string): Promise<Conversation | null>
+  /** scope 内最近任意会话；用于没有 open 会话时恢复持久 target cli。 */
+  findLatestByUser(platform: Platform, userId: string): Promise<Conversation | null>
   findById(id: ConversationId): Promise<Conversation | null>
-  /** 用户所有未 closed 会话：新建会话前兜底关闭历史残留。 */
-  listOpenByUser(userId: string): Promise<Conversation[]>
-  listRecentByUser(userId: string, limit: number): Promise<Conversation[]>
+  /** scope 内所有未 closed 会话：新建会话前兜底关闭历史残留。 */
+  listOpenByUser(platform: Platform, userId: string): Promise<Conversation[]>
+  listRecentByUser(platform: Platform, userId: string, limit: number): Promise<Conversation[]>
   updateStatus(id: ConversationId, status: SessionStatus): Promise<void>
   /** 进程重启对账：starting/running 复位 idle，closing 收尾 closed；运行期 adapter 无法恢复。 */
   reconcileRuntimeStatuses(now: number): Promise<void>

@@ -15,7 +15,7 @@ describe('schema — 表结构与契约', () => {
       expect.arrayContaining(['id', 'platform', 'user_id', 'cli', 'cwd', 'status', 'created_at', 'updated_at']),
     )
     const idx = t.indexes.map(i => i.config.name)
-    expect(idx).toEqual(expect.arrayContaining(['idx_conv_active', 'idx_conv_archive']))
+    expect(idx).toEqual(expect.arrayContaining(['idx_conv_scope_recent', 'uniq_conv_open_scope', 'idx_conv_archive']))
   })
 
   test('messages：级联外键指向 conversations', () => {

@@ -10,6 +10,7 @@ import {
   type CliType,
   type ConversationId,
   type MemoryType,
+  type Platform,
   type UserLanguage,
 } from '../shared'
 import type { Repositories, Conversation, AuditLog, Memory } from '../repository'
@@ -23,7 +24,7 @@ export interface CommandRouterDeps {
   bus: EventBus
   repos: Repositories
   sessionManager: SessionManager
-  getUserLanguage?: (userId: string) => UserLanguage
+  getUserLanguage?: (platform: Platform, userId: string) => UserLanguage
   resolveCwd?: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
@@ -117,7 +118,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           }
           const conv = await currentConversation(payload)
           if (conv) await sessionManager.close(conv.id as ConversationId, 'user')
-          bus.emit('UserTargetChanged', { userId: payload.userId, cwd: resolved.cwd })
+          bus.emit('UserTargetChanged', { userId: payload.userId, platform: payload.platform, cwd: resolved.cwd })
           reply(payload, `已切换工作目录\nCWD: ${resolved.cwd}\n当前会话已关闭，下一条消息会在新目录启动。`)
           return true
         }
@@ -131,17 +132,24 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
                 '当前没有活跃会话。直接发送消息会自动创建新会话。',
                 `Target CLI: ${payload.cli}`,
                 `Target CWD: ${payload.cwd}`,
-                `Language: ${getUserLanguage(payload.userId)}`,
+                `Language: ${getUserLanguage(payload.platform, payload.userId)}`,
               ].join('\n'),
             )
             return true
           }
-          reply(payload, formatStatus(conv, getUserLanguage(payload.userId), conv.cli as CliType, conv.cwd))
+          reply(
+            payload,
+            formatStatus(conv, getUserLanguage(payload.platform, payload.userId), conv.cli as CliType, conv.cwd),
+          )
           return true
         }
 
         case 'sessions': {
-          const sessions = await repos.conversations.listRecentByUser(payload.userId, RECENT_SESSIONS_LIMIT)
+          const sessions = await repos.conversations.listRecentByUser(
+            payload.platform,
+            payload.userId,
+            RECENT_SESSIONS_LIMIT,
+          )
           reply(payload, formatSessions(sessions))
           return true
         }
@@ -368,9 +376,13 @@ async function resolveAuditConversation(
   }
 
   const exact = await repos.conversations.findById(target as ConversationId)
-  if (exact) return exact.userId === payload.userId ? { ok: true, conversation: exact } : auditNotFound(target)
+  if (exact) {
+    return exact.userId === payload.userId && exact.platform === payload.platform
+      ? { ok: true, conversation: exact }
+      : auditNotFound(target)
+  }
 
-  const recent = await repos.conversations.listRecentByUser(payload.userId, ID_PREFIX_SEARCH_LIMIT)
+  const recent = await repos.conversations.listRecentByUser(payload.platform, payload.userId, ID_PREFIX_SEARCH_LIMIT)
   const matches = recent.filter(conv => conv.id.startsWith(target))
   if (matches.length === 1) return { ok: true, conversation: matches[0]! }
   if (matches.length > 1) return { ok: false, message: `会话 ID 前缀不唯一：${target}\n请多输入几位。` }

@@ -7,7 +7,7 @@
 import type { AppConfig } from '../config'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
-import type { MessageRef } from '../shared'
+import type { MessageRef, Platform } from '../shared'
 import { createAuth, type Auth } from './auth'
 import { createCommandRouter, type CommandRouter } from './commands'
 import { createSessionManager, type SessionManager } from './session-manager'
@@ -26,7 +26,7 @@ export interface CoreHubOptions {
   config: AppConfig
   handler?: MessageHandler
   commandRouter?: CommandRouter
-  getUserLanguage?: (userId: string) => 'zh' | 'en'
+  getUserLanguage?: (platform: Platform, userId: string) => 'zh' | 'en'
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
   getUpdatePreview?: () => string

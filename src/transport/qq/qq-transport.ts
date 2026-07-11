@@ -1,0 +1,373 @@
+/** 腾讯官方 QQ Bot Transport：仅 C2C 私聊，行为与 TelegramTransport 同构。 */
+import type { AppConfig } from '../../config'
+import type { EventBus } from '../../event'
+import type { CliType, ConversationId, MessageRef, Platform, Transport, Unsubscribe, UserLanguage } from '../../shared'
+import {
+  createQQBotClient,
+  type QQBotClient,
+  type QQGatewayEvent,
+  type QQGatewayStatusUpdate,
+  type QQKeyboard,
+} from './qq-bot-client'
+
+const START_TEXT = '👋 AI CLI Hub 已就绪。直接发送消息即可开始；涉及写操作时会请求授权。\n发送 /help 查看帮助。'
+const HELP_TEXT =
+  '可用命令：\n/start — 欢迎与状态\n/help — 本帮助\n/new [cli] [cwd] — 开新会话\n/cwd [path] — 查看或切换工作目录\n/close — 关闭当前会话\n/status — 当前会话状态\n/sessions — 最近会话\n/audit [conversationId] — 审批审计\n/remember <text> — 写入长期记忆\n/memory — 查看长期记忆\n/env — 刷新并查看环境快照\n/health — 服务健康检查\n/update — 查看自更新计划；/update confirm 执行\n/restart — 查看重启计划；/restart confirm 执行\n/forget <memoryId> — 删除长期记忆\n/lang zh|en — 切换回复语言'
+
+interface QQInboundContext {
+  userId: string
+  chatId: string
+  messageId: string
+  eventId: string
+}
+
+interface QQDraft {
+  context: QQInboundContext
+  streamMessageId: string
+  sequence: number
+  index: number
+  lastContent: string
+}
+
+export interface QQTransportDeps {
+  bus: EventBus
+  config: AppConfig
+  client?: QQBotClient
+}
+
+export interface QQTransport extends Transport {
+  getUserLanguage(userId: string): UserLanguage
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+}
+
+function parseCommandName(text: string): string | null {
+  const head = text.trim().split(/\s+/)[0]
+  return head?.startsWith('/') ? (head.slice(1).toLowerCase() ?? null) : null
+}
+
+function randomSequence(): number {
+  return Math.floor(Math.random() * 65_536)
+}
+
+/** 把 opencode / claude 的审批 detail JSON 精简为 2-3 行可读摘要，避免 QQ 消息被大段 JSON 淹没。 */
+function summarizeApprovalDetail(detail: string): string {
+  try {
+    const obj = JSON.parse(detail) as Record<string, unknown>
+    const lines: string[] = []
+
+    // opencode: { type, patterns, metadata: { filepath, diff }, always }
+    if (obj.type === 'edit' || obj.metadata) {
+      const meta = (obj.metadata as Record<string, unknown>) ?? {}
+      if (typeof meta.filepath === 'string') lines.push(`文件：${meta.filepath}`)
+      if (typeof meta.diff === 'string') {
+        const added = (meta.diff.match(/^\+(?!\+\+)/gm) ?? []).length
+        const removed = (meta.diff.match(/^-(?!--)/gm) ?? []).length
+        lines.push(`变更：+${added}/-${removed} 行`)
+      }
+    }
+
+    // claude: { command, description }
+    if (typeof obj.command === 'string') lines.push(`命令：${obj.command}`)
+    if (typeof obj.description === 'string' && obj.description) lines.push(`说明：${obj.description}`)
+
+    if (Array.isArray(obj.always) && (obj.always as string[]).includes('*')) {
+      lines.push('(此工具已设为始终允许，后续调用将不再询问)')
+    }
+
+    if (lines.length > 0) return lines.join('\n')
+    // 别的 CLI / adapter：展示所有顶层 string 键（最多 3 个）
+    const flat: string[] = []
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v === 'string') flat.push(`${k}：${v}`)
+      if (flat.length >= 3) break
+    }
+    if (flat.length > 0) return flat.join('\n')
+  } catch {
+    // 不是 JSON，就是纯文本说明
+  }
+  return detail.length > 300 ? `${detail.slice(0, 300)}…` : detail
+}
+
+function approvalKeyboard(approvalId: string): QQKeyboard {
+  const button = (id: string, label: string, style: 0 | 1, decision: 'approve' | 'reject') => ({
+    id,
+    render_data: { label, visited_label: decision === 'approve' ? '已批准' : '已拒绝', style },
+    action: {
+      type: 1 as const,
+      data: `ai-cli-hub:${decision}:${approvalId}`,
+      permission: { type: 2 as const },
+      click_limit: 1 as const,
+    },
+  })
+  return {
+    content: {
+      rows: [{ buttons: [button('approve', '✅ Approve', 1, 'approve'), button('reject', '❌ Reject', 0, 'reject')] }],
+    },
+  }
+}
+
+export function createQQTransport(deps: QQTransportDeps): QQTransport {
+  const { bus, config } = deps
+  const client =
+    deps.client ??
+    createQQBotClient({
+      appId: config.QQBOT_APP_ID,
+      appSecret: config.QQBOT_APP_SECRET,
+      wsProxy: config.QQBOT_WS_PROXY || undefined,
+    })
+  const whitelist = new Set(config.WHITELIST_USER_IDS)
+  const userContext = new Map<string, QQInboundContext>()
+  const userLang = new Map<string, UserLanguage>()
+  const userCli = new Map<string, CliType>()
+  const userCwd = new Map<string, string>()
+  const convContext = new Map<ConversationId, QQInboundContext>()
+  const drafts = new Map<ConversationId, QQDraft>()
+  const approvals = new Map<string, { conversationId: ConversationId; chatId: string; resolved: boolean }>()
+  const discoveredOpenIds = new Set<string>()
+  const unsubs: Unsubscribe[] = []
+
+  function reportError(scope: string, err: unknown) {
+    bus.emit('ErrorOccurred', { scope, message: err instanceof Error ? err.message : String(err) })
+  }
+  function reportGatewayStatus(status: QQGatewayStatusUpdate) {
+    bus.emit('TransportStatusChanged', { platform: 'qq', ...status })
+  }
+  function getUserLanguage(userId: string): UserLanguage {
+    return userLang.get(userId) ?? 'zh'
+  }
+  function targetCli(userId: string): CliType {
+    return userCli.get(userId) ?? 'claude'
+  }
+  function targetCwd(userId: string): string {
+    return userCwd.get(userId) ?? config.DEFAULT_CWD
+  }
+  function rememberSession(p: {
+    conversationId?: ConversationId
+    platform?: Platform
+    userId: string
+    cli?: CliType
+    cwd?: string
+  }) {
+    if (p.platform && p.platform !== 'qq') return
+    const context = userContext.get(p.userId)
+    if (p.conversationId && context) convContext.set(p.conversationId, context)
+    if (p.cli) userCli.set(p.userId, p.cli)
+    if (p.cwd) userCwd.set(p.userId, p.cwd)
+  }
+  async function sendToContext(context: QQInboundContext, content: string, keyboard?: QQKeyboard): Promise<MessageRef> {
+    const response = await client.sendC2CMessage(context.chatId, content, context.messageId, keyboard)
+    return { platform: 'qq', chatId: context.chatId, nativeId: response.id }
+  }
+  function emitIncoming(context: QQInboundContext, text: string) {
+    const command = parseCommandName(text)
+    if (command === 'start') return void sendToContext(context, START_TEXT).catch(err => reportError('qq:start', err))
+    if (command === 'help') return void sendToContext(context, HELP_TEXT).catch(err => reportError('qq:help', err))
+    if (command === 'lang') {
+      const language = text.trim().split(/\s+/)[1] as UserLanguage | undefined
+      if (language !== 'zh' && language !== 'en') {
+        return void sendToContext(context, '用法：/lang zh 或 /lang en').catch(err => reportError('qq:lang', err))
+      }
+      userLang.set(context.userId, language)
+      bus.emit('UserLanguageChanged', { userId: context.userId, platform: 'qq', language })
+      return void sendToContext(
+        context,
+        language === 'zh' ? '已切换为中文回复。' : 'Language switched to English.',
+      ).catch(err => reportError('qq:lang', err))
+    }
+    bus.emit('MessageReceived', {
+      userId: context.userId,
+      platform: 'qq',
+      cli: targetCli(context.userId),
+      cwd: targetCwd(context.userId),
+      text,
+      ref: { platform: 'qq', chatId: context.chatId, nativeId: context.messageId },
+    })
+  }
+  function onC2CMessage(data: Record<string, unknown>) {
+    const author = asRecord(data.author)
+    const userId = String(author.user_openid ?? data.author_openid ?? '')
+    const messageId = String(data.id ?? '')
+    const eventId = String(data.event_id ?? data.id ?? '')
+    if (!userId || !messageId) return
+    if (!whitelist.has(userId)) {
+      if (config.QQBOT_OPENID_DISCOVERY && !discoveredOpenIds.has(userId)) {
+        discoveredOpenIds.add(userId)
+        bus.emit('ErrorOccurred', {
+          scope: 'qq:openid-discovery',
+          message: `未授权 QQ C2C 用户 OpenID: ${userId}。确认后将其加入 WHITELIST_USER_IDS，并关闭 QQBOT_OPENID_DISCOVERY。`,
+        })
+      }
+      return
+    }
+    const context: QQInboundContext = { userId, chatId: userId, messageId, eventId }
+    userContext.set(userId, context)
+    emitIncoming(context, String(data.content ?? ''))
+  }
+  function onInteraction(data: Record<string, unknown>) {
+    const resolved = asRecord(asRecord(data.data).resolved)
+    const buttonData = String(resolved.button_data ?? '')
+    const interactionId = String(data.id ?? '')
+    const match = /^ai-cli-hub:(approve|reject):(.+)$/.exec(buttonData)
+    const operator = String(data.user_openid ?? resolved.user_id ?? '')
+    if (!match || !operator || !whitelist.has(operator)) return
+
+    const [, decision, approvalId] = match
+    const approval = approvals.get(approvalId!)
+
+    // 已审批过的按钮再次点击：ACK 正常返回（不转圈），但提示"已处理过"。
+    if (!approval || approval.resolved) {
+      if (interactionId) {
+        void client.ackInteraction(interactionId).catch(err => reportError('qq:interaction-ack', err))
+      }
+      void client
+        .sendC2CMessage(operator, '此次审批已处理过，无需重复操作。')
+        .catch(err => reportError('qq:approval-result', err))
+      return
+    }
+
+    // QQ 要求 5 秒内 ACK，否则客户端一直转圈并提示"请求第三方失败"。
+    // 先发 ACK，再执行业务逻辑（审批动作）。
+    if (interactionId) {
+      void client.ackInteraction(interactionId).catch(err => reportError('qq:interaction-ack', err))
+    }
+
+    approval.resolved = true
+    if (decision === 'approve')
+      bus.emit('ApprovalApproved', { conversationId: approval.conversationId, approvalId: approvalId!, operator })
+    else bus.emit('ApprovalRejected', { conversationId: approval.conversationId, approvalId: approvalId!, operator })
+    void client
+      .sendC2CMessage(
+        approval.chatId,
+        decision === 'approve' ? `✅ 已批准（by ${operator}）` : `❌ 已拒绝（by ${operator}）`,
+      )
+      .catch(err => reportError('qq:approval-result', err))
+  }
+  function onGatewayEvent(event: QQGatewayEvent) {
+    if (event.type === 'C2C_MESSAGE_CREATE') onC2CMessage(event.data)
+    if (event.type === 'INTERACTION_CREATE') onInteraction(event.data)
+  }
+
+  unsubs.push(bus.on('SessionCreated', rememberSession))
+  unsubs.push(bus.on('SessionMapped', rememberSession))
+  unsubs.push(bus.on('UserTargetChanged', rememberSession))
+  unsubs.push(
+    bus.on('CommandReply', p => {
+      if (p.ref.platform !== 'qq') return
+      const context = userContext.get(p.ref.chatId)
+      if (!context) return
+      void sendToContext(context, p.content).catch(err => reportError('qq:CommandReply', err))
+    }),
+  )
+  unsubs.push(
+    bus.on('MessageGenerated', p => {
+      const context = convContext.get(p.conversationId)
+      if (!context) return
+      const draft = drafts.get(p.conversationId)
+      const send = async () => {
+        if (!draft) {
+          if (!p.content) return
+          const sequence = randomSequence()
+          const response = await client.sendC2CStreamMessage(context.chatId, {
+            eventId: context.eventId,
+            messageId: context.messageId,
+            content: p.content,
+            sequence,
+            index: 0,
+            final: p.final,
+          })
+          if (!p.final)
+            drafts.set(p.conversationId, {
+              context,
+              streamMessageId: response.id,
+              sequence,
+              index: 1,
+              lastContent: p.content,
+            })
+          return
+        }
+        if (draft.lastContent !== p.content || p.final) {
+          await client.sendC2CStreamMessage(draft.context.chatId, {
+            eventId: draft.context.eventId,
+            messageId: draft.context.messageId,
+            content: p.content,
+            streamMessageId: draft.streamMessageId,
+            sequence: draft.sequence,
+            index: draft.index++,
+            final: p.final,
+          })
+          draft.lastContent = p.content
+        }
+        if (p.final) drafts.delete(p.conversationId)
+      }
+      void send().catch(err => reportError('qq:MessageGenerated', err))
+    }),
+  )
+  unsubs.push(
+    bus.on('ApprovalRequested', p => {
+      const context = convContext.get(p.conversationId)
+      if (!context) return
+      // opencode 的 detail 是 JSON（包含 diff / filepath / metadata 等），直接展示太杂乱；
+      // claude 的 detail 是 JSON（command / description），同样需要提取。
+      const summary = summarizeApprovalDetail(p.detail)
+      const content = `⚠️ 需要授权\n\n命令：${p.command}\n\n${summary}`
+      void sendToContext(context, content, approvalKeyboard(p.approvalId))
+        .then(() =>
+          approvals.set(p.approvalId, { conversationId: p.conversationId, chatId: context.chatId, resolved: false }),
+        )
+        .catch(err => reportError('qq:ApprovalRequested', err))
+    }),
+  )
+
+  return {
+    platform: 'qq',
+    async start() {
+      bus.emit('TransportStatusChanged', {
+        platform: 'qq',
+        state: 'starting',
+        detail: '正在启动腾讯官方 QQ Bot Transport',
+      })
+      try {
+        await client.start(onGatewayEvent, reportGatewayStatus)
+      } catch (err) {
+        reportError('qq:gateway:start', err)
+        throw err
+      }
+    },
+    async stop() {
+      for (const unsubscribe of unsubs) unsubscribe()
+      unsubs.length = 0
+      await client.stop()
+    },
+    async sendMessage(chatId, content) {
+      const context = userContext.get(chatId)
+      if (context) return sendToContext(context, content)
+      // 重启通知等主动消息没有本进程内的入站上下文；QQ C2C 支持不带 msg_id 的主动发送。
+      const response = await client.sendC2CMessage(chatId, content)
+      return { platform: 'qq', chatId, nativeId: response.id }
+    },
+    async editMessage(ref, content) {
+      const context = userContext.get(ref.chatId)
+      if (context) {
+        await sendToContext(context, content)
+        return
+      }
+      await client.sendC2CMessage(ref.chatId, content)
+    },
+    async deleteMessage() {
+      // QQ C2C API does not expose a generic delete-message endpoint; no-op keeps Transport contract portable.
+    },
+    async sendApproval(chatId, card) {
+      const context = userContext.get(chatId)
+      if (!context) throw new Error(`No QQ C2C context for ${chatId}.`)
+      return sendToContext(
+        context,
+        `⚠️ ${card.title}\n\n命令：${card.command}\n\n说明：${card.detail}`,
+        approvalKeyboard(card.approvalId),
+      )
+    },
+    getUserLanguage,
+  }
+}

@@ -19,7 +19,7 @@ export interface EventMap {
   // —— 消息 ——
   /**
    * 用户消息入站（决策 D13）：Transport 发出时**不含 conversationId**——会话边界是
-   * (userId, cli, cwd)，由 Core 的 MessageRouter 经 sessionManager.findOrCreate 解析/新建。
+   * (platform, userId) scope，由 Core 的 MessageRouter 经 sessionManager.findOrCreate 解析/新建。
    * 与架构 §4.1「Core 收到 MessageReceived 后才路由到会话」一致。
    */
   MessageReceived: {
@@ -34,9 +34,15 @@ export interface EventMap {
   MessageGenerated: { conversationId: ConversationId; content: string; final: boolean }
   /** 命令类回复：不绑定 conversation，直接回到原始客户端消息所在 chat。 */
   CommandReply: { ref: MessageRef; content: string }
-  UserLanguageChanged: { userId: string; language: 'zh' | 'en' }
+  UserLanguageChanged: { userId: string; platform: Platform; language: 'zh' | 'en' }
   /** 用户当前目标会话边界变更：例如 /cwd 只改目标，不创建 conversation。 */
-  UserTargetChanged: { userId: string; cli?: CliType; cwd?: string }
+  UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }
+  /** Transport 生命周期诊断；用于确认外部 Bot Gateway 是否已真正就绪。 */
+  TransportStatusChanged: {
+    platform: Platform
+    state: 'starting' | 'connecting' | 'identifying' | 'ready' | 'reconnecting' | 'stopped'
+    detail?: string
+  }
 
   // —— 审批（Human-in-the-loop）——
   ApprovalRequested: {
@@ -103,6 +109,7 @@ const EVENT_TYPE_REGISTRY: Record<EventType, true> = {
   CommandReply: true,
   UserLanguageChanged: true,
   UserTargetChanged: true,
+  TransportStatusChanged: true,
   ApprovalRequested: true,
   ApprovalApproved: true,
   ApprovalRejected: true,

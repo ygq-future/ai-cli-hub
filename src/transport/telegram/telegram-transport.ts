@@ -25,6 +25,7 @@ import type {
   InboundSticker,
   MediaPreprocessor,
   MessageRef,
+  Platform,
   Transport,
   Unsubscribe,
   UserLanguage,
@@ -593,7 +594,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
         return
       }
       userLang.set(userId, lang)
-      bus.emit('UserLanguageChanged', { userId, language: lang })
+      bus.emit('UserLanguageChanged', { userId, platform: 'telegram', language: lang })
       void ctx.reply(lang === 'zh' ? '已切换为中文回复。' : 'Language switched to English.').catch(() => {})
       return
     }
@@ -678,7 +679,14 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   bot.action(/^(approve|reject):(.+)$/, guarded(onAction))
 
   // —— 出站订阅 ——
-  function rememberSession(p: { conversationId?: ConversationId; userId: string; cli?: CliType; cwd?: string }) {
+  function rememberSession(p: {
+    conversationId?: ConversationId
+    platform?: Platform
+    userId: string
+    cli?: CliType
+    cwd?: string
+  }) {
+    if (p.platform && p.platform !== 'telegram') return
     const chatId = userChat.get(p.userId)
     if (chatId && p.conversationId) convChat.set(p.conversationId, chatId)
     if (p.cli) userCli.set(p.userId, p.cli)
@@ -691,6 +699,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
 
   unsubs.push(
     bus.on('CommandReply', async p => {
+      if (p.ref.platform !== 'telegram') return
       try {
         await sendFormatted(p.ref.chatId, p.content)
       } catch (err) {

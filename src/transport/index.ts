@@ -3,3 +3,5 @@
 // 见 docs/03-Interface-Contracts.md §2 / docs/07-Command-UX.md。
 export { createTelegramTransport } from './telegram'
 export type { TelegramTransport, TelegramTransportDeps, TelegramBotLike } from './telegram'
+export { createQQTransport } from './qq'
+export type { QQTransport, QQTransportDeps, QQBotClient } from './qq'

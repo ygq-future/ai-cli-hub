@@ -13,7 +13,7 @@
  *  - 助手消息落库：累计本轮输出文本，delta.final 时落一条 assistant 消息。
  *  - adapter.onExit → 冲刷聚合器 + 清理该会话。
  */
-import type { CliType, ConversationId, Unsubscribe, UserLanguage } from './shared'
+import type { CliType, ConversationId, Platform, Unsubscribe, UserLanguage } from './shared'
 import type { EventBus } from './event'
 import type { Repositories } from './repository'
 import type { MessageAggregator, MessageHandler } from './core'
@@ -32,7 +32,7 @@ export interface SessionOrchestratorDeps {
   aggregator: MessageAggregator
   /** adapter 工厂（默认 Claude SDK 家族）；测试可注入假 adapter。 */
   adapterFactory?: (cli: CliType) => CLIAdapter
-  getUserLanguage?: (userId: string) => UserLanguage
+  getUserLanguage?: (platform: Platform, userId: string) => UserLanguage
   getSystemMemoryHint?: () => Promise<string> | string
   getRelevantMemoryHint?: (query: string) => Promise<string> | string
   agentDescription?: string
@@ -50,6 +50,7 @@ export interface SessionOrchestratorDeps {
 interface AdapterEntry {
   adapter: CLIAdapter
   unsubs: Unsubscribe[]
+  platform: Platform
   userId: string
   /** 本轮助手输出累计文本（delta.final 时落库并清空）。 */
   assistantBuf: string
@@ -132,9 +133,9 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     }
   }
 
-  async function stopEntriesForUser(userId: string) {
+  async function stopEntriesForUser(userId: string, platform?: Platform) {
     const cids = Array.from(entries.entries())
-      .filter(([, entry]) => entry.userId === userId)
+      .filter(([, entry]) => entry.userId === userId && (!platform || entry.platform === platform))
       .map(([cid]) => cid)
     await Promise.all(cids.map(cid => stopEntry(cid)))
   }
@@ -208,6 +209,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     const entry: AdapterEntry = {
       adapter,
       unsubs: [],
+      platform: conv.platform,
       userId: conv.userId,
       assistantBuf: '',
       idleTimer: null,
@@ -268,7 +270,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     try {
       const systemMemoryHint = await resolveSystemMemoryHint(cid)
       const roleHint = roleDescriptionHint(deps.agentDescription)
-      const langHint = languageHint(getUserLanguage(conv.userId))
+      const langHint = languageHint(getUserLanguage(conv.platform, conv.userId))
       const systemHint = [roleHint, langHint, systemMemoryHint].filter(Boolean).join('\n\n')
       await adapter.start({
         conversationId: cid,
@@ -486,7 +488,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   )
   globalUnsubs.push(
     bus.on('UserLanguageChanged', p => {
-      void stopEntriesForUser(p.userId)
+      void stopEntriesForUser(p.userId, p.platform)
     }),
   )
   globalUnsubs.push(

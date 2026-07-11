@@ -29,6 +29,13 @@
       "when": 1783608398000,
       "tag": "0003_cli_opencode",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783742400000,
+      "tag": "0004_conversation_platform_user_scope",
+      "breakpoints": true
     }
   ]
 }

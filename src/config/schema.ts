@@ -19,8 +19,19 @@ const EnvBooleanSchema = z.preprocess(value => {
 }, z.boolean())
 
 export const ConfigSchema = z.object({
-  // —— Telegram / 白名单 ——
-  TELEGRAM_BOT_TOKEN: z.string().min(1),
+  // —— Transport / 白名单 ——
+  // 两个官方 Bot 可独立或同时启用；至少一个由 Composition Root 校验。
+  TELEGRAM_BOT_TOKEN: z.string().default(''),
+  QQBOT_APP_ID: z.string().default(''),
+  QQBOT_APP_SECRET: z.string().default(''),
+  /** 临时发现 QQ user OpenID：只记本机日志，仍不回复/不进入 Core。 */
+  QQBOT_OPENID_DISCOVERY: EnvBooleanSchema.default(false),
+  /**
+   * QQ Gateway WebSocket 走的代理。ws 库不读 HTTPS_PROXY 等环境变量，必须显式注入 agent，
+   * 否则在需要代理才能出网的环境里 WebSocket 会直连并被立即 1006 关闭（REST fetch 却能经代理成功）。
+   * 留空时回退到 HTTPS_PROXY / ALL_PROXY（见 loadConfig）。
+   */
+  QQBOT_WS_PROXY: z.string().default(''),
   // 逗号分隔的 user id → 去空白后的字符串数组（且至少一个非空）
   WHITELIST_USER_IDS: z
     .string()
@@ -136,5 +147,15 @@ export function loadConfig(source: ConfigSource = process.env): AppConfig {
     const detail = parsed.error.issues.map(i => `  - ${i.path.join('.') || '(root)'}: ${i.message}`).join('\n')
     throw new Error(`Invalid config:\n${detail}`)
   }
-  return parsed.data
+  const config = parsed.data
+  if (Boolean(config.QQBOT_APP_ID) !== Boolean(config.QQBOT_APP_SECRET)) {
+    throw new Error('Invalid config:\n  - QQBOT_APP_ID and QQBOT_APP_SECRET must be set together.')
+  }
+  // ws 不识别 HTTPS_PROXY/ALL_PROXY 环境变量：未显式配置 QQBOT_WS_PROXY 时，回退到通用代理变量，
+  // 让 QQ Gateway WebSocket 与 REST fetch 走同一条出网通道。
+  if (!config.QQBOT_WS_PROXY) {
+    const fallback = source.HTTPS_PROXY ?? source.https_proxy ?? source.ALL_PROXY ?? source.all_proxy
+    if (fallback) config.QQBOT_WS_PROXY = fallback
+  }
+  return config
 }

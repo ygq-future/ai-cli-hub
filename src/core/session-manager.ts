@@ -16,7 +16,7 @@ import type { Repositories } from '../repository'
 import { transition, type SessionEvent } from './session-machine'
 
 export interface SessionManager {
-  /** 定位活跃会话：复用用户最新未关闭会话；没有则新建。 */
+  /** 定位 scope=(platform,userId) 内活跃会话：复用最新未关闭会话；没有则新建。 */
   findOrCreate(opts: {
     userId: string
     platform: Platform
@@ -25,7 +25,7 @@ export interface SessionManager {
     text: string
   }): Promise<ConversationId>
 
-  /** 当前可复用会话：先按用户最新未关闭兜底，供命令查询/关闭使用。 */
+  /** 当前可复用会话：先按 platform+userId 最新未关闭兜底，供命令查询/关闭使用。 */
   findCurrent(opts: { userId: string; platform: Platform; cli: CliType; cwd: string }): Promise<ConversationId | null>
 
   /** 强制 /new：关闭同边界旧活跃会话 → 新建并返回会话 ID。 */
@@ -51,7 +51,7 @@ export interface SessionManager {
   /** 归档扫描：返回所有超期 idle 会话。 */
   listStaleIdle(): Promise<{ id: ConversationId; updatedAt: number }[]>
 
-  /** 关闭除指定会话外的用户历史未 closed 会话。 */
+  /** 关闭除指定会话外、同 scope 的历史未 closed 会话。 */
   setIdleExcept(conversationId: ConversationId): Promise<void>
 
   /** 停止监听事件。 */
@@ -68,11 +68,11 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
 
       const current = await resolveCurrentConversation({ userId, platform, cli: opts.cli, cwd: opts.cwd })
       if (current) {
-        await closeOpenConversations(userId, current.id as ConversationId)
+        await closeOpenConversations(platform, userId, current.id as ConversationId)
         return current.id as ConversationId
       }
 
-      await closeOpenConversations(userId)
+      await closeOpenConversations(platform, userId)
       const { cli, cwd } = await resolvePersistentTarget({
         userId,
         platform,
@@ -117,7 +117,7 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
       const { userId, platform, text: _text } = opts
 
       // /new 语义：历史未关闭会话全部关闭，新会话 idle，下一条普通消息懒启动 CLI。
-      await closeOpenConversations(userId)
+      await closeOpenConversations(platform, userId)
       const { cli, cwd } = await resolvePersistentTarget({
         userId,
         platform,
@@ -181,7 +181,7 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
     async setIdleExcept(conversationId) {
       const conv = await repos.conversations.findById(conversationId)
       if (!conv) return
-      await closeOpenConversations(conv.userId, conversationId)
+      await closeOpenConversations(conv.platform, conv.userId, conversationId)
     },
 
     destroy() {
@@ -195,7 +195,7 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
   return sm
 
   async function resolveCurrentConversation(opts: { userId: string; platform: Platform; cli: CliType; cwd: string }) {
-    const latest = await repos.conversations.findLatestOpenByUser(opts.userId)
+    const latest = await repos.conversations.findLatestOpenByUser(opts.platform, opts.userId)
     if (!latest) return null
     const conversationId = latest.id as ConversationId
     bus.emit('SessionMapped', {
@@ -206,6 +206,7 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
     if (latest.cli !== opts.cli || latest.cwd !== opts.cwd) {
       bus.emit('UserTargetChanged', {
         userId: opts.userId,
+        platform: opts.platform,
         cli: latest.cli as CliType,
         cwd: latest.cwd,
       })
@@ -221,12 +222,13 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
     preserveCli: boolean
     preserveCwd: boolean
   }): Promise<{ cli: CliType; cwd: string }> {
-    const latest = await repos.conversations.findLatestByUser(opts.userId)
+    const latest = await repos.conversations.findLatestByUser(opts.platform, opts.userId)
     const cli = opts.preserveCli && latest ? (latest.cli as CliType) : opts.cli
     const cwd = opts.preserveCwd && latest ? latest.cwd : opts.cwd
     if (cli !== opts.cli || cwd !== opts.cwd) {
       bus.emit('UserTargetChanged', {
         userId: opts.userId,
+        platform: opts.platform,
         cli,
         cwd,
       })
@@ -234,8 +236,8 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
     return { cli, cwd }
   }
 
-  async function closeOpenConversations(userId: string, exceptConversationId?: ConversationId) {
-    const open = await repos.conversations.listOpenByUser(userId)
+  async function closeOpenConversations(platform: Platform, userId: string, exceptConversationId?: ConversationId) {
+    const open = await repos.conversations.listOpenByUser(platform, userId)
     for (const conv of open) {
       const conversationId = conv.id as ConversationId
       if (exceptConversationId && conversationId === exceptConversationId) continue

@@ -12,6 +12,10 @@ describe('loadConfig', () => {
   test('校验通过并套用默认值', () => {
     const c = loadConfig(VALID)
     expect(c.WHITELIST_USER_IDS).toEqual(['111', '222', '333'])
+    expect(c.TELEGRAM_BOT_TOKEN).toBe('tok')
+    expect(c.QQBOT_APP_ID).toBe('')
+    expect(c.QQBOT_APP_SECRET).toBe('')
+    expect(c.QQBOT_OPENID_DISCOVERY).toBe(false)
     expect(c.EMBEDDING_API_BASE_URL).toBe('https://api.openai.com/v1')
     expect(c.EMBEDDING_MODEL).toBe('BAAI/bge-m3')
     expect(c.EMBEDDING_DIMENSIONS).toBe(1024)
@@ -158,6 +162,22 @@ describe('loadConfig', () => {
 
   test('白名单为空字符串时抛错（至少一个 id）', () => {
     expect(() => loadConfig({ ...VALID, WHITELIST_USER_IDS: '' })).toThrow(/Invalid config/)
+  })
+
+  test('QQ Bot App ID 和 Secret 必须同时配置，TG/QQ 白名单可混用', () => {
+    const c = loadConfig({
+      ...VALID,
+      WHITELIST_USER_IDS: '123456,QQ_OPENID',
+      QQBOT_APP_ID: 'app',
+      QQBOT_APP_SECRET: 'secret',
+    })
+    expect(c.WHITELIST_USER_IDS).toEqual(['123456', 'QQ_OPENID'])
+    expect(() => loadConfig({ ...VALID, QQBOT_APP_ID: 'app' })).toThrow(/must be set together/)
+  })
+
+  test('QQ OpenID 发现开关默认关闭，可显式启用', () => {
+    expect(loadConfig(VALID).QQBOT_OPENID_DISCOVERY).toBe(false)
+    expect(loadConfig({ ...VALID, QQBOT_OPENID_DISCOVERY: 'true' }).QQBOT_OPENID_DISCOVERY).toBe(true)
   })
 
   test('非法 LOG_LEVEL 枚举时抛错', () => {

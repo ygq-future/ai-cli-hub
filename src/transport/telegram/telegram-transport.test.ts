@@ -177,7 +177,7 @@ describe('TelegramTransport 入站', () => {
 
     expect(transport.getUserLanguage('42')).toBe('en')
     expect(received.length).toBe(0)
-    expect(changed).toEqual([{ userId: '42', language: 'en' }])
+    expect(changed).toEqual([{ userId: '42', platform: 'telegram', language: 'en' }])
     expect(replies).toEqual(['Language switched to English.'])
   })
 
@@ -219,7 +219,7 @@ describe('TelegramTransport 入站', () => {
 
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: '/cwd /srv/app', message_id: 1 } })
     await tick()
-    bus.emit('UserTargetChanged', { userId: '42', cwd: '/srv/app' })
+    bus.emit('UserTargetChanged', { userId: '42', platform: 'telegram', cwd: '/srv/app' })
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: 'hello', message_id: 2 } })
     await tick()
 
