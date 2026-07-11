@@ -3,13 +3,14 @@
  *
  * 运行：bun setting（底层用 tsx→Node 跑，避开 Bun 的 readline.emitKeypressEvents 兼容问题）
  *
- * 导航：主菜单选分类 → 选字段 → 按类型编辑（text/password/confirm/select）
- * 退出：主菜单选"退出"，或 ESC/Ctrl+C 取消当前操作返回上一级
+ * 导航：Linux 使用 Clack 方向键菜单；Windows 使用单 readline 实例的编号菜单
+ * 退出：Linux 选"退出"或 ESC/Ctrl+C；Windows 输入 0/q 返回或退出
  * 保存：每次编辑确认后立即写盘；校验状态显示在主菜单与退出提示
  */
 import * as p from '@clack/prompts'
 import { existsSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { createInterface } from 'node:readline/promises'
 import { SettingsJsonSchema } from '../src/config/schema'
 import { migrateSettings } from './setting-migrate'
 
@@ -32,6 +33,11 @@ export interface CategoryDef {
   key: string
   label: string
   fields: FieldDef[]
+}
+
+export interface LineEditorIo {
+  question(prompt: string): Promise<string>
+  write(text: string): void
 }
 
 export const CATEGORIES: CategoryDef[] = [
@@ -228,6 +234,10 @@ export function formatHint(val: unknown, type: FieldType): string {
   return truncate(String(val), 40)
 }
 
+async function runPrompt<T>(prompt: Promise<T>): Promise<T> {
+  return prompt
+}
+
 // ─── 校验 ─────────────────────────────────────────────────────────
 
 export function validateSettings(settings: Record<string, unknown>): string | null {
@@ -258,6 +268,138 @@ function saveSettings(settings: Record<string, unknown>): void {
   writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n')
 }
 
+/** Windows cooked-mode 编号输入：0 表示返回/退出，null 表示无效。 */
+export function parseNumberedChoice(input: string, itemCount: number): number | null {
+  const normalized = input.trim().toLowerCase()
+  if (normalized === 'q' || normalized === 'quit' || normalized === 'back') return 0
+  if (!/^\d+$/.test(normalized)) return null
+  const choice = Number(normalized)
+  return Number.isInteger(choice) && choice >= 0 && choice <= itemCount ? choice : null
+}
+
+async function askNumberedMenu(io: LineEditorIo, title: string, items: string[], zeroLabel: string): Promise<number> {
+  io.write(`\n${title}\n`)
+  items.forEach((item, index) => io.write(`  ${index + 1}. ${item}\n`))
+  io.write(`  0. ${zeroLabel}\n`)
+
+  while (true) {
+    const choice = parseNumberedChoice(await io.question('请输入编号: '), items.length)
+    if (choice !== null) return choice
+    io.write(`无效编号，请输入 0-${items.length}。\n`)
+  }
+}
+
+async function editFieldWithLineInput(
+  f: FieldDef,
+  settings: Record<string, unknown>,
+  io: LineEditorIo,
+): Promise<boolean> {
+  const cur = getNested(settings, f.jsonPath)
+  io.write(`\n${f.label} (${f.typeTag})\n当前值: ${formatHint(cur, f.type)}\n`)
+
+  if (f.type === 'boolean') {
+    while (true) {
+      const answer = (await io.question('新值 [y/n]（留空取消）: ')).trim().toLowerCase()
+      if (!answer) return false
+      if (['y', 'yes', '1', 'true'].includes(answer)) {
+        setNested(settings, f.jsonPath, true)
+        return true
+      }
+      if (['n', 'no', '0', 'false'].includes(answer)) {
+        setNested(settings, f.jsonPath, false)
+        return true
+      }
+      io.write('请输入 y 或 n。\n')
+    }
+  }
+
+  if (f.type === 'enum' && f.enumValues) {
+    const choice = await askNumberedMenu(io, '选择新值', f.enumValues, '取消')
+    if (choice === 0) return false
+    setNested(settings, f.jsonPath, f.enumValues[choice - 1])
+    return true
+  }
+
+  if (f.type === 'password') {
+    io.write('注意：Windows 稳定模式不使用 raw mode，新密码会显示在当前终端。\n')
+  }
+
+  while (true) {
+    const answer = await io.question('输入新值（留空取消）: ')
+    if (!answer.trim()) return false
+
+    if (f.type === 'number') {
+      const value = Number(answer.trim())
+      if (!Number.isFinite(value)) {
+        io.write('请输入有效数字。\n')
+        continue
+      }
+      setNested(settings, f.jsonPath, value)
+      return true
+    }
+
+    if (f.type === 'string[]') {
+      setNested(
+        settings,
+        f.jsonPath,
+        answer
+          .split(',')
+          .map(value => value.trim())
+          .filter(Boolean),
+      )
+      return true
+    }
+
+    setNested(settings, f.jsonPath, answer)
+    return true
+  }
+}
+
+/** Windows 稳定模式：整个编辑会话由同一个 cooked-mode readline interface 驱动。 */
+export async function runWindowsLineEditor(
+  settings: Record<string, unknown>,
+  io: LineEditorIo,
+  persist: (value: Record<string, unknown>) => void = saveSettings,
+): Promise<void> {
+  while (true) {
+    const valErr = validateSettings(settings)
+    const categoryChoice = await askNumberedMenu(
+      io,
+      `settings.json 配置编辑器 · Windows 稳定模式${valErr ? ` · ⚠ ${truncate(valErr, 50)}` : ''}`,
+      CATEGORIES.map(category => `${category.label} (${category.fields.length} 项)`),
+      '退出',
+    )
+    if (categoryChoice === 0) {
+      io.write(valErr ? `\n已退出。当前配置校验错误: ${valErr}\n` : `\n已保存到 ${path.resolve(SETTINGS_PATH)}\n`)
+      return
+    }
+
+    const category = CATEGORIES[categoryChoice - 1]!
+    while (true) {
+      const fieldChoice = await askNumberedMenu(
+        io,
+        category.label,
+        category.fields.map(
+          field => `${field.label} [${field.typeTag}] · ${formatHint(getNested(settings, field.jsonPath), field.type)}`,
+        ),
+        '返回分类列表',
+      )
+      if (fieldChoice === 0) break
+
+      const field = category.fields[fieldChoice - 1]!
+      const changed = await editFieldWithLineInput(field, settings, io)
+      if (!changed) {
+        io.write('已取消，未修改。\n')
+        continue
+      }
+
+      persist(settings)
+      const error = validateSettings(settings)
+      io.write(error ? `已保存，但配置校验未通过: ${error}\n` : `${field.label} 已保存。\n`)
+    }
+  }
+}
+
 // ─── 交互 ─────────────────────────────────────────────────────────
 
 async function editField(f: FieldDef, settings: Record<string, unknown>): Promise<boolean> {
@@ -266,50 +408,58 @@ async function editField(f: FieldDef, settings: Record<string, unknown>): Promis
   const title = `${f.label} (${f.typeTag})`
 
   if (f.type === 'boolean') {
-    const v = await p.confirm({
-      message: `${title} · 当前: ${curDisp}`,
-      initialValue: Boolean(cur),
-      active: '是',
-      inactive: '否',
-    })
+    const v = await runPrompt(
+      p.confirm({
+        message: `${title} · 当前: ${curDisp}`,
+        initialValue: Boolean(cur),
+        active: '是',
+        inactive: '否',
+      }),
+    )
     if (p.isCancel(v)) return false
     setNested(settings, f.jsonPath, v)
     return true
   }
 
   if (f.type === 'enum' && f.enumValues) {
-    const v = await p.select({
-      message: title,
-      initialValue: String(cur ?? f.enumValues[0] ?? ''),
-      options: f.enumValues.map(ev => ({
-        value: ev,
-        label: ev,
-        hint: ev === String(cur) ? '当前' : undefined,
-      })),
-    })
+    const v = await runPrompt(
+      p.select({
+        message: title,
+        initialValue: String(cur ?? f.enumValues[0] ?? ''),
+        options: f.enumValues.map(ev => ({
+          value: ev,
+          label: ev,
+          hint: ev === String(cur) ? '当前' : undefined,
+        })),
+      }),
+    )
     if (p.isCancel(v)) return false
     setNested(settings, f.jsonPath, v)
     return true
   }
 
   if (f.type === 'number') {
-    const v = await p.text({
-      message: `${title} · 当前: ${curDisp}`,
-      defaultValue: cur !== null && cur !== undefined ? String(cur) : '',
-      placeholder: '输入数字（留空保留原值）',
-      validate: s => (s && s.trim() && !Number.isFinite(Number(s)) ? '请输入有效数字' : undefined),
-    })
+    const v = await runPrompt(
+      p.text({
+        message: `${title} · 当前: ${curDisp}`,
+        defaultValue: cur !== null && cur !== undefined ? String(cur) : '',
+        placeholder: '输入数字（留空保留原值）',
+        validate: s => (s && s.trim() && !Number.isFinite(Number(s)) ? '请输入有效数字' : undefined),
+      }),
+    )
     if (p.isCancel(v)) return false
     if (v.trim()) setNested(settings, f.jsonPath, Number(v))
     return true
   }
 
   if (f.type === 'string[]') {
-    const v = await p.text({
-      message: `${title} · 逗号分隔 · 当前: ${curDisp}`,
-      defaultValue: Array.isArray(cur) ? cur.join(', ') : '',
-      placeholder: '如: 11111111, qq-openid',
-    })
+    const v = await runPrompt(
+      p.text({
+        message: `${title} · 逗号分隔 · 当前: ${curDisp}`,
+        defaultValue: Array.isArray(cur) ? cur.join(', ') : '',
+        placeholder: '如: 11111111, qq-openid',
+      }),
+    )
     if (p.isCancel(v)) return false
     setNested(
       settings,
@@ -323,20 +473,24 @@ async function editField(f: FieldDef, settings: Record<string, unknown>): Promis
   }
 
   if (f.type === 'password') {
-    const v = await p.password({
-      message: `${title} · 当前: ${curDisp}（留空保留原值）`,
-    })
+    const v = await runPrompt(
+      p.password({
+        message: `${title} · 当前: ${curDisp}（留空保留原值）`,
+      }),
+    )
     if (p.isCancel(v)) return false
     if (v.trim()) setNested(settings, f.jsonPath, v)
     return true
   }
 
   // string
-  const v = await p.text({
-    message: `${title} · 当前: ${curDisp}`,
-    defaultValue: typeof cur === 'string' ? cur : '',
-    placeholder: '输入新值（留空保留原值）',
-  })
+  const v = await runPrompt(
+    p.text({
+      message: `${title} · 当前: ${curDisp}`,
+      defaultValue: typeof cur === 'string' ? cur : '',
+      placeholder: '输入新值（留空保留原值）',
+    }),
+  )
   if (p.isCancel(v)) return false
   setNested(settings, f.jsonPath, v)
   return true
@@ -344,17 +498,19 @@ async function editField(f: FieldDef, settings: Record<string, unknown>): Promis
 
 async function editCategory(cat: CategoryDef, settings: Record<string, unknown>): Promise<void> {
   while (true) {
-    const fieldChoice = await p.select({
-      message: cat.label,
-      options: [
-        ...cat.fields.map(f => ({
-          value: f.jsonPath.join('.'),
-          label: f.label,
-          hint: `${f.typeTag} · ${formatHint(getNested(settings, f.jsonPath), f.type)}`,
-        })),
-        { value: '__back', label: '← 返回分类列表' },
-      ],
-    })
+    const fieldChoice = await runPrompt(
+      p.select({
+        message: cat.label,
+        options: [
+          ...cat.fields.map(f => ({
+            value: f.jsonPath.join('.'),
+            label: f.label,
+            hint: `${f.typeTag} · ${formatHint(getNested(settings, f.jsonPath), f.type)}`,
+          })),
+          { value: '__back', label: '← 返回分类列表' },
+        ],
+      }),
+    )
 
     if (p.isCancel(fieldChoice) || fieldChoice === '__back') return
 
@@ -389,6 +545,22 @@ async function main(): Promise<void> {
 
   const { settings, created, changed } = loadSettings()
 
+  if (process.platform === 'win32') {
+    const rl = createInterface({ input: process.stdin, output: process.stdout })
+    const io: LineEditorIo = {
+      question: prompt => rl.question(prompt),
+      write: text => process.stdout.write(text),
+    }
+    try {
+      if (created) io.write('首次创建 settings.json，已从 settings.json.example 与 .env 导入初始配置。\n')
+      else if (changed) io.write('settings.json 已同步最新结构（补新 key / 删旧 key）。\n')
+      await runWindowsLineEditor(settings, io)
+    } finally {
+      rl.close()
+    }
+    return
+  }
+
   p.intro('settings.json 配置编辑器')
 
   if (created) {
@@ -406,17 +578,19 @@ async function main(): Promise<void> {
     const valErr = validateSettings(settings)
     const exitLabel = valErr ? `退出（⚠ ${truncate(valErr, 36)}）` : '退出'
 
-    const catChoice = await p.select({
-      message: '选择配置分类',
-      options: [
-        ...CATEGORIES.map(c => ({
-          value: c.key,
-          label: c.label,
-          hint: `${c.fields.length} 项`,
-        })),
-        { value: '__exit', label: exitLabel, hint: '⏎' },
-      ],
-    })
+    const catChoice = await runPrompt(
+      p.select({
+        message: '选择配置分类',
+        options: [
+          ...CATEGORIES.map(c => ({
+            value: c.key,
+            label: c.label,
+            hint: `${c.fields.length} 项`,
+          })),
+          { value: '__exit', label: exitLabel, hint: '⏎' },
+        ],
+      }),
+    )
 
     if (p.isCancel(catChoice)) {
       p.outro('已退出（改动已随编辑保存）')
@@ -436,6 +610,6 @@ async function main(): Promise<void> {
 if (import.meta.main) {
   main().catch(err => {
     console.error('配置编辑器异常:', err)
-    process.exit(1)
+    process.exitCode = 1
   })
 }

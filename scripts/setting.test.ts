@@ -6,7 +6,15 @@
  */
 import { describe, expect, test } from 'bun:test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { CATEGORIES, formatHint, getNested, setNested, validateSettings } from './setting'
+import {
+  CATEGORIES,
+  formatHint,
+  getNested,
+  parseNumberedChoice,
+  runWindowsLineEditor,
+  setNested,
+  validateSettings,
+} from './setting'
 import { migrateSettings } from './setting-migrate'
 
 const settings = JSON.parse(readFileSync('settings.json.example', 'utf-8')) as Record<string, unknown>
@@ -130,6 +138,59 @@ describe('validateSettings', () => {
     const log = bad.logging as Record<string, unknown>
     log.level = 'verbose'
     expect(validateSettings(bad)).not.toBeNull()
+  })
+})
+
+describe('Windows 单 readline 稳定模式', () => {
+  test('解析编号、返回别名与无效输入', () => {
+    expect(parseNumberedChoice('1', 3)).toBe(1)
+    expect(parseNumberedChoice(' 3 ', 3)).toBe(3)
+    expect(parseNumberedChoice('0', 3)).toBe(0)
+    expect(parseNumberedChoice('q', 3)).toBe(0)
+    expect(parseNumberedChoice('back', 3)).toBe(0)
+    expect(parseNumberedChoice('4', 3)).toBeNull()
+    expect(parseNumberedChoice('x', 3)).toBeNull()
+  })
+
+  test('使用同一 IO 完成进分类、编辑字符串、返回和退出', async () => {
+    const edited = JSON.parse(JSON.stringify(settings)) as Record<string, unknown>
+    const answers = ['1', '1', 'http://127.0.0.1:7890', '0', '0']
+    const output: string[] = []
+    let saveCount = 0
+
+    await runWindowsLineEditor(
+      edited,
+      {
+        question: async () => answers.shift() ?? '0',
+        write: text => output.push(text),
+      },
+      () => saveCount++,
+    )
+
+    expect(getNested(edited, ['transport', 'httpProxy'])).toBe('http://127.0.0.1:7890')
+    expect(saveCount).toBe(1)
+    expect(output.join('')).toContain('Windows 稳定模式')
+    expect(output.join('')).toContain('HTTP Proxy 已保存')
+  })
+
+  test('无效数字会重试，布尔值与枚举可以编辑', async () => {
+    const edited = JSON.parse(JSON.stringify(settings)) as Record<string, unknown>
+    const answers = ['2', '2', 'not-a-number', '6543', '0', '1', '8', 'n', '0', '12', '1', '3', '0', '0']
+    let saveCount = 0
+
+    await runWindowsLineEditor(
+      edited,
+      {
+        question: async () => answers.shift() ?? '0',
+        write: () => undefined,
+      },
+      () => saveCount++,
+    )
+
+    expect(getNested(edited, ['database', 'port'])).toBe(6543)
+    expect(getNested(edited, ['transport', 'qqBotOpenIdDiscovery'])).toBe(false)
+    expect(getNested(edited, ['logging', 'level'])).toBe('warn')
+    expect(saveCount).toBe(3)
   })
 })
 
