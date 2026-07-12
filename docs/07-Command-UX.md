@@ -22,6 +22,7 @@ flowchart TD
 
 - **非白名单**：Transport 层直接丢弃，**不回任何提示**（避免暴露存在性）。
 - **命令**：以 `/` 开头，由 Transport 解析后转 Core 对应动作（多数不进 CLI）。
+- **命令回复**：所有由 Hub 自己生成的成功、状态、错误和用法消息统一使用 Markdown 卡片；禁止直接发送裸文本。Telegram 转为 MarkdownV2，QQ 使用官方 Markdown 消息。
 - **普通文本**：`emit('MessageReceived')`，走会话路由 → CLI。
 - **emoji / sticker / 文件**：先做文件预处理。Unicode emoji 做文本归一化；sticker/custom emoji 第一版只解析 metadata；Telegram 可下载附件（`photo/document/audio/voice/video/video_note/animation`；任意普通文件走 `document`，未知来源可归为 `other`）下载到受控目录并记录 metadata/local_path。QQ Bot V1 只接入官方 C2C 文本、流式消息和审批回调键盘，媒体能力后续扩展。只有图片/photo 上传时可立即 OCR；PDF/Word/Excel/text/audio/video 等非图片文件全部懒加载，用户明确要求后才读取、解析、OCR、转写、转换或移动。
 
@@ -39,7 +40,7 @@ flowchart TD
 | `/cwd` | `[path]` 或 `<cli> <path>` | 查看或切换工作目录 | 有 open 会话（含 `idle`）时用 `/cwd <path>` 切换当前会话 CLI；没有 open 会话时必须用 `/cwd <cli> <path>` 保存对应 CLI 目录 |
 | `/sessions` | — | 列出该用户近期会话 | 历史查看，不表示 resume |
 | `/audit` | `[conversationId]` | 查看审批审计 | 无参数查看当前会话；带完整或短会话 ID 查看指定会话最近审批记录 |
-| `/autoapprove` | `[on\|off]` | 查看或持久化自动审批 | 默认关闭；开启后每次 CLI 审批等待 5 秒，期间可拒绝本轮，否则自动批准并通知 |
+| `/autoapprove` | `[on\|off] [seconds]` | 查看或持久化自动审批 | 默认关闭、5 秒；秒数为 1–300 整数，省略则重置为 5 秒 |
 | `/remember` | `<text>` | 写入实例级全局长期记忆 | 默认写入 `namespace='global'`、`conversation_id=NULL`；`preference:` / `偏好:` 前缀写入偏好；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 | `/memory` | — | 查看实例级全局长期记忆 | Markdown 列表；每条仅展示短 ID、namespace 与 content |
 | `/env` | — | 刷新并查看环境快照 | 重新探测 OS/运行时/PM2/Docker/DB/端口/默认目录/媒体目录；按稳定 `env.*` tag 幂等 upsert |
@@ -48,7 +49,7 @@ flowchart TD
 | `/restart` | `[confirm]` | 受控重启 | Windows 上直接拒绝；非 Windows 无参数以 Markdown 预检卡片展示计划；`/restart confirm` 不更新代码，只写入重启通知 marker 并延迟交给守护器重启；用于验证重启与主动通知链路 |
 | `/forget` | `<memoryId>` | 删除实例级全局长期记忆 | 支持唯一短前缀；前缀不唯一时拒绝删除；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 
-> 用户目标按 `(platform,userId)` 持久化：语言、默认 CLI、自动审批开关和每个 CLI 的 cwd 彼此隔离。首次访问默认 `language=zh`、`default_cli=claude`、`auto_approve_enabled=false`，未配置目录时自动使用并创建 `~/ai-workspace/.<cli>`。`/new <cli>` 会更新默认 CLI；`/new` 无参数、普通消息与 `/status` 均读取该持久化目标。当前已接入 `claude` 与 `opencode`；`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
+> 用户目标按 `(platform,userId)` 持久化：语言、默认 CLI、自动审批开关及倒计时、每个 CLI 的 cwd 彼此隔离。首次访问默认 `language=zh`、`default_cli=claude`、`auto_approve_enabled=false`、`auto_approve_seconds=5`，未配置目录时自动使用并创建 `~/ai-workspace/.<cli>`。`/new <cli>` 会更新默认 CLI；`/new` 无参数、普通消息与 `/status` 均读取该持久化目标。当前已接入 `claude` 与 `opencode`；`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
 > 普通文本里的“记住/记一下/记录/remember this”等自然语言记忆请求不是 `/remember`：它不会直接写入 global 记忆，也不会进入 Claude SDK；系统会按 `MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 读取当前 conversation 最近的 user/assistant 消息调用配置的记忆 LLM 摘要，摘要语言跟随持久化的 `/lang` 偏好，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述，写入 conversation-derived episodic 记忆并用于后续 embedding 召回。
 
 ---
@@ -86,7 +87,8 @@ Markdown 卡片 + 内联按钮：
 
 - 卡片携带 `approvalId`（按钮 callback data 内），供回调定位。
 - 审批是运行时状态：conversation 持久状态保持 `running`，pending approval 只存在于 adapter/orchestrator 内存和后续 audit 记录中。
-- `/autoapprove on` 时卡片仅保留“拒绝本轮”：orchestrator 从收到请求起计时 5 秒；Telegram 每秒编辑同一消息显示剩余时间，QQ 静态显示“约 5 秒后”；到期统一发 `ApprovalApproved{automatic:true}`，并另发自动批准结果通知。
+- Claude/OpenCode 共用同一套保守只读 shell 策略：POSIX/cmd/PowerShell 的单条查询（如 `ls`、`rg`、`git status`、`dir`、`Get-ChildItem`、`Get-Content`、`Test-Path`）直接执行；重定向、管道、串联、命令替换、写命令及不确定命令仍进入审批。OpenCode 对安全 `bash` permission 直接回复 `once`，不生成审批卡。
+- `/autoapprove on [seconds]` 时卡片仅保留“拒绝本轮”：orchestrator 按该用户持久化的 1–300 秒倒计时；Telegram 每秒编辑同一消息显示剩余时间，QQ 静态显示配置秒数；到期统一发 `ApprovalApproved{automatic:true}`，并另发自动批准结果通知。省略秒数会写回默认 5 秒。
 - 倒计时期间点击拒绝会取消定时器，并沿用 `interrupt + reject + stop adapter` 中断当前整轮；持久化开关不变，下一轮仍继续自动审批。
 
 ### 4.2 回调处理

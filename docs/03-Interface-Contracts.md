@@ -72,7 +72,7 @@ export interface EventMap {
   UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }; // /cwd 等只切当前 scope 的目标边界、不创建 conversation
 
   // —— 审批（Human-in-the-loop）——
-  ApprovalRequested: { conversationId: ConversationId; approvalId: string; command: string; detail: string; autoApproveAt?: number };
+  ApprovalRequested: { conversationId: ConversationId; approvalId: string; command: string; detail: string; autoApproveAt?: number; autoApproveSeconds?: number };
   ApprovalApproved:  { conversationId: ConversationId; approvalId: string; operator: string; automatic?: boolean };
   ApprovalRejected:  { conversationId: ConversationId; approvalId: string; operator: string };
 
@@ -200,6 +200,8 @@ export type AdapterState = 'stopped' | 'starting' | 'ready' | 'busy' | 'waitingA
 
 > **事件映射（EventMap 不变）**：Adapter 的 `onApprovalRequest` → `bus.emit('ApprovalRequested', { approvalId, command, detail, conversationId })`；Transport 的 [Approve]/[Reject] → `bus.emit('ApprovalApproved'|'ApprovalRejected')` → Core 调 `adapter.resolveApproval(id, 'approve'|'reject')`。SDK 家族据此 `resolve({ behavior: 'allow'|'deny' })`；PTY 家族据此 `runtime.write("y\r"|"n\r")`。
 
+> **共享只读查询策略**：所有 CLI Adapter 必须复用 `cli/utils.isReadOnlyShellCommand`。仅单条、明确的 POSIX/cmd/PowerShell 查询可免审批；含重定向、管道、串联、命令替换或未知/写操作时返回 false。Claude 在 `canUseTool(Bash)` 放行，OpenCode 在 `permission=bash` 时直接 reply `once`。
+
 ### 3.2 PtyRuntime（`runtime/`）—— **PTY 家族内部容器**，非跨形态抽象
 
 ```typescript
@@ -323,7 +325,7 @@ export interface UserPreferenceRepository {
   getOrCreate(input: { platform: Platform; userId: string; language: UserLanguage; defaultCli: CliType }): Promise<UserPreference>;
   setLanguage(platform: Platform, userId: string, language: UserLanguage): Promise<void>;
   setDefaultCli(platform: Platform, userId: string, cli: CliType): Promise<void>;
-  setAutoApproveEnabled(platform: Platform, userId: string, enabled: boolean): Promise<void>;
+  setAutoApprove(platform: Platform, userId: string, enabled: boolean, seconds: number): Promise<void>;
   findCwd(platform: Platform, userId: string, cli: CliType): Promise<UserCliCwd | null>;
   upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>;
 }
