@@ -76,6 +76,7 @@ function isReadOnlyBashCommand(toolInput: unknown): boolean {
 
 export interface ClaudeSdkAdapterDeps {
   queryFn?: typeof query
+  claudeCodeExecutablePath?: string
   debugRawJson?: boolean
   rawMessageLogger?: (rawJson: string) => void
 }
@@ -174,6 +175,7 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
         prompt: input.stream,
         options: {
           cwd: opts.cwd,
+          pathToClaudeCodeExecutable: deps?.claudeCodeExecutablePath,
           canUseTool: handleCanUseTool,
           skills: [],
           plugins: [],

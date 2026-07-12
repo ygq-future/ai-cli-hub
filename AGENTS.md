@@ -18,8 +18,8 @@
 |---|---|---|
 | 运行时 | **Bun** | 用 `bun`，不用 node/npm/pnpm |
 | 语言 | **TypeScript**（strict） | 全量类型，禁止 `any`（除非注释说明） |
-| 终端劫持 | **node-pty** | 仅 PTY 家族（无 SDK 的 CLI），封装在 `runtime/`；Codex 走 Agent SDK，见 D11 |
-| CLI 接入（首选） | **@anthropic-ai/Codex-agent-sdk** | SDK 家族，`ClaudeSdkAdapter` 内部持 `query()`，审批经 `canUseTool` |
+| 终端劫持（按需） | **node-pty** | 仅接入无 SDK 的 PTY 家族 CLI 时再引入；当前未安装，见 D11/D67 |
+| CLI 接入（首选） | **@anthropic-ai/Codex-agent-sdk** | SDK 家族，`ClaudeSdkAdapter` 持 `query()`、审批经 `canUseTool`；Claude 复用系统 CLI，安装后裁剪 SDK 内置平台二进制 |
 | 数据库 | **Postgres** | V1 即用，非 SQLite |
 | ORM | **Drizzle** | 唯一 SQL 出口，全在 `repository/`+`storage/` |
 | 向量 | **pgvector** | 同库；V1 预留列，V1.5 启用 |
@@ -68,7 +68,7 @@ src/
 ├── config/       # settings.json 唯一配置入口（Zod 校验，fail-fast）
 ├── transport/    # 客户端接入 (telegram, qq, websocket)
 ├── cli/          # CLI 适配器 (base, Codex=SDK 家族)；语义接缝 CLIAdapter，两家族同实现
-├── runtime/      # PTY 家族字节容器 (nodepty)；SDK 家族不经此层
+├── runtime/      # 按需目录：接入无 SDK CLI 时再加入 PTY 字节容器
 ├── approval/     # PTY 家族审批 scraping（正则）；SDK 家族经 canUseTool，无需
 ├── repository/   # 数据抽象接口 + Drizzle 实现
 ├── storage/      # Postgres/Drizzle 连接、schema、迁移 (pgvector)

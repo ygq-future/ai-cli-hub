@@ -47,7 +47,7 @@
 
 ### 3.4 CLI Adapter & Runtime (命令行适配与运行层)
 * **CLI Adapter（语义接缝）**：所有 CLI 工具实现统一的语义化 `CLIAdapter` 接口（`start` / `stop` / `interrupt` / `sendUserInput` / `onOutput` / `onApprovalRequest` / `resolveApproval` / `onExit` / `getState`）。它说领域语义（一轮输入 / 流式输出 / 审批请求+决定 / 生命周期），与「字节还是结构化」无关。当前提供 **`ClaudeSdkAdapter`（走 `@anthropic-ai/claude-agent-sdk`）** 与 **`OpenCodeSdkAdapter`（走 `@opencode-ai/sdk`，需本机 `opencode` CLI）**。
-* **两个家族**：**SDK 家族（首选）** 内部持 `query()` 句柄，输出/审批结构化（`SDKMessage` + `canUseTool`），无需 scraping；**PTY 家族（无 SDK 的 CLI 备用）** 内部持 `PtyRuntime`（node-pty 字节容器）+ `ApprovalDetector`（正则 scraping）。接缝在 Adapter、不在 Runtime——两形态的差异封在 Adapter 内部（详见 [02 §3.4](./02-Architecture.md) 与决策 D11）。
+* **两个家族**：**SDK 家族（首选）** 内部持 `query()` 句柄，输出/审批结构化（`SDKMessage` + `canUseTool`），无需 scraping；**PTY 家族（无 SDK 的 CLI 备用）** 在真正接入时再引入 `PtyRuntime`（node-pty 字节容器）+ `ApprovalDetector`（正则 scraping），当前不安装未使用的 node-pty。接缝在 Adapter、不在 Runtime——两形态的差异封在 Adapter 内部（详见 [02 §3.4](./02-Architecture.md) 与决策 D11/D67）。
 * **Approval**：SDK 家族经 `canUseTool` 结构化直达（拿到工具名+参数）；PTY 家族由 per-CLI `ApprovalDetector` 从字节流 scraping。两者最终统一发 `ApprovalRequested`。
 
 ### 3.5 Message Aggregator (消息聚合器)
@@ -111,7 +111,7 @@ src/
 ├── config/       # 统一环境变量配置解析 (Zod)
 ├── transport/    # 客户端接入层 (telegram, qq, websocket)
 ├── cli/          # 命令行适配器 (base, claude=SDK 家族, codex)
-├── runtime/      # PTY 家族字节容器 (nodepty)；SDK 家族不经此层
+├── runtime/      # 按需目录：无 SDK CLI 接入时再加入 node-pty 字节容器
 ├── approval/     # PTY 家族审批 scraping（SDK 家族经 canUseTool，无需）
 ├── repository/   # 数据库抽象操作接口
 ├── storage/      # Postgres/Drizzle 具体连接与建表逻辑 (pgvector)
@@ -127,7 +127,7 @@ src/
 **最终确定的技术栈：**
 * **运行环境**：Bun
 * **开发语言**：TypeScript
-* **CLI 接入**：Agent SDK 优先（`@anthropic-ai/claude-agent-sdk`）；node-pty 仅用于无 SDK 的 CLI（PTY 家族）
+* **CLI 接入**：Agent SDK 优先（`@anthropic-ai/claude-agent-sdk`）；node-pty 仅在接入无 SDK 的 CLI（PTY 家族）时按需安装
 * **数据库/ORM**：Postgres + Drizzle ORM（V1.5 启用 pgvector 向量能力）
 * **长期记忆**：API 嵌入模型（默认 `BAAI/bge-m3`，1024 维）+ pgvector 语义召回
 * **消息接入**：Telegraf (Telegram) / 腾讯官方 QQ Bot Gateway + HTTP API（`ws` + Bun `fetch`）

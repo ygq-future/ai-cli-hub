@@ -21,7 +21,7 @@ flowchart LR
     H --> I[transport/ telegram]
     I --> J[memory/]
     J --> K[main.ts 装配]
-    E -.备用.-> P[runtime/ node-pty + approval/<br/>PTY 家族·无 SDK 时]
+    E -.按需扩展.-> P[runtime/ node-pty + approval/<br/>PTY 家族·接入无 SDK CLI 时]
     P -.-> F
 ```
 
@@ -70,6 +70,7 @@ flowchart LR
 
 ### M4b — PtyRuntime（PTY 家族，无 SDK 的 CLI 备用，可延后）
 
+- **当前状态：延后。** Claude/OpenCode 均走 SDK；未装配的 NodePtyRuntime 与 node-pty 依赖已移除，接入首个无 SDK CLI 时再实现。
 - `runtime/`：`NodePtyRuntime` 实现 `PtyRuntime`（§3.2，字节容器）。
 - `approval/`：某无 SDK 的 CLI 的 `ApprovalDetector`（正则 `[Y/n]` scraping）。
 - `cli/`：`XxxPtyAdapter` 实现同一 `CLIAdapter`，内部剥 ANSI 得输出、scraping 认审批、写 `y\r`/`n\r`。
@@ -128,7 +129,7 @@ flowchart LR
 
 - **R2-A 健康检查**：新增 `/health`，即时检查 Postgres ping、默认工作目录、媒体目录、关键 CLI 可用性与进程 uptime；不创建 conversation、不进入 CLI。
 - **R2-B 部署自检**：围绕 PM2/systemd、迁移状态、依赖安装与关键 env 做只读自检，为更新前检查提供报告。
-- **R2-C 受控自更新**：通过显式命令触发 `git pull --ff-only`、`bun install`、`bun run db:migrate`、`bun run format:check`/`typecheck` 等检查，成功后写入重启通知 marker 并交给 PM2/systemd 重启；新进程启动后主动通知原 chat；失败必须保留当前进程并报告原因。`/update` 与 `/restart` 仅适用于 Linux/VPS 部署，Windows 上直接拒绝执行。另提供 `/restart` 复用同一重启命令与通知 marker，仅验证重启链路，不更新代码。
+- **R2-C 受控自更新**：通过显式命令触发 `git pull --ff-only`、`bun install`、`bun run db:migrate`、`bun run format:check`/`typecheck` 等检查，最后执行 `bun run deps:prune`，验证系统 Claude CLI 后裁剪 SDK 重复平台二进制；成功后写入重启通知 marker 并交给 PM2/systemd 重启；新进程启动后主动通知原 chat；失败必须保留当前进程并报告原因。`/update` 与 `/restart` 仅适用于 Linux/VPS 部署，Windows 上直接拒绝执行。另提供 `/restart` 复用同一重启命令与通知 marker，仅验证重启链路，不更新代码。
 - **R2-D 自动拉起与恢复验证**：依赖外部守护（PM2/systemd）自动拉起，应用启动后通过状态对账与 `/health` 验证恢复。
 - **验收**：`/health` 能区分 ok/degraded/down；自更新过程可审计、可失败回退到“未重启”；异常退出后守护器拉起且会话状态无脏 running/starting。
 

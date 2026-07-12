@@ -21,7 +21,7 @@ This project acts as an intelligent "Session Manager", allowing you to interact 
 
 - **Runtime:** [Bun](https://bun.sh/)
 - **Language:** TypeScript (Strict Mode)
-- **CLI Adapter:** Claude Agent SDK first; `node-pty` is reserved for CLI tools without SDK support.
+- **CLI Adapter:** Agent SDK first; `node-pty` is intentionally not installed until a CLI without an SDK is added.
 - **Database:** Postgres (with `pgvector` for long-term memory)
 - **ORM:** [Drizzle ORM](https://orm.drizzle.team/)
 - **Bot Transports:** `telegraf` (Telegram), Tencent Official QQ Bot Gateway/API (`ws` + `fetch`)
@@ -73,9 +73,18 @@ Configure at least:
 - `transport.whitelistUserIds`: mixed Telegram numeric IDs and QQ user OpenIDs allowed to control the hub.
 - User targets are stored in Postgres by `(platform, userId)`: language, default CLI, and one CWD per CLI. On first use, a CLI defaults to `~/ai-workspace/.<cli>`.
 - `session.agentDescription`: optional role hint injected when the adapter starts.
+- `session.claudeExecutablePath`: optional absolute path to the system Claude CLI. Leave empty to resolve `claude` from `PATH`.
 - `ocr.apiBaseUrl`: optional Light OCR API base URL; leave empty to disable image OCR.
 
 `settings.json` is local and gitignored. The application no longer loads business configuration from `.env`.
+
+After Claude Code is installed system-wide, remove the Agent SDK's redundant bundled CLI binaries:
+
+```bash
+bun run deps:prune
+```
+
+The command verifies the external Claude executable before deleting only `@anthropic-ai/claude-agent-sdk-<platform>` packages. `/update confirm` runs the same prune step after every dependency install.
 
 ### Tencent Official QQ Bot
 
@@ -89,6 +98,8 @@ Open [QQ Bot quick registration](https://q.qq.com/qqbot/openclaw/login.html), cr
 
 ```bash
 bun install
+bun run setting:migrate
+bun run deps:prune
 bun run db:migrate
 pm2 start deploy/pm2.config.cjs
 pm2 logs ai-cli-hub
@@ -128,7 +139,7 @@ The project strictly follows a decoupled architectural pattern:
 │   ├── config/       # Config Module: The ONLY place allowed to read environment variables (Zod validation).
 │   ├── transport/    # Transport Layer: Client integration (telegram/, qq/, websocket/).
 │   ├── cli/          # CLI Adapters: Interface implementations for target CLIs (base/, claude/).
-│   ├── runtime/      # PTY runtime for CLI tools without SDK support.
+│   ├── runtime/      # Optional: added with node-pty when a CLI has no SDK.
 │   ├── approval/     # PTY-only approval scraping fallback.
 │   ├── repository/   # Repository Layer: Database operations interface.
 │   ├── storage/      # Storage Layer: Postgres connection and Drizzle schema definitions.

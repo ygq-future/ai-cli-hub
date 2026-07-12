@@ -34,6 +34,7 @@ function fakeConfig(extra?: Partial<ReturnType<typeof loadConfig>>) {
     },
     session: {
       agentDescription: '',
+      claudeExecutablePath: '',
       recentContextLimit: 10,
       recentContextMessageMaxChars: 1200,
     },

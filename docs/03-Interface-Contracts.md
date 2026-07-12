@@ -215,7 +215,7 @@ export interface PtyRuntime {
   onData(handler: (chunk: string) => void): Unsubscribe;   // 裸字节流（含 ANSI）
   onExit(handler: (code: number | null) => void): Unsubscribe;
 }
-// V1 实现：NodePtyRuntime。
+// 当前无实现；接入首个无 SDK CLI 时再增加 NodePtyRuntime 与 node-pty 依赖。
 // 注：这里刻意 **不** 定义「统一 SdkRuntime 让各家 SDK 继承」——审批形态不对称
 // （PTY 事后 scraping+写字节 vs SDK spawn 时传回调），字节接口无法覆盖 SDK。
 // 跨形态的共性只在 §3.1 语义层，见 D11。
@@ -346,9 +346,10 @@ export function loadConfig(
 
 - 默认读取项目根目录 `settings.json`；该文件 gitignore，模板为 `settings.json.example`。
 - `bun run setting:migrate` 只对齐 JSON key 结构，不读取 `.env`。
+- `session.claudeExecutablePath` 为空时从 `PATH` 解析系统 `claude`，非空时使用配置的绝对路径；启动找不到系统 CLI 时 fail-fast。
 - 数据库的 host/port/db/username/password 被组装为兼容字段 `AppConfig.DATABASE_URL`；`db:migrate` 与主进程使用同一配置。
 - 代理配置会写回 `process.env.HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`，仅用于 Bun fetch 和 SDK 子进程继承；`process.env` 不是业务配置输入源。
-- `/update confirm` 依次执行 git pull、bun install、`setting:migrate`、`db:migrate`、format check、typecheck 和 lint；任一步失败都不安排重启。
+- `/update confirm` 依次执行 git pull、bun install、`setting:migrate`、`db:migrate`、format check、typecheck、lint 和 `deps:prune`；任一步失败都不安排重启。
 
 ---
 

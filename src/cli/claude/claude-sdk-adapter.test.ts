@@ -220,6 +220,21 @@ describe('ClaudeSdkAdapter (real message flow)', () => {
     expect((systemPrompt as { append: string }).append).toContain('Remote operation guardrail')
   })
 
+  test('显式复用系统 Claude CLI，不使用 SDK 内置平台二进制', async () => {
+    let options: Options | undefined
+    const a = createClaudeSdkAdapter({
+      claudeCodeExecutablePath: '/usr/local/bin/claude',
+      queryFn: fakeQuery([], undefined, captured => {
+        options = captured
+      }),
+    })
+
+    await a.start(SPAWN)
+    await tick()
+
+    expect(options?.pathToClaudeCodeExecutable).toBe('/usr/local/bin/claude')
+  })
+
   test('默认隔离宿主 plugins/skills，但保留 SDK 默认 settingSources 以复用 Claude CLI 认证', async () => {
     let options: Options | undefined
     const a = createClaudeSdkAdapter({

@@ -36,6 +36,7 @@ describe('update runner', () => {
     expect(preview).toContain('bun install --frozen-lockfile')
     expect(preview).toContain('bun run setting:migrate')
     expect(preview).toContain('bun run db:migrate')
+    expect(preview).toContain('bun run deps:prune')
     expect(preview).toContain('`pm2 restart ai-cli-hub after 1500ms`')
     expect(preview).toContain('/update confirm')
   })
@@ -118,11 +119,12 @@ describe('update runner', () => {
       'bun run format:check',
       'bun run typecheck',
       'bun run lint',
+      'bun run deps:prune',
     ])
     expect(notices).toEqual(['chat-1/msg-1'])
     expect(restarts).toEqual(['pm2 restart ai-cli-hub | /app/ai-cli-hub | 1500'])
     expect(report).toContain('自更新完成')
-    expect(report).toContain('已完成 **8** 项检查与更新')
+    expect(report).toContain('已完成 **9** 项检查与更新')
     expect(report).toContain('**命令**: `pm2 restart ai-cli-hub`')
   })
 

@@ -20,7 +20,7 @@ import { closeDb, createDb } from './storage'
 import { createRepositories } from './repository'
 import { createCoreHub } from './core'
 import { createMessageAggregator } from './core'
-import { createClaudeSdkAdapter, createOpenCodeSdkAdapter } from './cli'
+import { createClaudeSdkAdapter, createOpenCodeSdkAdapter, resolveSystemClaudeExecutable } from './cli'
 import { createApprovalAudit } from './audit'
 import { createMemoryModule } from './memory'
 import { createLightOcrProvider, createMediaPreprocessor } from './media'
@@ -145,6 +145,7 @@ async function main() {
     throw new Error('At least one transport must be configured: TELEGRAM_BOT_TOKEN or QQBOT_APP_ID/QQBOT_APP_SECRET.')
   }
   const getUserLanguage = userPreferences.getLanguage
+  const claudeExecutablePath = resolveSystemClaudeExecutable(config.CLAUDE_EXECUTABLE_PATH)
 
   // —— 9. Orchestrator（adapter 编排，每会话一个 adapter）——
   const orch = createSessionOrchestrator({
@@ -159,6 +160,7 @@ async function main() {
         })
       }
       return createClaudeSdkAdapter({
+        claudeCodeExecutablePath: claudeExecutablePath,
         debugRawJson: config.DEBUG_AGENT_SDK_JSON,
         rawMessageLogger: rawJson => logger.info({ cli: 'claude', rawJson }, 'Agent SDK raw message'),
       })

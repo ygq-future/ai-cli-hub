@@ -115,6 +115,7 @@ function createUpdateSteps(): CommandSpec[] {
     { label: 'format check', command: 'bun', args: ['run', 'format:check'], critical: true },
     { label: 'typecheck', command: 'bun', args: ['run', 'typecheck'], critical: true },
     { label: 'lint', command: 'bun', args: ['run', 'lint'], critical: true },
+    { label: 'prune bundled Claude CLI', command: 'bun', args: ['run', 'deps:prune'], critical: true },
   ]
 }
 
@@ -225,6 +226,7 @@ function formatStepLabel(label: string): string {
     'format check': '代码格式检查',
     typecheck: '类型检查',
     lint: '静态检查',
+    'prune bundled Claude CLI': '裁剪 SDK 内置 Claude CLI',
   }
   return labels[label] ?? label
 }

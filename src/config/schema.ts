@@ -61,6 +61,7 @@ const LifecycleJsonSchema = z.object({
 
 const SessionJsonSchema = z.object({
   agentDescription: z.string().default(''),
+  claudeExecutablePath: z.string().default(''),
   recentContextLimit: z.number().int().positive().default(10),
   recentContextMessageMaxChars: z.number().int().positive().default(1200),
 })
@@ -158,6 +159,7 @@ export type AppConfig = {
   SESSION_ARCHIVE_DAYS: number
   // session
   AGENT_DESCRIPTION: string
+  CLAUDE_EXECUTABLE_PATH: string
   RECENT_CONTEXT_LIMIT: number
   RECENT_CONTEXT_MESSAGE_MAX_CHARS: number
   // aggregator
@@ -230,6 +232,7 @@ function flattenSettings(json: SettingsJson): AppConfig {
     SESSION_ARCHIVE_DAYS: lifecycle.sessionArchiveDays,
 
     AGENT_DESCRIPTION: session.agentDescription,
+    CLAUDE_EXECUTABLE_PATH: session.claudeExecutablePath,
     RECENT_CONTEXT_LIMIT: session.recentContextLimit,
     RECENT_CONTEXT_MESSAGE_MAX_CHARS: session.recentContextMessageMaxChars,
 

@@ -114,6 +114,12 @@ export const CATEGORIES: CategoryDef[] = [
     label: 'Session 会话',
     fields: [
       { jsonPath: ['session', 'agentDescription'], label: 'Agent Description', type: 'string', typeTag: 'str' },
+      {
+        jsonPath: ['session', 'claudeExecutablePath'],
+        label: 'Claude Executable Path',
+        type: 'string',
+        typeTag: 'path',
+      },
       { jsonPath: ['session', 'recentContextLimit'], label: 'Recent Context Limit', type: 'number', typeTag: 'num' },
       {
         jsonPath: ['session', 'recentContextMessageMaxChars'],

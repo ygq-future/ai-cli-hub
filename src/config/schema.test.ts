@@ -45,6 +45,7 @@ function validJson() {
     },
     session: {
       agentDescription: '',
+      claudeExecutablePath: '',
       recentContextLimit: 10,
       recentContextMessageMaxChars: 1200,
     },
@@ -94,6 +95,7 @@ describe('loadConfig', () => {
     expect(c.QQBOT_APP_SECRET).toBe('')
     expect(c.QQBOT_OPENID_DISCOVERY).toBe(false)
     expect(c.DATABASE_URL).toBe('postgres://u:p@127.0.0.1:5432/test_db')
+    expect(c.CLAUDE_EXECUTABLE_PATH).toBe('')
     expect(c.EMBEDDING_API_BASE_URL).toBe('https://api.openai.com/v1')
     expect(c.EMBEDDING_MODEL).toBe('BAAI/bge-m3')
     expect(c.EMBEDDING_DIMENSIONS).toBe(1024)

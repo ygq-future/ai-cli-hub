@@ -193,13 +193,13 @@ interface CLIAdapter {
 
 Adapter 分**两个家族**，同实现 `CLIAdapter`、对 Core 完全同形：
 
-- **SDK 家族（首选，Claude/opencode 走这条）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄；`OpenCodeSdkAdapter` 通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并订阅事件。输出来自结构化消息/事件；**审批来自 SDK 结构化回调或 permission 事件**。**无需 scraping、无 `Runtime`、无 `ApprovalDetector`**。TUI 菜单只是渲染，程序接口里走 SDK。OpenCode 的 `message.part.updated` 同时包含 user/assistant part，Adapter 必须用 `message.updated.info.role` 与 `part.messageID` 关联，只转发 assistant part；raw debug 只保留 retry/session error、permission、tool 等可行动事件，不记录 plugin/catalog/heartbeat/delta/message 等启动或高频噪声。
+- **SDK 家族（首选，Claude/opencode 走这条）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄，并通过 `pathToClaudeCodeExecutable` 复用系统安装的 Claude CLI；`bun run deps:prune` 在确认系统 CLI 后删除 SDK 内置平台二进制。`OpenCodeSdkAdapter` 通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并订阅事件。输出来自结构化消息/事件；**审批来自 SDK 结构化回调或 permission 事件**。**无需 scraping、无 `Runtime`、无 `ApprovalDetector`**。TUI 菜单只是渲染，程序接口里走 SDK。OpenCode 的 `message.part.updated` 同时包含 user/assistant part，Adapter 必须用 `message.updated.info.role` 与 `part.messageID` 关联，只转发 assistant part；raw debug 只保留 retry/session error、permission、tool 等可行动事件，不记录 plugin/catalog/heartbeat/delta/message 等启动或高频噪声。
 
 Config 加载 `settings.json` 后把 HTTP(S)/NO_PROXY 写回 `process.env`，供 Bun fetch 和 OpenCode SDK 拉起的子进程继承；这不会将环境变量重新变成业务配置源。
 
 - **PTY 家族（无 SDK 的 CLI 备用）**：`XxxPtyAdapter` 内部持 `PtyRuntime` + 一个 per-CLI `ApprovalDetector`。字节流剥 ANSI 得输出，正则 scraping 认出审批点，写 `y\r`/`n\r` 应答。scraping 随目标 TUI 版本漂移、脆，故仅在**没有 SDK** 时退而求其次。
 
-- **PtyRuntime** 是 PTY 家族的底层字节容器（`node-pty`），**仅 PTY 家族使用**；SDK 家族的 Adapter 既不实现也不使用它。
+- **PtyRuntime** 是 PTY 家族未来的底层字节容器（`node-pty`），**仅 PTY 家族使用**；当前 Claude/OpenCode 都走 SDK，因此实现与依赖暂不安装，真正接入无 SDK CLI 时再加入。
 - **厂商中立靠"每 CLI/SDK 一个 Adapter 实现 `CLIAdapter`"**，不靠"共享一个 SDK 基类"——不同厂商 SDK 的 API 表面不同，共性只在语义层。新增有 SDK 的 CLI = 新 Adapter，Core 零改动。
 
 ```mermaid
@@ -560,7 +560,7 @@ flowchart TB
 | `config/` | 配置中心 | Zod |
 | `transport/` | 接入层 | Telegraf（TG）/ 腾讯官方 QQ Bot Gateway + HTTP API（QQ） |
 | `cli/` | Adapter（语义接缝） | 自研（base + `ClaudeSdkAdapter` 走 `@anthropic-ai/claude-agent-sdk`；`OpenCodeSdkAdapter` 走 `@opencode-ai/sdk`） |
-| `runtime/` | PTY 家族字节容器（仅无 SDK 的 CLI 用） | node-pty |
+| `runtime/` | PTY 家族按需字节容器（当前未启用） | 接入无 SDK CLI 时再安装 node-pty |
 | `approval/` | PTY 家族审批 scraping（SDK 家族无需） | 正则匹配 |
 | `repository/` | 数据抽象 | Repository 接口 |
 | `storage/` | 持久化实现 | **Postgres + Drizzle ORM**（V1.5 加 `pgvector`） |

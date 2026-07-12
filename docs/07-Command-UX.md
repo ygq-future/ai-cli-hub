@@ -147,7 +147,7 @@ Markdown 卡片 + 内联按钮：
 | `/remember` 或 `/forget` 后继续对话 | 下一条普通消息自动重启 adapter 并注入最新全局记忆，conversation 不关闭 |
 | `/env` 执行 | 立即刷新环境快照并返回 `env.*` 记忆；probe 失败项显示 `missing` 或 `unknown`，不阻塞服务 |
 | `/health` 执行 | 返回 live self-check；关键检查失败时 Status 为 `down`，非关键检查失败时为 `degraded` |
-| `/update` 执行 | Windows 上直接返回“自更新不可用”且不执行命令；非 Windows 无参数返回预检计划；必须发送 `/update confirm` 才执行；工作树不干净或任一步失败时停止且不安排重启 |
+| `/update` 执行 | Windows 上直接返回“自更新不可用”且不执行命令；非 Windows 无参数返回预检计划；必须发送 `/update confirm` 才执行；检查完成后验证系统 Claude CLI 并裁剪 SDK 内置平台二进制；工作树不干净或任一步失败时停止且不安排重启 |
 | `/update confirm` 成功 | 返回精简 Markdown 汇总，并在 `UPDATE_RESTART_DELAY_MS` 后执行 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`。通知 marker 仅在主动消息发送成功后删除；启动期发送失败会重试，避免丢失通知。 |
 | `/restart` 执行 | Windows 上直接返回“重启不可用”且不执行命令；非 Windows 无参数返回重启预检计划；必须发送 `/restart confirm` 才执行；不执行 git pull、依赖安装、迁移或检查 |
 | `/restart confirm` 成功 | 返回 Markdown 重启安排，并在 `UPDATE_RESTART_DELAY_MS` 后执行同一组 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动后主动通知原 chat；marker 仅在发送成功后删除。 |
@@ -173,3 +173,5 @@ bun setting
 ```
 
 `setting:migrate` 只在 `settings.json` 与 `settings.json.example` 之间对齐结构：保留现有值、补新 key、删旧 key。它不读取 `.env`。`/update confirm` 也会在数据库迁移前自动执行该命令。
+
+`session.claudeExecutablePath` 可填写系统 Claude CLI 的绝对路径；留空时从 `PATH` 自动查找。`bun run deps:prune` 验证该外部可执行文件后，只删除 Agent SDK 自带的平台 CLI 包，不影响 SDK JS 控制层或 PDF canvas 可选依赖。
