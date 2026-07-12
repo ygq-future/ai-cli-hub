@@ -47,6 +47,8 @@ export interface QQTransportDeps {
   mediaPreprocessor?: MediaPreprocessor
   /** 测试注入：绕过真实 QQ 附件下载。 */
   downloadQQFile?: (url: string, opts: { fileName?: string; fileSize?: number }) => Promise<string>
+  /** 用户语言持久化查询；缺省使用 Transport 内存偏好（测试/兼容）。 */
+  resolveUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage>
 }
 
 export interface QQTransport extends Transport {
@@ -173,11 +175,14 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
   function getUserLanguage(userId: string): UserLanguage {
     return userLang.get(userId) ?? 'zh'
   }
+  async function resolvedUserLanguage(userId: string): Promise<UserLanguage> {
+    return deps.resolveUserLanguage?.('qq', userId) ?? getUserLanguage(userId)
+  }
   function targetCli(userId: string): CliType {
     return userCli.get(userId) ?? 'claude'
   }
   function targetCwd(userId: string): string {
-    return userCwd.get(userId) ?? config.DEFAULT_CWD
+    return userCwd.get(userId) ?? process.cwd()
   }
 
   async function defaultDownloadQQFile(url: string, opts: { fileName?: string; fileSize?: number }): Promise<string> {
@@ -223,14 +228,14 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
     const response = await client.sendC2CMessage(context.chatId, content, context.messageId, keyboard)
     return { platform: 'qq', chatId: context.chatId, nativeId: response.id }
   }
-  function emitIncoming(context: QQInboundContext, text: string) {
+  async function emitIncoming(context: QQInboundContext, text: string) {
     const command = parseCommandName(text)
     if (command === 'start')
-      return void sendToContext(context, getStartText(getUserLanguage(context.userId))).catch(err =>
+      return void sendToContext(context, getStartText(await resolvedUserLanguage(context.userId))).catch(err =>
         reportError('qq:start', err),
       )
     if (command === 'help')
-      return void sendToContext(context, getHelpText(getUserLanguage(context.userId))).catch(err =>
+      return void sendToContext(context, getHelpText(await resolvedUserLanguage(context.userId))).catch(err =>
         reportError('qq:help', err),
       )
     if (command === 'lang') {
@@ -279,7 +284,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
     // 命令直接走发布流程（不经过媒体预处理）
     const commandName = text ? parseCommandName(text) : null
     if (commandName) {
-      emitIncoming(context, text)
+      await emitIncoming(context, text)
       return
     }
 
@@ -319,7 +324,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
         config.MEDIA_PARSE_TIMEOUT_MS,
         'QQ media preprocessing',
       )
-      emitIncoming(context, result.text)
+      await emitIncoming(context, result.text)
     } catch (err) {
       reportError('qq:media', err)
       void sendToContext(context, `附件处理失败：${err instanceof Error ? err.message : String(err)}`).catch(() => {})

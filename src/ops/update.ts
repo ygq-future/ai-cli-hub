@@ -33,7 +33,7 @@ export interface UpdateRunnerDeps {
   platform?: NodeJS.Platform
 }
 
-const OUTPUT_PREVIEW_CHARS = 500
+const FAILURE_OUTPUT_PREVIEW_CHARS = 1000
 const WINDOWS_UNSUPPORTED_MESSAGE =
   '自更新只适用于 Linux/VPS 部署环境；当前是 Windows。请在 VPS 上执行 /update，或在本机手动运行 git pull / bun install / 检查命令。'
 
@@ -57,7 +57,7 @@ export function createUpdateRunner(deps: UpdateRunnerDeps): UpdateRunner {
     async run(ref?: MessageRef): Promise<string> {
       if (platform === 'win32') return formatUpdateUnsupported()
 
-      const results: string[] = []
+      const results: UpdateStepResult[] = []
 
       if (deps.config.UPDATE_REQUIRE_CLEAN_WORKTREE) {
         const status = await runStep(deps, {
@@ -66,7 +66,7 @@ export function createUpdateRunner(deps: UpdateRunnerDeps): UpdateRunner {
           args: ['status', '--short'],
           critical: true,
         })
-        results.push(status.line)
+        results.push(status)
         if (status.result.stdout.trim()) {
           return formatUpdateFailure(results, '工作树存在未提交的跟踪文件变更，已停止更新。请先处理变更后重试。')
         }
@@ -74,7 +74,7 @@ export function createUpdateRunner(deps: UpdateRunnerDeps): UpdateRunner {
 
       for (const step of steps) {
         const result = await runStep(deps, step)
-        results.push(result.line)
+        results.push(result)
         if (result.result.code !== 0) {
           return formatUpdateFailure(results, `${step.label} 失败，已停止更新。`)
         }
@@ -98,12 +98,10 @@ export function createUpdateRunner(deps: UpdateRunnerDeps): UpdateRunner {
           deps.config.UPDATE_WORKDIR,
           deps.config.UPDATE_RESTART_DELAY_MS,
         )
-        results.push(`OK schedule restart: ${restart} after ${deps.config.UPDATE_RESTART_DELAY_MS}ms`)
-      } else {
-        results.push('WARN schedule restart: skipped; UPDATE_RESTART_COMMAND is empty')
+        return formatUpdateSuccess(results, restart, deps.config.UPDATE_RESTART_DELAY_MS)
       }
 
-      return ['**自更新完成**', ...results, '', '服务将交给守护器重启；重启完成后会主动通知你。'].join('\n')
+      return formatUpdateSuccess(results, null, null)
     },
   }
 }
@@ -120,7 +118,12 @@ function createUpdateSteps(): CommandSpec[] {
   ]
 }
 
-async function runStep(deps: UpdateRunnerDeps, step: CommandSpec): Promise<{ result: CommandResult; line: string }> {
+interface UpdateStepResult {
+  step: CommandSpec
+  result: CommandResult
+}
+
+async function runStep(deps: UpdateRunnerDeps, step: CommandSpec): Promise<UpdateStepResult> {
   const result = await deps
     .runCommand(step.command, step.args, deps.config.UPDATE_WORKDIR, deps.config.UPDATE_COMMAND_TIMEOUT_MS)
     .catch((err: unknown) => ({
@@ -128,12 +131,7 @@ async function runStep(deps: UpdateRunnerDeps, step: CommandSpec): Promise<{ res
       stdout: '',
       stderr: err instanceof Error ? err.message : String(err),
     }))
-  const status = result.code === 0 ? 'OK' : 'FAIL'
-  const detail = commandOutputPreview(result)
-  return {
-    result,
-    line: detail ? `${status} ${step.label}: ${detail}` : `${status} ${step.label}`,
-  }
+  return { step, result }
 }
 
 function formatUpdatePreview(input: {
@@ -153,30 +151,86 @@ function formatUpdatePreview(input: {
     : 'manual restart required'
 
   return [
-    '**自更新预检**',
-    `Workdir: ${input.workdir}`,
-    '将执行：',
-    ...commands.map(command => `- ${command}`),
-    `- restart: ${restart}`,
+    '## 🔄 自更新预检',
     '',
-    '确认执行请发送：/update confirm',
+    `- **工作目录**: \`${input.workdir}\``,
+    `- **工作树要求**: ${input.requireCleanWorktree ? '必须干净' : '不检查'}`,
+    '',
+    '### 将执行',
+    ...commands.map((command, index) => `${index + 1}. \`${command}\``),
+    '',
+    '### 重启安排',
+    `- \`${restart}\``,
+    '',
+    '> 确认执行请发送 `/update confirm`。',
   ].join('\n')
 }
 
-function formatUpdateFailure(lines: string[], reason: string): string {
-  return ['**自更新失败**', ...lines, '', reason, '未安排重启。'].join('\n')
+function formatUpdateSuccess(results: UpdateStepResult[], restart: string | null, delayMs: number | null): string {
+  return [
+    '## ✅ 自更新完成',
+    '',
+    `已完成 **${results.length}** 项检查与更新。`,
+    '',
+    '### 执行结果',
+    ...results.map(formatStepSuccess),
+    '',
+    '### 重启安排',
+    restart && delayMs != null
+      ? `- **命令**: \`${restart}\`\n- **延迟**: ${formatDelay(delayMs)}\n\n> 服务恢复后会主动通知此聊天。`
+      : '> 未配置自动重启命令；请手动重启服务以加载更新。',
+  ].join('\n')
+}
+
+function formatUpdateFailure(results: UpdateStepResult[], reason: string): string {
+  const failed = results.find(result => result.result.code !== 0)
+  const diagnostic = failed ? commandOutputPreview(failed.result) : ''
+  return [
+    '## ❌ 自更新失败',
+    '',
+    results.length ? '### 已执行' : '',
+    ...results.filter(result => result.result.code === 0).map(formatStepSuccess),
+    '',
+    `> ${reason}`,
+    diagnostic ? `\n**诊断信息**\n\`\`\`\n${diagnostic}\n\`\`\`` : '',
+    '未安排重启，当前服务继续运行。',
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 function formatUpdateUnsupported(): string {
-  return ['**自更新不可用**', WINDOWS_UNSUPPORTED_MESSAGE, '未执行任何命令，未安排重启。'].join('\n')
+  return ['## ⚠️ 自更新不可用', '', WINDOWS_UNSUPPORTED_MESSAGE, '', '未执行任何命令，未安排重启。'].join('\n')
 }
 
 function commandOutputPreview(result: CommandResult): string {
   const text = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join('\n')
   if (!text) return ''
   const normalized = text.replace(/\s+/g, ' ').trim()
-  if (normalized.length <= OUTPUT_PREVIEW_CHARS) return normalized
-  return `${normalized.slice(0, OUTPUT_PREVIEW_CHARS - 3)}...`
+  if (normalized.length <= FAILURE_OUTPUT_PREVIEW_CHARS) return normalized
+  return `${normalized.slice(0, FAILURE_OUTPUT_PREVIEW_CHARS - 3)}...`
+}
+
+function formatStepSuccess({ step }: UpdateStepResult): string {
+  return `- ✅ **${formatStepLabel(step.label)}**`
+}
+
+function formatStepLabel(label: string): string {
+  const labels: Record<string, string> = {
+    'check clean worktree': '工作树检查',
+    'git pull': '拉取最新代码',
+    'install dependencies': '同步依赖',
+    'settings migration': '同步配置模板',
+    'database migration': '数据库迁移',
+    'format check': '代码格式检查',
+    typecheck: '类型检查',
+    lint: '静态检查',
+  }
+  return labels[label] ?? label
+}
+
+function formatDelay(delayMs: number): string {
+  return delayMs % 1000 === 0 ? `${delayMs / 1000} 秒` : `${(delayMs / 1000).toFixed(1)} 秒`
 }
 
 function formatCommand(command: string, args: string[]): string {

@@ -5,6 +5,7 @@ import { createConversationRepository } from './conversation-repository'
 import { createMessageRepository } from './message-repository'
 import { createAuditRepository } from './audit-repository'
 import { createMemoryRepository } from './memory-repository'
+import { createUserPreferenceRepository } from './user-preference-repository'
 import type { Repositories } from './types'
 
 export type {
@@ -12,6 +13,7 @@ export type {
   MessageRepository,
   AuditRepository,
   MemoryRepository,
+  UserPreferenceRepository,
   Repositories,
   Conversation,
   NewConversation,
@@ -21,6 +23,8 @@ export type {
   NewAuditLog,
   Memory,
   NewMemory,
+  UserPreference,
+  UserCliCwd,
   CliType,
   SessionStatus,
   ConversationId,
@@ -34,5 +38,6 @@ export function createRepositories(db: Db): Repositories {
     messages: createMessageRepository(db),
     audit: createAuditRepository(db),
     memories: createMemoryRepository(db),
+    userPreferences: createUserPreferenceRepository(db),
   }
 }

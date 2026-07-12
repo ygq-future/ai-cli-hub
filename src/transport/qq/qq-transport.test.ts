@@ -33,7 +33,6 @@ function fakeConfig(extra?: Partial<ReturnType<typeof loadConfig>>) {
       sessionArchiveDays: 7,
     },
     session: {
-      defaultCwd: '/workspace',
       agentDescription: '',
       recentContextLimit: 10,
       recentContextMessageMaxChars: 1200,
@@ -120,7 +119,7 @@ describe('QQTransport 官方 C2C 入站', () => {
         userId: 'qq-openid',
         platform: 'qq',
         cli: 'claude',
-        cwd: '/workspace',
+        cwd: process.cwd(),
         text: 'hello',
         ref: { platform: 'qq', chatId: 'qq-openid', nativeId: 'message-in-1' },
       },

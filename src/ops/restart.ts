@@ -41,7 +41,7 @@ export function createRestartRunner(deps: RestartRunnerDeps): RestartRunner {
 
       const restart = formatCommand(deps.config.UPDATE_RESTART_COMMAND, deps.config.UPDATE_RESTART_ARGS)
       if (!deps.config.UPDATE_RESTART_COMMAND.trim()) {
-        return ['**重启未安排**', 'UPDATE_RESTART_COMMAND 为空；请手动重启服务。'].join('\n')
+        return ['## ⚠️ 重启未安排', '', '`UPDATE_RESTART_COMMAND` 为空；请手动重启服务。'].join('\n')
       }
 
       if (deps.writeRestartNotice) {
@@ -49,7 +49,8 @@ export function createRestartRunner(deps: RestartRunnerDeps): RestartRunner {
           await deps.writeRestartNotice(ref)
         } catch (err) {
           return [
-            '**重启失败**',
+            '## ❌ 重启失败',
+            '',
             `写入重启通知标记失败：${err instanceof Error ? err.message : String(err)}`,
             '未安排重启。',
           ].join('\n')
@@ -64,11 +65,12 @@ export function createRestartRunner(deps: RestartRunnerDeps): RestartRunner {
       )
 
       return [
-        '**重启已安排**',
-        `Command: ${restart}`,
-        `Delay: ${deps.config.UPDATE_RESTART_DELAY_MS}ms`,
+        '## 🔄 重启已安排',
         '',
-        '重启完成后会主动通知你。',
+        `- **命令**: \`${restart}\``,
+        `- **延迟**: ${formatDelay(deps.config.UPDATE_RESTART_DELAY_MS)}`,
+        '',
+        '> 服务将交给守护器重启；恢复后会主动通知此聊天。',
       ].join('\n')
     },
   }
@@ -85,11 +87,12 @@ function formatRestartPreview(input: {
     : 'manual restart required'
 
   return [
-    '**重启预检**',
-    `Workdir: ${input.workdir}`,
-    `Restart: ${restart}`,
+    '## 🔄 重启预检',
     '',
-    '确认执行请发送：/restart confirm',
+    `- **工作目录**: \`${input.workdir}\``,
+    `- **重启命令**: \`${restart}\``,
+    '',
+    '> 确认执行请发送 `/restart confirm`。',
   ].join('\n')
 }
 
@@ -97,6 +100,10 @@ function formatCommand(command: string, args: string[]): string {
   return [command, ...args].join(' ')
 }
 
+function formatDelay(delayMs: number): string {
+  return delayMs % 1000 === 0 ? `${delayMs / 1000} 秒` : `${(delayMs / 1000).toFixed(1)} 秒`
+}
+
 function formatRestartUnsupported(): string {
-  return ['**重启不可用**', WINDOWS_UNSUPPORTED_MESSAGE, '未执行任何命令，未安排重启。'].join('\n')
+  return ['## ⚠️ 重启不可用', '', WINDOWS_UNSUPPORTED_MESSAGE, '', '未执行任何命令，未安排重启。'].join('\n')
 }

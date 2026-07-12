@@ -24,7 +24,10 @@ export interface CommandRouterDeps {
   bus: EventBus
   repos: Repositories
   sessionManager: SessionManager
-  getUserLanguage?: (platform: Platform, userId: string) => UserLanguage
+  getUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage> | UserLanguage
+  getUserTarget?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
+  getCwdForCli?: (platform: Platform, userId: string, cli: CliType) => Promise<string>
+  setUserTarget?: (platform: Platform, userId: string, target: { cli: CliType; cwd: string }) => Promise<void>
   resolveCwd?: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
@@ -49,6 +52,13 @@ const AUDIT_COMMAND_PREVIEW_CHARS = 300
 export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
   const { bus, repos, sessionManager } = deps
   const getUserLanguage = deps.getUserLanguage ?? (() => 'zh' as const)
+  const getUserTarget = deps.getUserTarget
+  const getCwdForCli = deps.getCwdForCli
+  const setUserTarget =
+    deps.setUserTarget ??
+    (async (platform: Platform, userId: string, target: { cli: CliType; cwd: string }) => {
+      bus.emit('UserTargetChanged', { platform, userId, ...target })
+    })
   const resolveCwd = deps.resolveCwd ?? ((cwd: string) => ({ ok: true as const, cwd }))
 
   function reply(payload: EventMap['MessageReceived'], content: string) {
@@ -72,7 +82,16 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
 
       switch (parsed.name) {
         case 'new': {
-          const target = await parseSessionTarget(parsed.args, payload.cli, payload.cwd, resolveCwd)
+          const fallback = getUserTarget
+            ? await getUserTarget(payload.platform, payload.userId)
+            : { cli: payload.cli, cwd: payload.cwd }
+          const target = await parseSessionTarget(
+            parsed.args,
+            fallback.cli,
+            fallback.cwd,
+            resolveCwd,
+            cli => getCwdForCli?.(payload.platform, payload.userId, cli) ?? Promise.resolve(fallback.cwd),
+          )
           if (!target.ok) {
             reply(payload, target.message)
             return true
@@ -90,6 +109,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             cwdExplicit,
           })
           const created = await repos.conversations.findById(cid)
+          await setUserTarget(payload.platform, payload.userId, { cli, cwd })
           reply(payload, `已开启新会话\nID: ${cid}\nCLI: ${created?.cli ?? cli}\nCWD: ${created?.cwd ?? cwd}`)
           return true
         }
@@ -106,27 +126,55 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
         }
 
         case 'cwd': {
+          const preferredTarget = getUserTarget
+            ? await getUserTarget(payload.platform, payload.userId)
+            : { cli: payload.cli, cwd: payload.cwd }
           if (parsed.args.length === 0) {
-            reply(payload, `当前工作目录\nCLI: ${payload.cli}\nCWD: ${payload.cwd}`)
+            reply(
+              payload,
+              `## 📁 当前工作目录\n\n- **CLI**: \`${preferredTarget.cli}\`\n- **CWD**: \`${preferredTarget.cwd}\``,
+            )
             return true
           }
-          const rawCwd = parsed.args.join(' ')
+          const conv = await currentConversation(payload)
+          const hasActiveConversation = Boolean(conv)
+          const [firstArg, ...restArgs] = parsed.args
+          if (
+            !hasActiveConversation &&
+            (!firstArg || !KNOWN_CLI_TYPES.has(firstArg as CliType) || restArgs.length === 0)
+          ) {
+            reply(payload, '当前没有活跃会话。请使用：`/cwd <cli> <绝对路径>`。')
+            return true
+          }
+          const cli = hasActiveConversation ? (conv!.cli as CliType) : (firstArg as CliType)
+          if (!SUPPORTED_CLI_TYPES.has(cli)) {
+            reply(payload, `暂不支持 CLI：${cli}`)
+            return true
+          }
+          const rawCwd = hasActiveConversation ? parsed.args.join(' ') : restArgs.join(' ')
           const resolved = await resolveCwd(rawCwd)
           if (!resolved.ok) {
             reply(payload, resolved.message)
             return true
           }
-          const conv = await currentConversation(payload)
           if (conv) await sessionManager.close(conv.id as ConversationId, 'user')
-          bus.emit('UserTargetChanged', { userId: payload.userId, platform: payload.platform, cwd: resolved.cwd })
-          reply(payload, `已切换工作目录\nCWD: ${resolved.cwd}\n当前会话已关闭，下一条消息会在新目录启动。`)
+          await setUserTarget(payload.platform, payload.userId, { cli, cwd: resolved.cwd })
+          reply(
+            payload,
+            conv
+              ? `## 📁 工作目录已切换\n\n- **CLI**: \`${cli}\`\n- **CWD**: \`${resolved.cwd}\`\n\n当前会话已关闭，下一条消息会在新目录启动。`
+              : `## 📁 工作目录已保存\n\n- **CLI**: \`${cli}\`\n- **CWD**: \`${resolved.cwd}\`\n\n下一条消息会在此目录创建新会话。`,
+          )
           return true
         }
 
         case 'status': {
           const conv = await currentConversation(payload)
           if (!conv) {
-            const language = getUserLanguage(payload.platform, payload.userId)
+            const preferredTarget = getUserTarget
+              ? await getUserTarget(payload.platform, payload.userId)
+              : { cli: payload.cli, cwd: payload.cwd }
+            const language = await getUserLanguage(payload.platform, payload.userId)
             const isEnglish = language === 'en'
             reply(
               payload,
@@ -137,8 +185,8 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
                   ? '_No active session. Send a message to create one automatically._'
                   : '_当前没有活跃会话。直接发送消息会自动创建新会话。_',
                 '',
-                `- **${isEnglish ? 'Target CLI' : '目标 CLI'}**: \`${payload.cli}\``,
-                `- **${isEnglish ? 'Target CWD' : '目标 CWD'}**: \`${payload.cwd}\``,
+                `- **${isEnglish ? 'Target CLI' : '目标 CLI'}**: \`${preferredTarget.cli}\``,
+                `- **${isEnglish ? 'Target CWD' : '目标 CWD'}**: \`${preferredTarget.cwd}\``,
                 `- **${isEnglish ? 'Language' : '语言'}**: \`${language}\``,
               ].join('\n'),
             )
@@ -146,7 +194,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           }
           reply(
             payload,
-            formatStatus(conv, getUserLanguage(payload.platform, payload.userId), conv.cli as CliType, conv.cwd),
+            formatStatus(conv, await getUserLanguage(payload.platform, payload.userId), conv.cli as CliType, conv.cwd),
           )
           return true
         }
@@ -157,7 +205,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             payload.userId,
             RECENT_SESSIONS_LIMIT,
           )
-          reply(payload, formatSessions(sessions, getUserLanguage(payload.platform, payload.userId)))
+          reply(payload, formatSessions(sessions, await getUserLanguage(payload.platform, payload.userId)))
           return true
         }
 
@@ -314,6 +362,7 @@ async function parseSessionTarget(
   fallbackCli: CliType,
   fallbackCwd: string,
   resolveCwd: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult,
+  getCwdForCli: (cli: CliType) => Promise<string>,
 ): Promise<SessionTargetResolveResult> {
   const [first, ...rest] = args
   if (!first) return { ok: true, cli: fallbackCli, cwd: fallbackCwd, cliExplicit: false, cwdExplicit: false }
@@ -321,7 +370,7 @@ async function parseSessionTarget(
   if (KNOWN_CLI_TYPES.has(first as CliType)) {
     const cli = first as CliType
     if (!SUPPORTED_CLI_TYPES.has(cli)) return { ok: false, message: `暂不支持 CLI：${cli}` }
-    if (rest.length === 0) return { ok: true, cli, cwd: fallbackCwd, cliExplicit: true, cwdExplicit: false }
+    if (rest.length === 0) return { ok: true, cli, cwd: await getCwdForCli(cli), cliExplicit: true, cwdExplicit: false }
     const resolved = await resolveCwd(rest.join(' '))
     return resolved.ok ? { ...resolved, cli, cliExplicit: true, cwdExplicit: true } : resolved
   }

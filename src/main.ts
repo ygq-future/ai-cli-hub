@@ -9,7 +9,8 @@
  * 依赖矩阵（CLAUDE.md §3）：只有本文件允许 import 具体实现并装配。
  */
 import { existsSync, statSync } from 'node:fs'
-import { access } from 'node:fs/promises'
+import { access, mkdir } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { sql } from 'drizzle-orm'
 import { createEventBus } from './event'
@@ -32,8 +33,9 @@ import {
   type HealthCheckResult,
 } from './ops'
 import { createSessionOrchestrator } from './orchestrator'
+import { createUserPreferences } from './preferences'
 import { createQQTransport, createTelegramTransport } from './transport'
-import type { Transport, UserLanguage } from './shared'
+import type { Transport } from './shared'
 
 async function main() {
   // —— 1. Config ——
@@ -52,6 +54,14 @@ async function main() {
   // —— 4. Repositories ——
   const repos = createRepositories(db)
   await repos.conversations.reconcileRuntimeStatuses(Date.now())
+  const userPreferences = createUserPreferences({
+    bus,
+    repos,
+    homeDir: os.homedir(),
+    ensureDirectory: async cwd => {
+      await mkdir(cwd, { recursive: true })
+    },
+  })
 
   // —— 4b. Operations health reporter ——
   const health = createHealthReporter({
@@ -69,7 +79,10 @@ async function main() {
     checkDirectory: dir => checkDirectory(dir),
     checkCommand: command => checkCommand(command, config.ENV_PROBE_TIMEOUT_MS),
   })
-  const restartNotices = createRestartNoticeStore(config.UPDATE_RESTART_NOTICE_FILE)
+  // marker 固定锚定部署目录，避免 PM2/手工启动的 process.cwd() 差异导致新旧进程读写不同文件。
+  const restartNotices = createRestartNoticeStore(
+    path.resolve(config.UPDATE_WORKDIR, config.UPDATE_RESTART_NOTICE_FILE),
+  )
   const scheduleRestart = (command: string, args: string[], cwd: string, delayMs: number) => {
     setTimeout(() => {
       void runCommand(command, args, cwd, config.UPDATE_COMMAND_TIMEOUT_MS).catch(err => {
@@ -119,21 +132,19 @@ async function main() {
   })
   const transports: Transport[] = []
   if (config.TELEGRAM_BOT_TOKEN) {
-    transports.push(createTelegramTransport({ bus, config, mediaPreprocessor }))
+    transports.push(
+      createTelegramTransport({ bus, config, mediaPreprocessor, resolveUserLanguage: userPreferences.getLanguage }),
+    )
   }
   if (config.QQBOT_APP_ID) {
-    transports.push(createQQTransport({ bus, config, mediaPreprocessor }))
+    transports.push(
+      createQQTransport({ bus, config, mediaPreprocessor, resolveUserLanguage: userPreferences.getLanguage }),
+    )
   }
   if (!transports.length) {
     throw new Error('At least one transport must be configured: TELEGRAM_BOT_TOKEN or QQBOT_APP_ID/QQBOT_APP_SECRET.')
   }
-  const userLanguages = new Map<string, UserLanguage>()
-  const languageKey = (platform: string, userId: string) => `${platform}:${userId}`
-  const unsubscribeLanguage = bus.on('UserLanguageChanged', p =>
-    userLanguages.set(languageKey(p.platform, p.userId), p.language),
-  )
-  const getUserLanguage = (platform: 'telegram' | 'qq' | 'websocket', userId: string): UserLanguage =>
-    userLanguages.get(languageKey(platform, userId)) ?? 'zh'
+  const getUserLanguage = userPreferences.getLanguage
 
   // —— 9. Orchestrator（adapter 编排，每会话一个 adapter）——
   const orch = createSessionOrchestrator({
@@ -171,6 +182,9 @@ async function main() {
     config,
     handler: orch.handler,
     getUserLanguage,
+    getUserTarget: userPreferences.getTarget,
+    getCwdForCli: userPreferences.getCwd,
+    setUserTarget: userPreferences.setTarget,
     resolveCwd,
     refreshEnvironmentSnapshot: memory.refreshEnvironmentSnapshot,
     getHealthReport: health.getReport,
@@ -193,12 +207,12 @@ async function main() {
           aggregator.flushAll()
           await orch.destroy()
           memory.destroy()
+          userPreferences.destroy()
           approvalAudit.destroy()
           aggregator.destroy()
           coreHub.destroy()
           await closeDb(db)
           detachLogger()
-          unsubscribeLanguage()
         })(),
         config.SERVICE_SHUTDOWN_TIMEOUT_MS,
         'shutdown',
@@ -214,7 +228,7 @@ async function main() {
   process.on('SIGTERM', () => void shutdown())
 
   // —— 启动 ——
-  logger.info({ cwd: config.DEFAULT_CWD }, 'AI CLI Hub 启动')
+  logger.info('AI CLI Hub 启动')
   logger.info(
     {
       transports: transports.map(t => t.platform),
@@ -371,17 +385,38 @@ async function notifyRestartComplete(
   logger: ReturnType<typeof createLogger>,
 ): Promise<void> {
   try {
-    const notice = await store.consume()
+    const notice = await store.read()
     if (!notice) return
     const transport = transports.find(item => item.platform === notice.ref.platform)
     if (!transport) {
       logger.warn({ platform: notice.ref.platform }, 'Restart notice transport unavailable')
       return
     }
-    await transport.sendMessage(notice.ref.chatId, '✅ 服务已重启完成，可以继续发送消息。')
+    await retryRestartNotification(() =>
+      transport.sendMessage(notice.ref.chatId, '## ✅ 服务已重启\n\n服务已恢复，可以继续发送消息。'),
+    )
+    await store.clear()
+    logger.info(
+      { platform: notice.ref.platform, chatId: notice.ref.chatId },
+      'Restart completion notification delivered',
+    )
   } catch (err) {
     logger.error({ err }, 'Failed to send restart completion notification')
   }
+}
+
+async function retryRestartNotification(send: () => Promise<unknown>): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      await send()
+      return
+    } catch (err) {
+      lastError = err
+      if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
 main().catch(err => {

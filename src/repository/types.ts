@@ -15,9 +15,22 @@ import type {
   NewAuditLog,
   Memory,
   NewMemory,
+  UserPreference,
+  UserCliCwd,
 } from '../storage'
 
-export type { Conversation, NewConversation, Message, NewMessage, AuditLog, NewAuditLog, Memory, NewMemory }
+export type {
+  Conversation,
+  NewConversation,
+  Message,
+  NewMessage,
+  AuditLog,
+  NewAuditLog,
+  Memory,
+  NewMemory,
+  UserPreference,
+  UserCliCwd,
+}
 export type { CliType, Platform, SessionStatus, ConversationId, MessageId }
 
 export interface ConversationRepository {
@@ -72,10 +85,24 @@ export interface MemoryRepository {
   delete(id: string): Promise<void>
 }
 
+export interface UserPreferenceRepository {
+  getOrCreate(input: {
+    platform: Platform
+    userId: string
+    language: 'zh' | 'en'
+    defaultCli: CliType
+  }): Promise<UserPreference>
+  setLanguage(platform: Platform, userId: string, language: 'zh' | 'en'): Promise<void>
+  setDefaultCli(platform: Platform, userId: string, cli: CliType): Promise<void>
+  findCwd(platform: Platform, userId: string, cli: CliType): Promise<UserCliCwd | null>
+  upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>
+}
+
 /** 装配根注入 Core/业务模块的仓储集合（docs/03 §7）。 */
 export interface Repositories {
   conversations: ConversationRepository
   messages: MessageRepository
   audit: AuditRepository
   memories: MemoryRepository
+  userPreferences: UserPreferenceRepository
 }

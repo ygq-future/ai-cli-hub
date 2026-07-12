@@ -11,7 +11,6 @@ function fakeConfig(): AppConfig {
   return {
     TELEGRAM_BOT_TOKEN: 'x',
     WHITELIST_USER_IDS: ['42'],
-    DEFAULT_CWD: '/w',
     DATABASE_URL: 'postgres://x',
     EMBEDDING_API_KEY: 'k',
     EMBEDDING_MODEL: 'BAAI/bge-m3',
@@ -24,7 +23,7 @@ function fakeConfig(): AppConfig {
     MEDIA_MAX_TEXT_CHARS: 20_000,
     MEDIA_PARSE_TIMEOUT_MS: 30_000,
     LOG_LEVEL: 'info',
-  } as AppConfig
+  } as unknown as AppConfig
 }
 
 interface Handlers {
@@ -92,7 +91,7 @@ describe('TelegramTransport 入站', () => {
         userId: '42',
         platform: 'telegram',
         cli: 'claude',
-        cwd: '/w',
+        cwd: process.cwd(),
         text: 'hello',
         ref: { platform: 'telegram', chatId: '1000', nativeId: '5' },
       },
@@ -112,7 +111,7 @@ describe('TelegramTransport 入站', () => {
     expect(received.length).toBe(0)
   })
 
-  test('/start（白名单）回复欢迎，不 emit MessageReceived', () => {
+  test('/start（白名单）回复欢迎，不 emit MessageReceived', async () => {
     const bus = createEventBus()
     const mock = createMockBot()
     createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
@@ -122,6 +121,7 @@ describe('TelegramTransport 入站', () => {
     const replies: string[] = []
 
     mock.handlers.start!({ from: { id: 42 }, chat: { id: 42 }, reply: async (t: string) => replies.push(t) })
+    await tick()
 
     expect(replies.length).toBe(1)
     expect(replies[0]).toContain('AI CLI Hub')
@@ -149,7 +149,7 @@ describe('TelegramTransport 入站', () => {
         userId: '42',
         platform: 'telegram',
         cli: 'claude',
-        cwd: '/w',
+        cwd: process.cwd(),
         text: '/status',
         ref: { platform: 'telegram', chatId: '42', nativeId: '1' },
       },
@@ -224,7 +224,7 @@ describe('TelegramTransport 入站', () => {
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: 'hello', message_id: 2 } })
     await tick()
 
-    expect((received[0] as Record<string, unknown>).cwd).toBe('/w')
+    expect((received[0] as Record<string, unknown>).cwd).toBe(process.cwd())
     expect((received[1] as Record<string, unknown>).cwd).toBe('/tmp/other-project')
   })
 
@@ -242,7 +242,7 @@ describe('TelegramTransport 入站', () => {
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: 'hello', message_id: 2 } })
     await tick()
 
-    expect((received[0] as Record<string, unknown>).cwd).toBe('/w')
+    expect((received[0] as Record<string, unknown>).cwd).toBe(process.cwd())
     expect((received[1] as Record<string, unknown>).cwd).toBe('/srv/app')
   })
 

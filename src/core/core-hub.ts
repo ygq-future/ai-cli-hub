@@ -7,7 +7,7 @@
 import type { AppConfig } from '../config'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
-import type { MessageRef, Platform } from '../shared'
+import type { CliType, MessageRef, Platform, UserLanguage } from '../shared'
 import { createAuth, type Auth } from './auth'
 import { createCommandRouter, type CommandRouter } from './commands'
 import { createSessionManager, type SessionManager } from './session-manager'
@@ -26,7 +26,10 @@ export interface CoreHubOptions {
   config: AppConfig
   handler?: MessageHandler
   commandRouter?: CommandRouter
-  getUserLanguage?: (platform: Platform, userId: string) => 'zh' | 'en'
+  getUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage> | UserLanguage
+  getUserTarget?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
+  getCwdForCli?: (platform: Platform, userId: string, cli: CliType) => Promise<string>
+  setUserTarget?: (platform: Platform, userId: string, target: { cli: CliType; cwd: string }) => Promise<void>
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
   getUpdatePreview?: () => string
@@ -48,7 +51,7 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
   const auth = createAuth(config.WHITELIST_USER_IDS)
 
   // SessionManager：会话生命周期
-  const sessionManager = createSessionManager(bus, repos, config.SESSION_ARCHIVE_DAYS)
+  const sessionManager = createSessionManager(bus, repos, config.SESSION_ARCHIVE_DAYS, opts.getUserTarget)
 
   const commandRouter =
     opts.commandRouter ??
@@ -57,6 +60,9 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
       repos,
       sessionManager,
       getUserLanguage: opts.getUserLanguage,
+      getUserTarget: opts.getUserTarget,
+      getCwdForCli: opts.getCwdForCli,
+      setUserTarget: opts.setUserTarget,
       resolveCwd: opts.resolveCwd,
       refreshEnvironmentSnapshot: opts.refreshEnvironmentSnapshot,
       getHealthReport: opts.getHealthReport,

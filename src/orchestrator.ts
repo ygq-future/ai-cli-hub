@@ -32,7 +32,7 @@ export interface SessionOrchestratorDeps {
   aggregator: MessageAggregator
   /** adapter 工厂（默认 Claude SDK 家族）；测试可注入假 adapter。 */
   adapterFactory?: (cli: CliType) => CLIAdapter
-  getUserLanguage?: (platform: Platform, userId: string) => UserLanguage
+  getUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage> | UserLanguage
   getSystemMemoryHint?: () => Promise<string> | string
   getRelevantMemoryHint?: (query: string) => Promise<string> | string
   agentDescription?: string
@@ -270,7 +270,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     try {
       const systemMemoryHint = await resolveSystemMemoryHint(cid)
       const roleHint = roleDescriptionHint(deps.agentDescription)
-      const langHint = languageHint(getUserLanguage(conv.platform, conv.userId))
+      const langHint = languageHint(await getUserLanguage(conv.platform, conv.userId))
       const systemHint = [roleHint, langHint, systemMemoryHint].filter(Boolean).join('\n\n')
       await adapter.start({
         conversationId: cid,

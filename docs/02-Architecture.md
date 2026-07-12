@@ -160,6 +160,7 @@ interface EventBus {
 | `SessionCreated` | Core | Logger / Storage | 会话元数据创建 |
 | `SessionClosed` | Core | Runtime / Storage | 会话终止，触发进程回收 |
 | `UserTargetChanged` | Core(CommandRouter) | Transport | `/cwd` 等只切换用户目标 cli/cwd，不创建 conversation |
+| `UserLanguageChanged` | Transport | Preferences / Orchestrator | 按 `(platform,userId)` 持久化语言，并使运行中 adapter 在下条消息按新语言启动 |
 | `MessageReceived` | Transport | Core(Router) | 用户输入到达 |
 | `MessageGenerated` | Aggregator | Transport / Memory | CLI 输出聚合完成，待渲染 |
 | `ApprovalRequested` | Adapter | Core / Transport | 检测到危险操作 |
@@ -347,6 +348,7 @@ flowchart TD
 ```
 
 - **默认复用**：会话 scope = `(platform,userId)`；普通消息优先复用同 scope 最新可复用会话（`idle/starting/running`）。若 Transport 重启丢失内存目标，用该会话的 `cli/cwd` 恢复目标并继续复用 `idle`。
+- **用户目标持久化**：`user_preferences` 保存语言与默认 CLI，`user_cli_cwds` 保存每 CLI cwd，均以 `(platform,userId)` 隔离。首次访问使用 `claude` 和 `~/ai-workspace/.claude`，并创建目录；普通消息在没有 open 会话时从该持久化目标创建会话。
 - **`/new`**：强制开新会话；新建前只关闭同 scope 所有非 `closed` 历史会话，新会话初始 `idle`。若没有 open 会话且入站目标 CLI 只是默认值，则从同 scope 最近 closed 会话恢复 CLI；显式 `/new <cli>` 覆盖恢复值。
 - **`/cwd`**：无参数显示当前目标 cwd；带路径时关闭当前会话、更新目标 cwd，不创建 conversation，下一条普通消息再新建。
 - **`/close`**：显式结束，触发归档并生成 episodic 摘要（见 §7）。

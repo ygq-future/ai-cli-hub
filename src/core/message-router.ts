@@ -36,7 +36,7 @@ export function createMessageRouter(
   sessionManager: SessionManager,
   commandRouter?: CommandRouter,
   handler?: MessageHandler,
-  getUserLanguage: (platform: Platform, userId: string) => UserLanguage = () => 'zh',
+  getUserLanguage: (platform: Platform, userId: string) => Promise<UserLanguage> | UserLanguage = () => 'zh',
   requestedSummaryMessageLimit = 10,
 ): MessageRouter {
   const unsubs: Unsubscribe[] = []
@@ -68,7 +68,7 @@ export function createMessageRouter(
         bus.emit('MemorySummaryRequested', {
           conversationId,
           userId,
-          language: getUserLanguage(platform, userId),
+          language: await getUserLanguage(platform, userId),
           reason: 'userRememberRequest',
           text,
         })

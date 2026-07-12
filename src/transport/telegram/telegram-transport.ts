@@ -157,6 +157,8 @@ export interface TelegramTransportDeps {
   mediaPreprocessor?: MediaPreprocessor
   /** 测试注入：绕过真实 Telegram 文件下载。 */
   downloadTelegramFile?: (file: TelegramDownloadRequest) => Promise<string>
+  /** 用户语言持久化查询；缺省使用 Transport 内存偏好（测试/兼容）。 */
+  resolveUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage>
 }
 
 export interface TelegramTransport extends Transport {
@@ -281,6 +283,10 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     return userLang.get(userId) ?? 'zh'
   }
 
+  async function resolvedUserLanguage(userId: string): Promise<UserLanguage> {
+    return deps.resolveUserLanguage?.('telegram', userId) ?? getUserLanguage(userId)
+  }
+
   function parseCommandName(text: string): string | null {
     const head = text.trim().split(/\s+/)[0]
     if (!head?.startsWith('/')) return null
@@ -292,7 +298,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   }
 
   function targetCwd(userId: string): string {
-    return userCwd.get(userId) ?? config.DEFAULT_CWD
+    return userCwd.get(userId) ?? process.cwd()
   }
 
   function inferExt(file: TelegramDownloadRequest, url?: string): string {
@@ -553,7 +559,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     return attachments
   }
 
-  function emitIncoming(ctx: TgCtx, text: string): void {
+  async function emitIncoming(ctx: TgCtx, text: string): Promise<void> {
     const userId = String(ctx.from?.id ?? '')
     const chatId = String(ctx.chat?.id ?? '')
     if (!userId || !chatId) return
@@ -561,11 +567,11 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
 
     const commandName = parseCommandName(text)
     if (commandName === 'start') {
-      void replyFormatted(ctx, getStartText(getUserLanguage(userId))).catch(() => {})
+      void replyFormatted(ctx, getStartText(await resolvedUserLanguage(userId))).catch(() => {})
       return
     }
     if (commandName === 'help') {
-      void replyFormatted(ctx, getHelpText(getUserLanguage(userId))).catch(() => {})
+      void replyFormatted(ctx, getHelpText(await resolvedUserLanguage(userId))).catch(() => {})
       return
     }
     if (commandName === 'lang') {
@@ -602,7 +608,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     const text = message.text ?? message.caption ?? ''
     const commandName = message.text ? parseCommandName(message.text) : null
     if (commandName) {
-      emitIncoming(ctx, message.text ?? '')
+      await emitIncoming(ctx, message.text ?? '')
       return
     }
 
@@ -618,7 +624,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
         config.MEDIA_PARSE_TIMEOUT_MS,
         'Media preprocessing',
       )
-      emitIncoming(ctx, result.text)
+      await emitIncoming(ctx, result.text)
     } catch (err) {
       reportError('telegram:media', err)
       void ctx.reply(`附件处理失败：${err instanceof Error ? err.message : String(err)}`).catch(() => {})
@@ -651,8 +657,12 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   }
 
   // 注册 bot handlers（创建期注册；launch 在 start()）
-  bot.start(guarded(ctx => replyFormatted(ctx, getStartText(getUserLanguage(String(ctx.from?.id ?? ''))))))
-  bot.help(guarded(ctx => replyFormatted(ctx, getHelpText(getUserLanguage(String(ctx.from?.id ?? ''))))))
+  bot.start(
+    guarded(async ctx => replyFormatted(ctx, getStartText(await resolvedUserLanguage(String(ctx.from?.id ?? ''))))),
+  )
+  bot.help(
+    guarded(async ctx => replyFormatted(ctx, getHelpText(await resolvedUserLanguage(String(ctx.from?.id ?? ''))))),
+  )
   bot.on(
     'message',
     guarded(ctx => void onIncoming(ctx).catch(err => reportError('telegram:incoming', err))),

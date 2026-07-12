@@ -13,8 +13,9 @@ export function getHelpText(language: UserLanguage): string {
       '## 📖 Available commands',
       '',
       '### Sessions',
-      '- `/new [cli] [cwd]` — Start a new session.',
-      '- `/cwd [path]` — Show or change the working directory.',
+      '- `/new [cli] [cwd]` — Start a new session and save the selected CLI as default.',
+      '- `/cwd [path]` — Change the active session CLI working directory.',
+      '- `/cwd <cli> <path>` — Save a CLI directory when no session is active.',
       '- `/close` — Close the current session.',
       '- `/status` — Show the current session status.',
       '- `/sessions` — List recent sessions.',
@@ -30,6 +31,7 @@ export function getHelpText(language: UserLanguage): string {
       '- `/restart` — Preview restart; `/restart confirm` executes it.',
       '- `/lang zh|en` — Change the reply language.',
       '',
+      '> You can also say “remember this” naturally. The hub summarizes recent user/assistant messages with the configured memory model and saves a session-derived memory; it does not send that request to the CLI.',
       '> Send text, emoji, stickers, images, or files to chat. Attachments are used only as text context and are never executed.',
     ].join('\n')
   }
@@ -38,8 +40,9 @@ export function getHelpText(language: UserLanguage): string {
     '## 📖 可用命令',
     '',
     '### 会话',
-    '- `/new [cli] [cwd]` — 开启新会话，可指定 CLI 和工作目录。',
-    '- `/cwd [path]` — 查看或切换工作目录。',
+    '- `/new [cli] [cwd]` — 开启新会话；指定 CLI 会同时更新默认 CLI。',
+    '- `/cwd [path]` — 切换当前活跃会话 CLI 的工作目录。',
+    '- `/cwd <cli> <path>` — 没有活跃会话时，保存指定 CLI 的工作目录。',
     '- `/close` — 关闭当前会话。',
     '- `/status` — 查看当前会话状态。',
     '- `/sessions` — 查看最近会话。',
@@ -55,6 +58,7 @@ export function getHelpText(language: UserLanguage): string {
     '- `/restart` — 查看重启计划；`/restart confirm` 执行。',
     '- `/lang zh|en` — 切换回复语言。',
     '',
+    '> 也可自然地说“记住这个/记一下”。系统会用记忆模型总结当前会话最近的用户与助手消息，写入会话派生记忆；该请求不会发送给 CLI。',
     '> 直接发送文本、emoji、sticker、图片或文件即可对话；附件只作为文本上下文，不会执行。',
   ].join('\n')
 }

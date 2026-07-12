@@ -12,4 +12,6 @@ export type {
   NewAuditLog,
   Memory,
   NewMemory,
+  UserPreference,
+  UserCliCwd,
 } from './schema'

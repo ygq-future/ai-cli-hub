@@ -22,9 +22,9 @@ describe('restart runner', () => {
 
     const preview = runner.preview()
 
-    expect(preview).toContain('**重启预检**')
-    expect(preview).toContain('Workdir: /app/ai-cli-hub')
-    expect(preview).toContain('Restart: pm2 restart ai-cli-hub after 1500ms')
+    expect(preview).toContain('## 🔄 重启预检')
+    expect(preview).toContain('**工作目录**: `/app/ai-cli-hub`')
+    expect(preview).toContain('**重启命令**: `pm2 restart ai-cli-hub after 1500ms`')
     expect(preview).toContain('/restart confirm')
   })
 
@@ -47,7 +47,8 @@ describe('restart runner', () => {
     expect(notices).toEqual(['chat-1/msg-1'])
     expect(restarts).toEqual(['pm2 restart ai-cli-hub | /app/ai-cli-hub | 1500'])
     expect(report).toContain('重启已安排')
-    expect(report).toContain('重启完成后会主动通知你')
+    expect(report).toContain('**延迟**: 1.5 秒')
+    expect(report).toContain('恢复后会主动通知此聊天')
   })
 
   test('restart notice failure stops before scheduling restart', async () => {
@@ -84,7 +85,7 @@ describe('restart runner', () => {
 
     expect(restarts).toEqual([])
     expect(report).toContain('重启未安排')
-    expect(report).toContain('UPDATE_RESTART_COMMAND 为空')
+    expect(report).toContain('`UPDATE_RESTART_COMMAND` 为空')
   })
 
   test('windows platform reports unsupported and does not write notice or schedule restart', async () => {

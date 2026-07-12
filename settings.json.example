@@ -41,7 +41,6 @@
     "sessionArchiveDays": 7
   },
   "session": {
-    "defaultCwd": null,
     "agentDescription": "你是运行在个人 VPS 上的 AI CLI 远程会话管理助手，负责协助用户安全、高效地管理本机项目、命令执行、审批和长期记忆。",
     "recentContextLimit": 10,
     "recentContextMessageMaxChars": 1200

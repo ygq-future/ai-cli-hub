@@ -318,7 +318,17 @@ export interface MemoryRepository {
   touch(id: string): Promise<void>; // access_count++ / last_accessed_at
   delete(id: string): Promise<void>;
 }
+
+export interface UserPreferenceRepository {
+  getOrCreate(input: { platform: Platform; userId: string; language: UserLanguage; defaultCli: CliType }): Promise<UserPreference>;
+  setLanguage(platform: Platform, userId: string, language: UserLanguage): Promise<void>;
+  setDefaultCli(platform: Platform, userId: string, cli: CliType): Promise<void>;
+  findCwd(platform: Platform, userId: string, cli: CliType): Promise<UserCliCwd | null>;
+  upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>;
+}
 ```
+
+`UserPreferenceRepository` 是用户级持久化目标的唯一 SQL 出口：按 `(platform,userId)` 保存 `/lang`、默认 CLI，并按 `(platform,userId,cli)` 保存 cwd；不使用无类型的通用 KV 表。
 
 > `New*` 为插入用类型（无 id/时间戳），`Conversation`/`Message`/... 为读取用完整类型，均由 Drizzle `$inferInsert` / `$inferSelect` 推导，见 04。
 

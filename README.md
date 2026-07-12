@@ -71,7 +71,7 @@ Configure at least:
 - `transport.qqBotAppId` / `transport.qqBotAppSecret`: optional Tencent Official QQ Bot credentials; configure both or neither.
 - `transport.qqBotOpenIdDiscovery`: temporarily enable it to log an unapproved QQ C2C sender OpenID.
 - `transport.whitelistUserIds`: mixed Telegram numeric IDs and QQ user OpenIDs allowed to control the hub.
-- `session.defaultCwd`: default workspace directory for new sessions.
+- User targets are stored in Postgres by `(platform, userId)`: language, default CLI, and one CWD per CLI. On first use, a CLI defaults to `~/ai-workspace/.<cli>`.
 - `session.agentDescription`: optional role hint injected when the adapter starts.
 - `ocr.apiBaseUrl`: optional Light OCR API base URL; leave empty to disable image OCR.
 

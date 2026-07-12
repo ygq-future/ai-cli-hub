@@ -30,7 +30,6 @@ const CONFIG = loadConfig({
     sessionArchiveDays: 7,
   },
   session: {
-    defaultCwd: 'D:/workspace/project',
     agentDescription: '',
     recentContextLimit: 10,
     recentContextMessageMaxChars: 1200,
@@ -114,10 +113,10 @@ describe('memory module', () => {
     const firstCount = memories.length
     await createMemoryModule({ bus, repos, config: CONFIG })
 
-    expect(firstCount).toBeGreaterThanOrEqual(7)
+    expect(firstCount).toBeGreaterThanOrEqual(6)
     expect(memories.length).toBe(firstCount)
     expect(memories.some(m => m.tag === 'env.os')).toBe(true)
-    expect(memories.some(m => m.tag === 'env.default_cwd' && m.content.includes('D:/workspace/project'))).toBe(true)
+    expect(memories.some(m => m.tag === 'env.default_cwd')).toBe(false)
     expect(memories.some(m => m.tag === 'env.container')).toBe(true)
     expect(memories.some(m => m.tag === 'env.service_manager')).toBe(true)
     expect(memories.some(m => m.tag === 'env.media')).toBe(true)

@@ -58,7 +58,12 @@ export interface SessionManager {
   destroy(): void
 }
 
-export function createSessionManager(bus: EventBus, repos: Repositories, archiveDays: number): SessionManager {
+export function createSessionManager(
+  bus: EventBus,
+  repos: Repositories,
+  archiveDays: number,
+  resolveUserTarget?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>,
+): SessionManager {
   return {
     async findOrCreate(opts) {
       const { userId, platform } = opts
@@ -70,14 +75,16 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
       }
 
       await closeOpenConversations(platform, userId)
-      const { cli, cwd } = await resolvePersistentTarget({
-        userId,
-        platform,
-        cli: opts.cli,
-        cwd: opts.cwd,
-        preserveCli: true,
-        preserveCwd: false,
-      })
+      const { cli, cwd } = resolveUserTarget
+        ? await resolveUserTarget(platform, userId)
+        : await resolvePersistentTarget({
+            userId,
+            platform,
+            cli: opts.cli,
+            cwd: opts.cwd,
+            preserveCli: true,
+            preserveCwd: false,
+          })
 
       // 新建
       const id = crypto.randomUUID() as ConversationId
@@ -115,14 +122,16 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
 
       // /new 语义：历史未关闭会话全部关闭，新会话 idle，下一条普通消息懒启动 CLI。
       await closeOpenConversations(platform, userId)
-      const { cli, cwd } = await resolvePersistentTarget({
-        userId,
-        platform,
-        cli: opts.cli,
-        cwd: opts.cwd,
-        preserveCli: !opts.cliExplicit,
-        preserveCwd: false,
-      })
+      const { cli, cwd } = resolveUserTarget
+        ? { cli: opts.cli, cwd: opts.cwd }
+        : await resolvePersistentTarget({
+            userId,
+            platform,
+            cli: opts.cli,
+            cwd: opts.cwd,
+            preserveCli: !opts.cliExplicit,
+            preserveCwd: false,
+          })
 
       // 再新建
       const id = crypto.randomUUID() as ConversationId

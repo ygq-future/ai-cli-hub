@@ -33,22 +33,22 @@ flowchart TD
 |---|---|---|---|
 | `/start` | — | 欢迎 + 当前会话状态 | 若无活跃会话则展示引导 |
 | `/help` | — | 命令帮助 | 返回本表精简版 |
-| `/new` | `[cli]` `[cwd]` | 强制开新会话 | 关闭当前/目标旧会话 → 新建 `idle` conversation → `SessionCreated` |
+| `/new` | `[cli]` `[cwd]` | 强制开新会话 | 关闭当前/目标旧会话 → 新建 `idle` conversation → `SessionCreated`；指定 CLI 会持久化为默认 CLI |
 | `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；不做非 LLM 自动会话摘录 |
 | `/status` | — | 当前会话详情 | 展示完整 conversationId、status、cli/cwd、目标 cli/cwd、语言 |
-| `/cwd` | `[path]` | 查看或切换工作目录 | 无参数查看；带路径则关闭当前会话、切换目标 cwd，下一条消息懒启动 |
+| `/cwd` | `[path]` 或 `<cli> <path>` | 查看或切换工作目录 | 有 open 会话（含 `idle`）时用 `/cwd <path>` 切换当前会话 CLI；没有 open 会话时必须用 `/cwd <cli> <path>` 保存对应 CLI 目录 |
 | `/sessions` | — | 列出该用户近期会话 | 历史查看，不表示 resume |
 | `/audit` | `[conversationId]` | 查看审批审计 | 无参数查看当前会话；带完整或短会话 ID 查看指定会话最近审批记录 |
 | `/remember` | `<text>` | 写入实例级全局长期记忆 | 默认写入 `namespace='global'`、`conversation_id=NULL`；`preference:` / `偏好:` 前缀写入偏好；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 | `/memory` | — | 查看实例级全局长期记忆 | Markdown 列表；每条仅展示短 ID、namespace 与 content |
 | `/env` | — | 刷新并查看环境快照 | 重新探测 OS/运行时/PM2/Docker/DB/端口/默认目录/媒体目录；按稳定 `env.*` tag 幂等 upsert |
-| `/health` | — | 服务健康检查 | 即时检查 DB ping、默认工作目录、媒体目录、关键 CLI 可用性与进程 uptime；不创建 conversation、不进入 CLI |
-| `/update` | `[confirm]` | 受控自更新 | 无参数只展示计划；`/update confirm` 才执行 git pull、依赖安装、迁移、检查，并延迟交给守护器重启；新进程启动后主动通知原 chat |
-| `/restart` | `[confirm]` | 受控重启 | Windows 上直接拒绝；非 Windows 无参数只展示计划；`/restart confirm` 不更新代码，只写入重启通知 marker 并延迟交给守护器重启；用于验证重启与主动通知链路 |
+| `/health` | — | 服务健康检查 | 即时检查 DB ping、默认工作目录、媒体目录、关键 CLI 可用性与进程 uptime；以 Markdown 状态卡片回复；不创建 conversation、不进入 CLI |
+| `/update` | `[confirm]` | 受控自更新 | 无参数以 Markdown 预检卡片展示计划；`/update confirm` 汇总各步骤结果而不回传冗长命令输出，并延迟交给守护器重启；新进程启动后主动通知原 chat |
+| `/restart` | `[confirm]` | 受控重启 | Windows 上直接拒绝；非 Windows 无参数以 Markdown 预检卡片展示计划；`/restart confirm` 不更新代码，只写入重启通知 marker 并延迟交给守护器重启；用于验证重启与主动通知链路 |
 | `/forget` | `<memoryId>` | 删除实例级全局长期记忆 | 支持唯一短前缀；前缀不唯一时拒绝删除；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 
-> 参数缺省：`/new` 不带参数则使用当前目标 `cli`、当前目标 `cwd`（若无则用 `DEFAULT_CWD`）。如果进程重启或 `/close` 后没有 open 会话导致当前目标 CLI 丢失，会从该用户最近一条 closed 会话恢复 CLI；显式 `/new claude` 或 `/new opencode` 始终覆盖该恢复值。当前已接入 `claude` 与 `opencode`；`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
-> 普通文本里的“记住/记一下/记录/remember this”等自然语言记忆请求不是 `/remember`：它不会写入 global 记忆，也不会进入 Claude SDK；系统会按 `MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 读取当前 conversation 最近的 user/assistant 消息调用 LLM 摘要，摘要语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述，写入 conversation-derived episodic 记忆并用于后续 embedding 召回。
+> 用户目标按 `(platform,userId)` 持久化：语言、默认 CLI 和每个 CLI 的 cwd 彼此隔离。首次访问默认 `language=zh`、`default_cli=claude`，未配置目录时自动使用并创建 `~/ai-workspace/.<cli>`。`/new <cli>` 会更新默认 CLI；`/new` 无参数、普通消息与 `/status` 均读取该持久化目标。当前已接入 `claude` 与 `opencode`；`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
+> 普通文本里的“记住/记一下/记录/remember this”等自然语言记忆请求不是 `/remember`：它不会直接写入 global 记忆，也不会进入 Claude SDK；系统会按 `MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 读取当前 conversation 最近的 user/assistant 消息调用配置的记忆 LLM 摘要，摘要语言跟随持久化的 `/lang` 偏好，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述，写入 conversation-derived episodic 记忆并用于后续 embedding 召回。
 
 ---
 
@@ -56,10 +56,11 @@ flowchart TD
 
 | 用户动作 | 会话结果 |
 |---|---|
-| 普通发消息 | 命中 `(platform, user)` scope 的活跃会话则复用；否则新建。CLI/cwd 是当前目标，不划分会话 |
-| `/new` | 强制新建，关闭同 `(platform,user)` scope 旧会话；新建会话初始为 `idle`，第一条普通消息懒启动 CLI |
-| `/cwd` | 无参数仅查看当前目标 cwd |
-| `/cwd <path>` | 关闭当前会话并切换当前用户目标 cwd；不创建 conversation，下一条普通消息在新 cwd 新建 |
+| 普通发消息 | 命中 `(platform, user)` scope 的活跃会话则复用；否则按该用户持久化的默认 CLI/CWD 新建 |
+| `/new` | 强制新建，关闭同 `(platform,user)` scope 旧会话；指定 CLI/CWD 会写回持久化目标；新建会话初始为 `idle`，第一条普通消息懒启动 CLI |
+| `/cwd` | 无参数仅查看持久化默认 CLI 的 cwd |
+| `/cwd <path>` | 有 open 会话时关闭当前会话并更新其 CLI 的 cwd；无 open 会话时拒绝并提示使用 `/cwd <cli> <path>` |
+| `/cwd <cli> <path>` | 无 open 会话时保存该 CLI 的 cwd，不创建 conversation |
 | `/close` | 当前会话关闭；不自动写长期记忆，下条消息将开新会话 |
 | 长期无活动 | 超 `SESSION_ARCHIVE_DAYS` 自动归档（等同 `/close`，`reason:archiveTimeout`） |
 
@@ -148,9 +149,9 @@ Markdown 卡片 + 内联按钮：
 | `/env` 执行 | 立即刷新环境快照并返回 `env.*` 记忆；probe 失败项显示 `missing` 或 `unknown`，不阻塞服务 |
 | `/health` 执行 | 返回 live self-check；关键检查失败时 Status 为 `down`，非关键检查失败时为 `degraded` |
 | `/update` 执行 | Windows 上直接返回“自更新不可用”且不执行命令；非 Windows 无参数返回预检计划；必须发送 `/update confirm` 才执行；工作树不干净或任一步失败时停止且不安排重启 |
-| `/update confirm` 成功 | 返回自更新报告，并在 `UPDATE_RESTART_DELAY_MS` 后执行 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动并连接对应 Transport 后主动通知“服务已重启完成，可以继续发送消息” |
+| `/update confirm` 成功 | 返回精简 Markdown 汇总，并在 `UPDATE_RESTART_DELAY_MS` 后执行 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`。通知 marker 仅在主动消息发送成功后删除；启动期发送失败会重试，避免丢失通知。 |
 | `/restart` 执行 | Windows 上直接返回“重启不可用”且不执行命令；非 Windows 无参数返回重启预检计划；必须发送 `/restart confirm` 才执行；不执行 git pull、依赖安装、迁移或检查 |
-| `/restart confirm` 成功 | 返回重启安排，并在 `UPDATE_RESTART_DELAY_MS` 后执行同一组 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动并连接对应 Transport 后主动通知原 chat |
+| `/restart confirm` 成功 | 返回 Markdown 重启安排，并在 `UPDATE_RESTART_DELAY_MS` 后执行同一组 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动后主动通知原 chat；marker 仅在发送成功后删除。 |
 | adapter 重启后继续同一会话 | 下一条 user message 会携带当前 conversation 最近 `RECENT_CONTEXT_LIMIT` 条历史消息；单条超长时按 `RECENT_CONTEXT_MESSAGE_MAX_CHARS` 保留尾部，避免丢失上一轮最新结论 |
 | CLI 运行中 `/new` | ℹ️ 已关闭当前会话，已为你开启新会话 |
 | 进程被空闲回收后发消息 | （静默唤醒，重启进程，用户无感）|

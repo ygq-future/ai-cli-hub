@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 import { getTableConfig } from 'drizzle-orm/pg-core'
-import { conversations, messages, auditLogs, memories } from './schema'
+import { conversations, messages, auditLogs, memories, userCliCwds, userPreferences } from './schema'
 
 describe('schema — 表结构与契约', () => {
   test('conversations：列 + 复合索引', () => {
@@ -57,5 +57,19 @@ describe('schema — 表结构与契约', () => {
     const t = getTableConfig(memories)
     const embedding = t.columns.find(c => c.name === 'embedding')!
     expect(embedding.mapToDriverValue([0.1, 0.2, 0.3])).toBe('[0.1,0.2,0.3]')
+  })
+
+  test('用户偏好：按 platform + userId 隔离语言、默认 CLI 和每 CLI CWD', () => {
+    const preferences = getTableConfig(userPreferences)
+    expect(preferences.columns.map(column => column.name)).toEqual(
+      expect.arrayContaining(['platform', 'user_id', 'language', 'default_cli']),
+    )
+    expect(preferences.primaryKeys).toHaveLength(1)
+
+    const cwdTargets = getTableConfig(userCliCwds)
+    expect(cwdTargets.columns.map(column => column.name)).toEqual(
+      expect.arrayContaining(['platform', 'user_id', 'cli', 'cwd']),
+    )
+    expect(cwdTargets.primaryKeys).toHaveLength(1)
   })
 })

@@ -35,7 +35,6 @@ export function createHealthReporter(deps: HealthReporterDeps): HealthReporter {
     async getReport(): Promise<string> {
       const checks = await Promise.all([
         deps.checkDatabase(),
-        deps.checkDirectory(deps.config.DEFAULT_CWD).then(check => ({ ...check, name: 'default_cwd', critical: true })),
         deps.checkDirectory(deps.config.MEDIA_DOWNLOAD_DIR).then(check => ({ ...check, name: 'media_dir' })),
         deps.checkCommand('claude').then(check => ({ ...check, name: 'cli.claude', critical: true })),
         deps.checkCommand('opencode').then(check => ({ ...check, name: 'cli.opencode' })),
@@ -56,11 +55,13 @@ export function formatHealthReport(input: {
   checks: HealthCheckResult[]
 }): string {
   return [
-    '**健康检查**',
-    `Status: ${input.status}`,
-    `Uptime: ${formatDuration(input.uptimeMs)}`,
+    '## 🩺 服务健康检查',
     '',
-    ...input.checks.map(check => `- ${statusIcon(check.status)} ${check.name}: ${check.detail}`),
+    `- **总体状态**: ${statusIcon(input.status)} ${statusLabel(input.status)}`,
+    `- **运行时长**: ${formatDuration(input.uptimeMs)}`,
+    '',
+    '### 检查项',
+    ...input.checks.map(check => `- ${statusIcon(check.status)} **${check.name}** — ${check.detail}`),
   ].join('\n')
 }
 
@@ -71,9 +72,15 @@ function overallStatus(checks: HealthCheckResult[]): HealthStatus {
 }
 
 function statusIcon(status: HealthStatus): string {
-  if (status === 'ok') return 'OK'
-  if (status === 'degraded') return 'WARN'
-  return 'DOWN'
+  if (status === 'ok') return '✅'
+  if (status === 'degraded') return '⚠️'
+  return '❌'
+}
+
+function statusLabel(status: HealthStatus): string {
+  if (status === 'ok') return '正常'
+  if (status === 'degraded') return '部分降级'
+  return '不可用'
 }
 
 function formatDuration(ms: number): string {

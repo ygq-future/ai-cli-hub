@@ -761,9 +761,9 @@ describe('CommandRouter', () => {
     })
 
     expect((await repos.conversations.findById(cid))?.status).toBe('closed')
-    expect(targetChanges).toEqual([{ userId: 'u1', platform: 'telegram', cwd: '/new' }])
+    expect(targetChanges).toEqual([{ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/new' }])
     expect(replies.length).toBe(1)
-    expect((replies[0] as { content: string }).content).toContain('已切换工作目录')
+    expect((replies[0] as { content: string }).content).toContain('工作目录已切换')
   })
 
   test('/new 拒绝未接入 CLI', async () => {

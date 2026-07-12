@@ -44,7 +44,6 @@ function validJson() {
       sessionArchiveDays: 7,
     },
     session: {
-      defaultCwd: null,
       agentDescription: '',
       recentContextLimit: 10,
       recentContextMessageMaxChars: 1200,
@@ -121,7 +120,6 @@ describe('loadConfig', () => {
     expect(c.OCR_API_BASE_URL).toBe('')
     expect(c.OCR_API_TIMEOUT_MS).toBe(30_000)
     expect(c.ENV_PROBE_TIMEOUT_MS).toBe(1500)
-    expect(c.DEFAULT_CWD).toBe(process.cwd())
     expect(c.UPDATE_WORKDIR).toBe(process.cwd())
     expect(c.UPDATE_COMMAND_TIMEOUT_MS).toBe(120_000)
     expect(c.UPDATE_REQUIRE_CLEAN_WORKTREE).toBe(true)

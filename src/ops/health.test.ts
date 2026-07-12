@@ -3,7 +3,6 @@ import type { AppConfig } from '../config'
 import { createHealthReporter, formatHealthReport, type HealthCheckResult } from './health'
 
 const config = {
-  DEFAULT_CWD: '/app',
   MEDIA_DOWNLOAD_DIR: '/app/.data/media',
 } as AppConfig
 
@@ -24,13 +23,13 @@ describe('health reporter', () => {
 
     const report = await reporter.getReport()
 
-    expect(report).toContain('Status: ok')
-    expect(report).toContain('Uptime: 1m 1s')
-    expect(report).toContain('OK database: database ok')
-    expect(report).toContain('OK default_cwd: /app ok')
-    expect(report).toContain('OK media_dir: /app/.data/media ok')
-    expect(report).toContain('OK cli.claude: claude ok')
-    expect(report).toContain('OK cli.opencode: opencode ok')
+    expect(report).toContain('## 🩺 服务健康检查')
+    expect(report).toContain('✅ 正常')
+    expect(report).toContain('**运行时长**: 1m 1s')
+    expect(report).toContain('✅ **database** — database ok')
+    expect(report).toContain('✅ **media_dir** — /app/.data/media ok')
+    expect(report).toContain('✅ **cli.claude** — claude ok')
+    expect(report).toContain('✅ **cli.opencode** — opencode ok')
   })
 
   test('critical down check makes overall status down', () => {
@@ -43,7 +42,7 @@ describe('health reporter', () => {
       ],
     })
 
-    expect(report).toContain('Status: down')
-    expect(report).toContain('DOWN database: connection refused')
+    expect(report).toContain('❌ 不可用')
+    expect(report).toContain('❌ **database** — connection refused')
   })
 })

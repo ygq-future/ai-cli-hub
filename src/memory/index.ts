@@ -288,10 +288,6 @@ export async function collectEnvironmentFacts(config: AppConfig): Promise<Enviro
       ].join('\n'),
     },
     {
-      tag: 'env.default_cwd',
-      content: ['环境画像：[工作目录]', `DEFAULT_CWD=${normalizePathForMemory(config.DEFAULT_CWD)}`].join('\n'),
-    },
-    {
       tag: 'env.cli',
       content: ['环境画像：[AI CLI]', '当前已接入 CLI=claude, opencode', ...cliFacts].join('\n'),
     },

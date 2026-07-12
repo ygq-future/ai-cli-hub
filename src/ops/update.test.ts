@@ -29,14 +29,14 @@ describe('update runner', () => {
 
     const preview = runner.preview()
 
-    expect(preview).toContain('**自更新预检**')
-    expect(preview).toContain('Workdir: /app/ai-cli-hub')
+    expect(preview).toContain('## 🔄 自更新预检')
+    expect(preview).toContain('**工作目录**: `/app/ai-cli-hub`')
     expect(preview).toContain('git status --short')
     expect(preview).toContain('git pull --ff-only')
     expect(preview).toContain('bun install --frozen-lockfile')
     expect(preview).toContain('bun run setting:migrate')
     expect(preview).toContain('bun run db:migrate')
-    expect(preview).toContain('restart: pm2 restart ai-cli-hub after 1500ms')
+    expect(preview).toContain('`pm2 restart ai-cli-hub after 1500ms`')
     expect(preview).toContain('/update confirm')
   })
 
@@ -122,7 +122,8 @@ describe('update runner', () => {
     expect(notices).toEqual(['chat-1/msg-1'])
     expect(restarts).toEqual(['pm2 restart ai-cli-hub | /app/ai-cli-hub | 1500'])
     expect(report).toContain('自更新完成')
-    expect(report).toContain('OK schedule restart')
+    expect(report).toContain('已完成 **8** 项检查与更新')
+    expect(report).toContain('**命令**: `pm2 restart ai-cli-hub`')
   })
 
   test('restart notice failure stops before scheduling restart', async () => {
