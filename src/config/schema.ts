@@ -325,9 +325,9 @@ export function loadConfig(source?: Partial<SettingsJson>, opts?: { settingsPath
   // 代理变量写回 process.env（Bun fetch 依赖它）
   applyProxyToEnv(json)
 
-  // QQ ws proxy 回退
+  // QQ ws proxy 回退到同一份 JSON 代理配置，不读取宿主环境变量
   if (!config.QQBOT_WS_PROXY) {
-    const fallback = process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY ?? process.env.ALL_PROXY
+    const fallback = json.transport.httpsProxy || json.transport.httpProxy
     if (fallback) config.QQBOT_WS_PROXY = fallback
   }
 

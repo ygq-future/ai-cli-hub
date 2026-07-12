@@ -7,7 +7,6 @@ Wants=network-online.target
 Type=simple
 User=aihub
 WorkingDirectory=/opt/ai-cli-hub
-EnvironmentFile=/opt/ai-cli-hub/.env
 ExecStart=/usr/bin/env bun run start
 Restart=on-failure
 RestartSec=5

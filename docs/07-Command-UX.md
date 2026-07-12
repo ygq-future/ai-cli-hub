@@ -160,81 +160,16 @@ Markdown 卡片 + 内联按钮：
 
 ---
 
-## 附：`.env.example`
+## 附：`settings.json`
 
-> 与 [03 §6 ConfigSchema](./03-Interface-Contracts.md) 逐项对齐。放项目根目录，实际值写入 `.env`（勿提交）。新增配置后可运行 `bun run env:migrate`，用 `.env.example` 刷新 `.env` 的注释、顺序和缺失默认值，同时保留已有 `.env` 的 active key-value；引号包裹的多行值会作为同一个配置保留，未出现在模板中的本地 key 会被保留在文件末尾。
+`settings.json.example` 是提交到仓库的完整嵌套 JSON 模板，实际值写入已 gitignore 的 `settings.json`。
 
-```dotenv
-# ── Telegram（可选）──
-# TELEGRAM_BOT_TOKEN=123456:ABC-your-bot-token
+```bash
+# 首次创建，或在更新后对齐新增/删除的 key
+bun run setting:migrate
 
-# ── 腾讯官方 QQ Bot（可选，必须成对配置）──
-# QQBOT_APP_ID=your-qqbot-app-id
-# QQBOT_APP_SECRET=your-qqbot-app-secret
-# QQ OpenID 不可预先取得时，临时启用：发送一次私聊后从服务日志复制 OpenID，加入白名单后关闭。
-# QQBOT_OPENID_DISCOVERY=false
-
-# ── 白名单（TG numeric ID 与 QQ user OpenID 可混合）──
-WHITELIST_USER_IDS=11111111,qq-user-openid
-
-# ── 数据库（Postgres）──
-DATABASE_URL=postgres://hub:password@localhost:5432/ai_cli_hub
-
-# ── 长期记忆 / 嵌入（API，不跑本地模型）──
-EMBEDDING_API_BASE_URL=https://api.openai.com/v1
-EMBEDDING_API_KEY=sk-your-embedding-key
-EMBEDDING_MODEL=BAAI/bge-m3
-EMBEDDING_DIMENSIONS=1024
-MEMORY_RECALL_TOP_K=10
-
-# ── 长期记忆 / LLM 摘要（OpenAI-compatible chat completions；留空则无法生成 LLM 摘要）──
-MEMORY_SUMMARY_API_BASE_URL=https://api.openai.com/v1
-MEMORY_SUMMARY_API_KEY=sk-your-summary-key
-MEMORY_SUMMARY_MODEL=gpt-4o-mini
-MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT=10
-MEMORY_SUMMARY_MAX_CHARS=600
-
-# ── Agent 职责定位（可选，注入 system hint）──
-AGENT_DESCRIPTION=你是运行在个人 VPS 上的 AI CLI 远程会话管理助手，负责协助用户安全、高效地管理本机项目、命令执行、审批和长期记忆。
-RECENT_CONTEXT_LIMIT=10
-RECENT_CONTEXT_MESSAGE_MAX_CHARS=1200
-
-# ── 媒体/文件入站（M9）──
-MEDIA_DOWNLOAD_DIR=.data/media
-MEDIA_MAX_FILE_BYTES=10485760
-MEDIA_MAX_TEXT_CHARS=20000
-MEDIA_PARSE_TIMEOUT_MS=30000
-
-# ── OCR（Light OCR API，可选；留空则禁用）──
-OCR_API_BASE_URL=http://localhost:8000
-OCR_API_TIMEOUT_MS=30000
-
-# ── 运维自更新（V2-R2）──
-# /update 和 /restart 仅适用于 Linux/VPS 部署；Windows 上会直接提示不可用。
-# /restart 复用同一组重启配置，但不更新代码，用于测试重启与主动通知链路。
-# UPDATE_WORKDIR 默认使用进程启动目录 process.cwd()；生产上只有守护器 cwd 不稳定时才需要覆盖。
-# UPDATE_WORKDIR=/srv/ai-cli-hub
-UPDATE_COMMAND_TIMEOUT_MS=120000
-UPDATE_REQUIRE_CLEAN_WORKTREE=true
-UPDATE_RESTART_COMMAND=pm2
-UPDATE_RESTART_ARGS=restart,ai-cli-hub
-UPDATE_RESTART_DELAY_MS=1500
-UPDATE_RESTART_NOTICE_FILE=.data/update-restart-notice.json
-
-# ── 生命周期超时 ──
-# 已启动的 CLI/adapter 空闲超过该时间后自动关闭；conversation 保持 idle，可再次唤醒
-AGENT_IDLE_TIMEOUT_MS=300000
-
-# 会话自动归档（天）
-SESSION_ARCHIVE_DAYS=7
-
-# ── 日志 ──
-# debug | info | warn | error
-LOG_LEVEL=info
-
-# ── 调试 ──
-# true/1/on 时打印 Agent SDK 原始 JSON；开发 SDK adapter 时使用
-DEBUG_AGENT_SDK_JSON=false
-# true/1/on 时打印消息链路日志：用户输入、注入后的上下文、记忆召回、adapter 输出、落库消息等
-DEBUG_MESSAGE_FLOW=false
+# 交互式查看和编辑
+bun setting
 ```
+
+`setting:migrate` 只在 `settings.json` 与 `settings.json.example` 之间对齐结构：保留现有值、补新 key、删旧 key。它不读取 `.env`。`/update confirm` 也会在数据库迁移前自动执行该命令。

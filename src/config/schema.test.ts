@@ -341,6 +341,22 @@ describe('loadConfig', () => {
     expect(env.HTTPS_PROXY).toBe('http://127.0.0.1:7897')
     expect(env.NO_PROXY).toBe('localhost')
   })
+
+  test('QQ WebSocket 代理只回退到 settings.json 代理配置', () => {
+    const originalAllProxy = process.env.ALL_PROXY
+    try {
+      process.env.ALL_PROXY = 'http://ambient-proxy:7890'
+      const configured = validJson()
+      configured.transport.httpsProxy = 'http://settings-proxy:7897'
+      expect(loadConfig(configured).QQBOT_WS_PROXY).toBe('http://settings-proxy:7897')
+
+      const empty = validJson()
+      expect(loadConfig(empty).QQBOT_WS_PROXY).toBe('')
+    } finally {
+      if (originalAllProxy === undefined) delete process.env.ALL_PROXY
+      else process.env.ALL_PROXY = originalAllProxy
+    }
+  })
 })
 
 describe('SettingsJsonSchema', () => {

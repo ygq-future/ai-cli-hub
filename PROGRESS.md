@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-11 · 阶段：**V3 JSON setting 迁移进行中**
+> 最后更新：2026-07-12 · 阶段：**V3 JSON setting 迁移进行中**
 
 ---
 
@@ -15,7 +15,7 @@
 | 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力（附件下载/OCR/懒加载/语音 ASR/emoji 归一化）；opencode 审批展示已按官方 SDK 类型对齐。会话以 `(platform,userId)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 13 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
-| 下一步 | V3：真机验证重写后的 `bun setting` 全屏 TUI + `bun dev` 从 settings.json 启动正常；日常优化与维护 |
+| 下一步 | V3：真机验证 Linux `/update confirm` 的 JSON setting 同步与数据库迁移链路；日常优化与维护 |
 
 ---
 
@@ -236,6 +236,7 @@
 | 2026-07-09 | **`.env.example` 到 `.env` 迁移脚本接入**：JSON setting 迁移按用户要求暂缓到 R3 扩展后；先新增 `scripts/env-migrate.ts` 与 `bun run env:migrate`，按 `.env.example` 刷新 `.env` 的注释、顺序和缺失默认值，已存在的 active key-value 保持不被覆盖，未出现在模板里的本地 key 保留到末尾，注释掉的可选模板项不会被自动激活；另加 `bun run setting:migrate` 兼容别名，目前仅委托到 env 迁移。同步命令 UX 与规划记录。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试通过；沙箱全量 `bun test` 仍因既有 DOCX/XLS 动态依赖权限失败 2 项，非沙箱非登录全量 `bun test` 通过，255 pass / 0 fail。 |
 | 2026-07-09 | **env 迁移多行值修复**：修复 `.env` 中 `AGENT_DESCRIPTION="...\n..."` 这类引号包裹的多行配置在迁移时只保留第一行、丢失后续行与结束引号的问题；env 迁移 parser 改为按 dotenv entry 解析，未闭合的单/双引号值会持续读取到匹配结束引号并作为一个完整 value 保留。新增回归测试覆盖用户给出的多行 `AGENT_DESCRIPTION` 场景。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun test scripts\env-migrate.test.ts` 通过，env 迁移目标测试 7 pass / 0 fail。 |
 | 2026-07-09 | **V2-R3 opencode SDK Adapter 首版完成**：新增 `@opencode-ai/sdk` 依赖与 `OpenCodeSdkAdapter`，通过懒加载 SDK 拉起 `opencode serve`，创建 opencode session，订阅 `message.part.updated`/`session.idle`/`permission.updated` 事件并映射到现有 `CLIAdapter` 输出、final、审批和中断语义；`promptAsync` 显式使用 `agent: 'ai_cli_hub'` 并携带 system hint，确保语言/记忆注入生效；orchestrator adapter factory 改为按会话 `CliType` 选择 adapter，`main.ts` 注册 claude/opencode；`/new opencode <cwd>` 已放开，`codex/gemini` 仍拒绝；Drizzle enum 与迁移 `0003_cli_opencode` 加入 `opencode`；`/health` 增加非关键 `cli.opencode` 检查，环境画像显示已接入 `claude, opencode`；同步 PRD/架构/接口契约/数据模型/实施计划/命令 UX/PROGRESS。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；目标测试 33 pass / 0 fail；沙箱全量 `bun test` 仍因既有 DOCX/XLS 动态依赖失败 2 项，非沙箱 `login:false` 全量 `bun test` 通过，262 pass / 0 fail / 722 expect；非沙箱动态 import `@opencode-ai/sdk` 成功。 |
+| 2026-07-12 | **V3 无 env 配置链路收口**：`/update confirm` 在依赖安装后、数据库迁移前自动执行 `bun run setting:migrate`；`db:migrate` 改为通过 `loadConfig()` 从 `settings.json` 获取连接信息。删除 `env:migrate` 命令及脚本/测试，`setting:migrate` 不再导入 `.env`，只负责按 `settings.json.example` 保留现有值、补新 key、删旧 key；systemd 示例移除 `EnvironmentFile`，README、架构、接口契约、命令 UX 与实施计划同步。QQ WebSocket 代理回退也只读取 JSON 代理字段，不再读取宿主环境变量。保留 `/env`，因为它是运行环境快照命令，与 dotenv 配置模式无关。 |
 
 ---
 

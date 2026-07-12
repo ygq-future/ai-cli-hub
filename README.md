@@ -57,22 +57,29 @@ bun test
 
 ## 🧩 Required Configuration
 
-Copy `.env.example` to `.env` and fill in at least:
+Generate and edit `settings.json` from the committed template:
 
-- `DATABASE_URL`: Postgres connection string.
-- `TELEGRAM_BOT_TOKEN`: optional Telegram bot token.
-- `QQBOT_APP_ID` / `QQBOT_APP_SECRET`: optional Tencent Official QQ Bot credentials; configure both or neither.
-- `QQBOT_OPENID_DISCOVERY`: default `false`; temporarily enable it to log the OpenID of an unapproved QQ C2C sender, without replying to or routing that message.
-- `WHITELIST_USER_IDS`: comma-separated mixed Telegram numeric IDs and QQ user OpenIDs allowed to control the hub.
-- `DEFAULT_CWD`: default workspace directory for new sessions.
-- `AGENT_DESCRIPTION`: optional role hint injected when the adapter starts.
-- `OCR_API_BASE_URL`: optional Light OCR API base URL; leave empty to disable image OCR.
+```bash
+bun run setting:migrate
+bun setting
+```
 
-All environment variables are parsed only by `src/config/`.
+Configure at least:
+
+- `database`: Postgres host, port, database, username, and password.
+- `transport.telegramBotToken`: optional Telegram bot token.
+- `transport.qqBotAppId` / `transport.qqBotAppSecret`: optional Tencent Official QQ Bot credentials; configure both or neither.
+- `transport.qqBotOpenIdDiscovery`: temporarily enable it to log an unapproved QQ C2C sender OpenID.
+- `transport.whitelistUserIds`: mixed Telegram numeric IDs and QQ user OpenIDs allowed to control the hub.
+- `session.defaultCwd`: default workspace directory for new sessions.
+- `session.agentDescription`: optional role hint injected when the adapter starts.
+- `ocr.apiBaseUrl`: optional Light OCR API base URL; leave empty to disable image OCR.
+
+`settings.json` is local and gitignored. The application no longer loads business configuration from `.env`.
 
 ### Tencent Official QQ Bot
 
-Open [QQ Bot quick registration](https://q.qq.com/qqbot/openclaw/login.html), create a bot, and copy its AppID and AppSecret into `QQBOT_APP_ID` and `QQBOT_APP_SECRET`. QQ does not expose a human-readable QQ number as the API user identity; it sends a user OpenID. To obtain it safely, set `QQBOT_OPENID_DISCOVERY=true`, restart the service, send the bot one C2C message, copy the logged OpenID into `WHITELIST_USER_IDS`, then immediately disable the flag and restart. The discovery message is not replied to and never enters Core. QQ C2C text, official streaming replies, slash commands, and approval buttons are supported; Telegram and QQ can run together.
+Open [QQ Bot quick registration](https://q.qq.com/qqbot/openclaw/login.html), create a bot, and copy its AppID and AppSecret into `transport.qqBotAppId` and `transport.qqBotAppSecret`. QQ does not expose a human-readable QQ number as the API user identity; it sends a user OpenID. To obtain it safely, set `transport.qqBotOpenIdDiscovery=true`, restart the service, send the bot one C2C message, copy the logged OpenID into `transport.whitelistUserIds`, then immediately disable the flag and restart. The discovery message is not replied to and never enters Core. QQ C2C text, official streaming replies, slash commands, and approval buttons are supported; Telegram and QQ can run together.
 
 ---
 
@@ -96,7 +103,7 @@ pm2 restart ai-cli-hub
 
 ### systemd
 
-The sample unit is in `deploy/ai-cli-hub.service`. Adjust `User`, `WorkingDirectory`, and `EnvironmentFile` for your VPS path, then install it:
+The sample unit is in `deploy/ai-cli-hub.service`. Adjust `User` and `WorkingDirectory` for your VPS path, then install it:
 
 ```bash
 sudo cp deploy/ai-cli-hub.service /etc/systemd/system/ai-cli-hub.service
@@ -128,4 +135,4 @@ The project strictly follows a decoupled architectural pattern:
 │   ├── logger/       # Global logging utilities.
 │   └── shared/       # Global types, interfaces, and utilities.
 ├── docs/             # PRDs and architecture documents.
-└── .env.example      # Example environment variables.
+└── settings.json.example # Versioned settings template.

@@ -34,6 +34,8 @@ describe('update runner', () => {
     expect(preview).toContain('git status --short')
     expect(preview).toContain('git pull --ff-only')
     expect(preview).toContain('bun install --frozen-lockfile')
+    expect(preview).toContain('bun run setting:migrate')
+    expect(preview).toContain('bun run db:migrate')
     expect(preview).toContain('restart: pm2 restart ai-cli-hub after 1500ms')
     expect(preview).toContain('/update confirm')
   })
@@ -111,6 +113,7 @@ describe('update runner', () => {
       'git status --short',
       'git pull --ff-only',
       'bun install --frozen-lockfile',
+      'bun run setting:migrate',
       'bun run db:migrate',
       'bun run format:check',
       'bun run typecheck',

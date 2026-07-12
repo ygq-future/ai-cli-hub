@@ -112,6 +112,7 @@ function createUpdateSteps(): CommandSpec[] {
   return [
     { label: 'git pull', command: 'git', args: ['pull', '--ff-only'], critical: true },
     { label: 'install dependencies', command: 'bun', args: ['install', '--frozen-lockfile'], critical: true },
+    { label: 'settings migration', command: 'bun', args: ['run', 'setting:migrate'], critical: true },
     { label: 'database migration', command: 'bun', args: ['run', 'db:migrate'], critical: true },
     { label: 'format check', command: 'bun', args: ['run', 'format:check'], critical: true },
     { label: 'typecheck', command: 'bun', args: ['run', 'typecheck'], critical: true },

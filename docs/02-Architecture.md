@@ -103,7 +103,7 @@ flowchart LR
 | `cli/claude` | `event/`, `shared/`, `config/`, `runtime/`, `approval/`, **该 CLI 的 SDK（如 `@anthropic-ai/claude-agent-sdk`）** | `transport/`, `storage/`, `core/` 内部 |
 | `repository/` | `storage/`, `shared/` | `core/`, `transport/` |
 | `storage/` | Drizzle, `shared/` | 其它全部业务模块 |
-| `config/` | `process.env`（**全局唯一**）、Zod | 无（叶子模块） |
+| `config/` | `settings.json`、Zod；仅代理运行时适配可写 `process.env` | 无（叶子模块） |
 | `shared/` | 无（纯类型与工具） | 一切业务模块 |
 
 > **落地验证**：可通过 ESLint `no-restricted-imports` 或 `dependency-cruiser` 在 CI 中强制校验上述矩阵，防止架构腐化。
@@ -194,7 +194,7 @@ Adapter 分**两个家族**，同实现 `CLIAdapter`、对 Core 完全同形：
 
 - **SDK 家族（首选，Claude/opencode 走这条）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄；`OpenCodeSdkAdapter` 通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并订阅事件。输出来自结构化消息/事件；**审批来自 SDK 结构化回调或 permission 事件**。**无需 scraping、无 `Runtime`、无 `ApprovalDetector`**。TUI 菜单只是渲染，程序接口里走 SDK。OpenCode 的 `message.part.updated` 同时包含 user/assistant part，Adapter 必须用 `message.updated.info.role` 与 `part.messageID` 关联，只转发 assistant part；raw debug 只保留 retry/session error、permission、tool 等可行动事件，不记录 plugin/catalog/heartbeat/delta/message 等启动或高频噪声。
 
-Windows 下 Composition Root 在加载配置前调用 `config.normalizeProxyEnvironment()`：Bun 可读取继承的小写 proxy 变量却不会把它们枚举进 `{ ...process.env }`，而 OpenCode SDK 正是通过该展开结果拉起 `opencode serve`，所以必须先规范为可枚举的大写键。
+Config 加载 `settings.json` 后把 HTTP(S)/NO_PROXY 写回 `process.env`，供 Bun fetch 和 OpenCode SDK 拉起的子进程继承；这不会将环境变量重新变成业务配置源。
 
 - **PTY 家族（无 SDK 的 CLI 备用）**：`XxxPtyAdapter` 内部持 `PtyRuntime` + 一个 per-CLI `ApprovalDetector`。字节流剥 ANSI 得输出，正则 scraping 认出审批点，写 `y\r`/`n\r` 应答。scraping 随目标 TUI 版本漂移、脆，故仅在**没有 SDK** 时退而求其次。
 
@@ -248,52 +248,11 @@ interface ConversationRepository {
 
 ### 3.7 Config Module（全局配置）
 
-- **全项目唯一** 读取 `process.env` 的位置，其余模块通过依赖注入获取强类型配置对象。
-- 使用 Zod 在启动时一次性校验，缺失/非法配置直接 fail-fast，杜绝运行期"配置未定义"。
-
-```typescript
-const ConfigSchema = z.object({
-  TELEGRAM_BOT_TOKEN: z.string().default(''), // 可选；与 QQ Bot 可并列启用
-  QQBOT_APP_ID: z.string().default(''),
-  QQBOT_APP_SECRET: z.string().default(''), // AppID/Secret 必须成对配置
-  QQBOT_OPENID_DISCOVERY: EnvBooleanSchema.default(false), // 临时日志发现未授权 C2C sender OpenID；不回复、不进 Core
-  WHITELIST_USER_IDS: z.string().transform(s => s.split(',')),
-
-  // 存储
-  DATABASE_URL: z.string().url(),                    // postgres://user:pass@host:5432/hub
-
-  // 记忆 / 嵌入
-  EMBEDDING_API_BASE_URL: z.url().default('https://api.openai.com/v1'),
-  EMBEDDING_API_KEY: z.string().min(1),
-  EMBEDDING_MODEL: z.string().default('BAAI/bge-m3'),
-  EMBEDDING_DIMENSIONS: z.coerce.number().default(1024),
-  MEMORY_RECALL_TOP_K: z.coerce.number().default(10), // 召回注入条数
-  MEMORY_SUMMARY_API_BASE_URL: z.string().default(''),
-  MEMORY_SUMMARY_API_KEY: z.string().default(''),
-  MEMORY_SUMMARY_MODEL: z.string().default(''),
-  MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT: z.coerce.number().default(10),
-  MEMORY_SUMMARY_MAX_CHARS: z.coerce.number().default(600),
-
-  // 生命周期超时
-  AGENT_IDLE_TIMEOUT_MS: z.coerce.number().default(300_000),    // 已启动 CLI/adapter 空闲回收（5min）
-  SESSION_ARCHIVE_DAYS: z.coerce.number().default(7),           // 会话自动归档（天）
-  RECENT_CONTEXT_LIMIT: z.coerce.number().default(10),           // adapter 刚启动时拼入的当前会话历史条数
-  RECENT_CONTEXT_MESSAGE_MAX_CHARS: z.coerce.number().default(1200), // 单条历史消息尾部保留字符数
-  ENV_PROBE_TIMEOUT_MS: z.coerce.number().default(1500),          // 环境/健康探测短超时
-  UPDATE_WORKDIR: z.string().default(process.cwd()),              // /update 执行目录；默认进程启动目录，生产可覆盖
-  UPDATE_COMMAND_TIMEOUT_MS: z.coerce.number().default(120_000),  // /update 单步命令超时
-  UPDATE_REQUIRE_CLEAN_WORKTREE: z.boolean().default(true),       // 更新前要求 git 工作树干净
-  UPDATE_RESTART_COMMAND: z.string().default('pm2'),              // 更新成功后的守护器重启命令
-  UPDATE_RESTART_ARGS: z.array(z.string()).default(['restart', 'ai-cli-hub']),
-  UPDATE_RESTART_DELAY_MS: z.coerce.number().default(1500),
-  UPDATE_RESTART_NOTICE_FILE: z.string().default('.data/update-restart-notice.json'),
-  // /update 与 /restart 仅适用于 Linux/VPS 部署；Windows 上直接提示不可用且不执行命令。
-  // /restart 复用 UPDATE_RESTART_* 与 UPDATE_RESTART_NOTICE_FILE，只测试重启和启动通知链路。
-  DEBUG_AGENT_SDK_JSON: z.boolean().default(false),              // Agent SDK 原始 JSON
-  DEBUG_MESSAGE_FLOW: z.boolean().default(false),                // 消息链路可观测日志
-});
-export type AppConfig = z.infer<typeof ConfigSchema>;
-```
+- `settings.json` 是唯一业务配置源，`settings.json.example` 是版本化模板；不再从 `.env` 读取 Bot、数据库或业务参数。
+- `SettingsJsonSchema` 使用 Zod 校验 13 个嵌套分类，`loadConfig()` 在启动时 fail-fast，再展平为兼容现有依赖注入的 `AppConfig`。
+- `bun run setting:migrate` 对齐 JSON 模板结构，保留现有值并补新 key；它不读 `.env`。
+- 数据库字段在 config 内组装为 `AppConfig.DATABASE_URL`，主进程与 `db:migrate` 使用同一来源。
+- 代理配置会写回少量 `process.env` 供 Bun fetch 和 SDK 子进程继承；这是运行时适配，不是配置输入通道。
 
 ---
 
@@ -674,7 +633,7 @@ flowchart LR
 |---|---|---|---|
 | 1 | Event Bus 作为唯一通信枢纽 | 彻底解耦，支持零侵入扩展 | 调试链路需靠日志串联事件 |
 | 2 | 会话层与进程层双层解耦 | 进程回收省内存，会话长存可唤醒 | 需明确区分 `idle`(回收) 与 `closed`(归档) |
-| 3 | Config 独占 `process.env` | 强类型校验、fail-fast、可测试 | 需依赖注入贯穿全局 |
+| 3 | `settings.json` 是唯一业务配置源 | 强类型校验、fail-fast、可测试 | 需依赖注入贯穿全局 |
 | 4 | Aggregator 独立成层 | 隔离平台限流与流式渲染 | 增加一次输出延迟（Debounce 窗口） |
 | 5 | V1 直接选 Postgres + Drizzle | 一次定库避免二次迁移；`pgvector` 可同库存向量 | VPS 多一个 DB 服务进程（docker 一把梭，可接受） |
 | 6 | 记忆归属实例级 namespace，不按 Transport user_id 隔离 | 个人 VPS 的 Telegram/QQ/WebSocket 操作者本质共享同一套环境事实与全局记忆；`user_id` 只服务会话隔离/鉴权/审批操作者 | 需用 `namespace` 支撑未来多人格/工作区；全局事实由 `conversation_id` 是否为空区分 |

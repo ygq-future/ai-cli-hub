@@ -11,7 +11,7 @@ export interface LoggerOptions {
 
 /**
  * 全局日志工厂（Pino）。level/pretty 由调用方（main → config）注入，
- * 本模块不读 process.env（见 CLAUDE.md：唯一读 env 的地方是 config/）。
+ * 本模块不访问 process.env（见 CLAUDE.md：业务配置只来自 settings.json）。
  */
 export function createLogger(opts: LoggerOptions = {}): Logger {
   const { level = 'info', pretty = true } = opts

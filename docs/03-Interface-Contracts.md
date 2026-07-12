@@ -324,85 +324,24 @@ export interface MemoryRepository {
 
 ---
 
-## 6. Config（`config/`）—— 唯一读 env 的地方
+## 6. Config（`config/`）—— `settings.json` 唯一业务配置源
+
+`SettingsJsonSchema` 使用 Zod 校验 `settings.json` 的 13 个嵌套分类，`loadConfig()` 在启动时 fail-fast，再展平为现有消费者使用的 `AppConfig`。
 
 ```typescript
-import { z } from 'zod';
+export type SettingsJson = z.infer<typeof SettingsJsonSchema>;
 
-export const ConfigSchema = z.object({
-  TELEGRAM_BOT_TOKEN: z.string().default(''),
-  QQBOT_APP_ID: z.string().default(''),
-  QQBOT_APP_SECRET: z.string().default(''), // AppID 与 AppSecret 必须同时配置
-  QQBOT_OPENID_DISCOVERY: EnvBooleanSchema.default(false), // 临时日志发现 OpenID；不回复、不进 Core
-  WHITELIST_USER_IDS: z.string().transform(s => s.split(',').map(x => x.trim())), // TG numeric ID + QQ user OpenID 可混合
-
-  DATABASE_URL: z.string().url(),                 // postgres://...
-
-  EMBEDDING_API_BASE_URL: z.url().default('https://api.openai.com/v1'),
-  EMBEDDING_API_KEY: z.string().min(1),
-  EMBEDDING_MODEL: z.string().default('BAAI/bge-m3'),
-  EMBEDDING_DIMENSIONS: z.coerce.number().default(1024),
-  MEMORY_RECALL_TOP_K: z.coerce.number().default(10),
-  MEMORY_SUMMARY_API_BASE_URL: z.string().default(''),
-  MEMORY_SUMMARY_API_KEY: z.string().default(''),
-  MEMORY_SUMMARY_MODEL: z.string().default(''),
-  MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT: z.coerce.number().default(10),
-  MEMORY_SUMMARY_MAX_CHARS: z.coerce.number().default(600),
-
-  AGENT_IDLE_TIMEOUT_MS: z.coerce.number().default(300_000), // 已启动 CLI/adapter 空闲回收；conversation 保持 idle
-  SESSION_ARCHIVE_DAYS: z.coerce.number().default(7),
-
-  AGENT_DESCRIPTION: z.string().default(''),       // Agent 职责定位；注入 system hint
-  RECENT_CONTEXT_LIMIT: z.coerce.number().default(10),
-  RECENT_CONTEXT_MESSAGE_MAX_CHARS: z.coerce.number().default(1200),
-
-  MEDIA_DOWNLOAD_DIR: z.string().default('.data/media'),
-  MEDIA_MAX_FILE_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
-  MEDIA_MAX_TEXT_CHARS: z.coerce.number().int().positive().default(20000),
-  MEDIA_PARSE_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
-
-  OCR_API_BASE_URL: z.string().default(''),       // Light OCR HTTP API；留空则禁用 OCR
-  OCR_API_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
-
-  ENV_PROBE_TIMEOUT_MS: z.coerce.number().int().positive().default(1500),
-
-  UPDATE_WORKDIR: z.string().default(process.cwd()),       // /update 执行目录；默认进程启动目录，生产可覆盖为部署目录
-  UPDATE_COMMAND_TIMEOUT_MS: z.coerce.number().default(120_000),
-  UPDATE_REQUIRE_CLEAN_WORKTREE: z.boolean().default(true),
-  UPDATE_RESTART_COMMAND: z.string().default('pm2'),
-  UPDATE_RESTART_ARGS: z.string().transform(s => s.split(',').map(x => x.trim()).filter(Boolean)).default('restart,ai-cli-hub'),
-  UPDATE_RESTART_DELAY_MS: z.coerce.number().default(1500),
-  UPDATE_RESTART_NOTICE_FILE: z.string().default('.data/update-restart-notice.json'),
-
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-  DEBUG_AGENT_SDK_JSON: z.boolean().default(false),
-  DEBUG_MESSAGE_FLOW: z.boolean().default(false),
-});
-
-// M9 文件入站语义：除图片外，上传文件只登记 metadata/local_path，不自动读取、解析、OCR 或注入正文。
-// 用户明确要求处理文件时，再按需使用 FileTextExtractor：文字型 PDF 用 pdf-parse，.docx 用 mammoth，.xls/.xlsx 用 xlsx。
-// 上传时只有图片调用 OcrProvider；默认接 Light OCR API 的 POST /ocr/file，base url 为空时禁用。
-// V2-R2 自更新/重启语义：/update 和 /restart 仅适用于 Linux/VPS 部署；
-// Windows 上直接提示不可用且不执行命令。
-// /update 只展示计划；/update confirm 才按 UPDATE_WORKDIR 执行 git pull --ff-only、
-// bun install --frozen-lockfile、db:migrate、format:check、typecheck、lint，并延迟执行重启命令。
-// 任一步失败或工作树不干净时必须停止且不安排重启。安排重启前写入 UPDATE_RESTART_NOTICE_FILE，
-// 新进程启动并连接 Transport 后主动通知原 chat，然后删除该 marker。
-// /restart 只展示/执行同一组重启命令与通知 marker，不执行更新步骤，用于验证重启链路。
-
-export type AppConfig = z.infer<typeof ConfigSchema>;
-
-export function loadConfig(): AppConfig {
-  const parsed = ConfigSchema.safeParse(process.env);
-  if (!parsed.success) {
-    // fail-fast：启动即报错，不允许运行期"配置未定义"
-    throw new Error(`Invalid config:\n${parsed.error.toString()}`);
-  }
-  return parsed.data;
-}
+export function loadConfig(
+  source?: Partial<SettingsJson>,
+  opts?: { settingsPath?: string },
+): AppConfig;
 ```
 
-`config.normalizeProxyEnvironment(source = process.env)` 在 Composition Root 调用 `loadConfig()` 前执行。它把 `http_proxy` / `https_proxy` / `no_proxy` / `all_proxy` 规范为标准大写键，同时保留原值；用于规避 Bun/Windows 中代理变量可读取但不可枚举、导致使用 `{ ...process.env }` 的 SDK 子进程丢失代理的问题。该函数仍位于 `config/`，不放宽其它模块读取 `process.env` 的限制。
+- 默认读取项目根目录 `settings.json`；该文件 gitignore，模板为 `settings.json.example`。
+- `bun run setting:migrate` 只对齐 JSON key 结构，不读取 `.env`。
+- 数据库的 host/port/db/username/password 被组装为兼容字段 `AppConfig.DATABASE_URL`；`db:migrate` 与主进程使用同一配置。
+- 代理配置会写回 `process.env.HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`，仅用于 Bun fetch 和 SDK 子进程继承；`process.env` 不是业务配置输入源。
+- `/update confirm` 依次执行 git pull、bun install、`setting:migrate`、`db:migrate`、format check、typecheck 和 lint；任一步失败都不安排重启。
 
 ---
 

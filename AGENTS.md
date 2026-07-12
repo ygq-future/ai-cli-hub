@@ -51,7 +51,7 @@ core/ ──❌禁止──▶ 任何具体实现(telegraf/node-pty/drizzle)
 | `storage/` | Drizzle, `shared/` | 其它全部业务模块 |
 | `audit/` | `event/`, `repository/`, `shared/` | `core/`, `transport/`, `cli/`, `runtime/`, `storage/` |
 | `memory/` | `event/`, `repository/`, `shared/`, `config/` | `core/`, `transport/` |
-| `config/` | `process.env`（**全局唯一**）, Zod | 无（叶子） |
+| `config/` | `settings.json`, Zod；仅代理运行时适配可写 `process.env` | 无（叶子） |
 | `shared/` | 无 | 一切业务模块 |
 
 > 只有 **Composition Root（`src/main.ts`）** 允许 import 具体实现并装配。运行期各模块只面向接口。
@@ -65,7 +65,7 @@ src/
 ├── main.ts       # Composition Root：唯一装配具体实现的地方
 ├── core/         # 核心调度、Session 状态机、路由（无 SQL / 无 SDK / 无 PTY 字节流）
 ├── event/        # Event Bus + EventMap 类型
-├── config/       # 唯一读 process.env 的地方（Zod 校验，fail-fast）
+├── config/       # settings.json 唯一配置入口（Zod 校验，fail-fast）
 ├── transport/    # 客户端接入 (telegram, qq, websocket)
 ├── cli/          # CLI 适配器 (base, Codex=SDK 家族)；语义接缝 CLIAdapter，两家族同实现
 ├── runtime/      # PTY 家族字节容器 (nodepty)；SDK 家族不经此层
@@ -82,7 +82,7 @@ src/
 
 ## 5. 编码规范（AI 每次落笔遵守）
 
-1. **配置**：任何环境变量只经 `config/` 的强类型 `AppConfig` 读取。**禁止在其它任何文件出现 `process.env`。**
+1. **配置**：业务配置只从 `settings.json` 读取并展平为强类型 `AppConfig`。**禁止通过 `process.env` 读取业务配置，禁止在 `config/` 之外直接访问 `process.env`。** `config/` 只可把 JSON 中的代理值写回环境，供底层网络库继承。
 2. **SQL**：任何数据库操作只经 `repository/` 的方法。**Core 与业务模块禁止出现 SQL/Drizzle 查询。**
 3. **通信**：模块间不直接相互调用，**一律通过 Event Bus 发布/订阅**（`bus.emit` / `bus.on`）。事件与 payload 以 [03-契约](./docs/03-Interface-Contracts.md) 的 `EventMap` 为准。
 4. **契约优先**：实现任何 Transport/Adapter/Repository 前，先看 03 的接口定义，严格实现，不擅自改签名。
@@ -119,7 +119,7 @@ bun run lint                # 依赖矩阵 + 风格校验
 
 ## 7. Never（做了就是错）
 
-- ❌ 在 `config/` 之外读 `process.env`
+- ❌ 从 `process.env` 读取业务配置，或在 `config/` 之外直接访问它
 - ❌ 在 `repository/` 之外写 SQL / Drizzle 查询
 - ❌ 让 `core/` import 任何具体 Transport/Adapter/Storage
 - ❌ 模块间直接函数调用替代事件（除注入的接口）

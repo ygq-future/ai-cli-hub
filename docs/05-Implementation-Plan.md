@@ -36,7 +36,7 @@ flowchart LR
 - 初始化 Bun + TS（strict）+ `package.json` 脚本（见 CLAUDE.md §6）。
 - 目录骨架（`src/*` 空模块 + `index.ts`）。
 - ESLint + `dependency-cruiser`（落地依赖矩阵铁律）+ Pino 基础 logger。
-- `.env.example`（见 [07 附](./07-Command-UX.md)）。
+- `settings.json.example`（见 [07 附](./07-Command-UX.md)）。
 - **验收**：`bun run typecheck` / `bun run lint` 通过；`bun run dev` 启动打印一行日志退出。
 
 ### M1 — 配置与事件总线

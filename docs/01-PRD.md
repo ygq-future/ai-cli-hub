@@ -59,7 +59,7 @@
 * **Storage**：V1 直接采用 **Postgres + Drizzle ORM**（一次定库，避免二次迁移）；长期记忆的向量能力由 `pgvector` 扩展同库承载，V1.5 启用（详见架构文档 §7）。
 
 ### 3.7 Config Module (全局配置)
-* 全项目**唯一**允许读取系统环境变量的模块，禁止 `process.env` 散落各处。统一管理 Bot Token、白名单、文件路径、超时时间等，并提供强类型校验（Zod）。
+* 从 `settings.json` 读取 Bot Token、白名单、数据库、文件路径和超时等业务配置，并提供强类型 Zod 校验；仅允许 config 模块把代理值写回 `process.env` 供底层网络库继承。
 
 ---
 

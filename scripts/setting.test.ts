@@ -201,46 +201,36 @@ describe('migrateSettings', () => {
     rmSync(tmp, { recursive: true, force: true })
   }
 
-  test('首次创建从 .env 导入（DATABASE_URL 拆分 + env key 映射 + 类型 coerce）', () => {
+  test('首次创建直接使用 settings.json.example 默认值', () => {
     cleanup()
     mkdirSync(tmp, { recursive: true })
     writeFileSync(
       `${tmp}/settings.json.example`,
       JSON.stringify({
-        transport: { telegramBotToken: '', whitelistUserIds: [] as string[] },
-        database: { host: '127.0.0.1', port: 5432, db: 'x', username: '', password: '' },
+        transport: { telegramBotToken: 'template-token', whitelistUserIds: ['template-user'] },
+        database: { host: 'db.internal', port: 5433, db: 'hub', username: 'hub', password: 'pw' },
         logging: { level: 'info' },
       }),
-    )
-    writeFileSync(
-      `${tmp}/.env`,
-      'TELEGRAM_BOT_TOKEN=abc123\n' +
-        'DATABASE_URL=postgres://hub:pw@localhost:5432/ai_cli_hub\n' +
-        'LOG_LEVEL=warn\n' +
-        'WHITELIST_USER_IDS=111,222\n',
     )
 
     const r = migrateSettings({
       examplePath: `${tmp}/settings.json.example`,
       settingsPath: `${tmp}/settings.json`,
-      envPath: `${tmp}/.env`,
     })
 
     expect(r.created).toBe(true)
-    expect(r.stats.imported).toBeGreaterThan(0)
-    expect(getNested(r.settings, ['transport', 'telegramBotToken'])).toBe('abc123')
-    expect(getNested(r.settings, ['database', 'host'])).toBe('localhost')
+    expect(getNested(r.settings, ['transport', 'telegramBotToken'])).toBe('template-token')
+    expect(getNested(r.settings, ['database', 'host'])).toBe('db.internal')
     expect(getNested(r.settings, ['database', 'password'])).toBe('pw')
-    expect(getNested(r.settings, ['database', 'port'])).toBe(5432)
-    expect(getNested(r.settings, ['logging', 'level'])).toBe('warn')
-    expect(getNested(r.settings, ['transport', 'whitelistUserIds'])).toEqual(['111', '222'])
-    // 写盘了
-    expect(readFileSync(`${tmp}/settings.json`, 'utf-8')).toContain('abc123')
+    expect(getNested(r.settings, ['database', 'port'])).toBe(5433)
+    expect(getNested(r.settings, ['logging', 'level'])).toBe('info')
+    expect(getNested(r.settings, ['transport', 'whitelistUserIds'])).toEqual(['template-user'])
+    expect(readFileSync(`${tmp}/settings.json`, 'utf-8')).toContain('template-token')
 
     cleanup()
   })
 
-  test('已存在 settings.json 时保留值、不导入 .env', () => {
+  test('已存在 settings.json 时保留现有值', () => {
     cleanup()
     mkdirSync(tmp, { recursive: true })
     writeFileSync(
@@ -251,16 +241,13 @@ describe('migrateSettings', () => {
       `${tmp}/settings.json`,
       JSON.stringify({ transport: { telegramBotToken: 'existing-token' }, logging: { level: 'error' } }),
     )
-    writeFileSync(`${tmp}/.env`, 'TELEGRAM_BOT_TOKEN=should-not-import\nLOG_LEVEL=debug\n')
 
     const r = migrateSettings({
       examplePath: `${tmp}/settings.json.example`,
       settingsPath: `${tmp}/settings.json`,
-      envPath: `${tmp}/.env`,
     })
 
     expect(r.created).toBe(false)
-    expect(r.stats.imported).toBe(0)
     expect(getNested(r.settings, ['transport', 'telegramBotToken'])).toBe('existing-token')
     expect(getNested(r.settings, ['logging', 'level'])).toBe('error')
 
@@ -282,7 +269,6 @@ describe('migrateSettings', () => {
     const r = migrateSettings({
       examplePath: `${tmp}/settings.json.example`,
       settingsPath: `${tmp}/settings.json`,
-      envPath: `${tmp}/.env`,
     })
 
     expect(r.stats.added).toBe(1)

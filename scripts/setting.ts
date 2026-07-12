@@ -253,7 +253,7 @@ export function validateSettings(settings: Record<string, unknown>): string | nu
 
 /**
  * 启动时执行全量同步：对齐 example 结构（补新 key/删旧 key），
- * 首次创建时从 .env 导入旧配置。返回 settings 与变更信息。
+ * 首次创建时复制 settings.json.example 默认值。返回 settings 与变更信息。
  */
 function loadSettings(): {
   settings: Record<string, unknown>
@@ -552,7 +552,7 @@ async function main(): Promise<void> {
       write: text => process.stdout.write(text),
     }
     try {
-      if (created) io.write('首次创建 settings.json，已从 settings.json.example 与 .env 导入初始配置。\n')
+      if (created) io.write('首次创建 settings.json，已从 settings.json.example 生成初始配置。\n')
       else if (changed) io.write('settings.json 已同步最新结构（补新 key / 删旧 key）。\n')
       await runWindowsLineEditor(settings, io)
     } finally {
@@ -564,7 +564,7 @@ async function main(): Promise<void> {
   p.intro('settings.json 配置编辑器')
 
   if (created) {
-    p.log.info('首次创建 settings.json，已从 settings.json.example 与 .env 导入初始配置')
+    p.log.info('首次创建 settings.json，已从 settings.json.example 生成初始配置')
   } else if (changed) {
     p.log.info('settings.json 已同步最新结构（补新 key / 删旧 key）')
   }
