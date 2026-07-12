@@ -3,7 +3,7 @@
  *
  * 职责：
  *  - 订阅 MessageReceived 事件（决策 D13：不含 conversationId）
- *  - 经 sessionManager.findOrCreate 解析/新建会话（会话 scope = platform+userId）
+ *  - 经 sessionManager.findOrCreate 解析/新建会话（会话 scope = platform+userId+cli）
  *  - 保存用户消息到 DB
  *  - 交由注入的 MessageHandler 处理（M3 用 mock 回显；M6 = Composition Root 注入的
  *    真实 adapter 编排器，输出走聚合器流，handler 返回空串不自发 MessageGenerated）

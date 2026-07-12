@@ -22,18 +22,7 @@ export function createConversationRepository(db: Db): ConversationRepository {
       return row
     },
 
-    async findActive(platform: Platform, userId: string): Promise<Conversation | null> {
-      const [row] = await db
-        .select()
-        .from(conversations)
-        .where(and(eq(conversations.platform, platform), eq(conversations.userId, userId)))
-        .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
-        .limit(1)
-      if (row?.status === 'closed' || row?.status === 'closing') return null
-      return row ?? null
-    },
-
-    async findLatestOpenByUser(platform: Platform, userId: string): Promise<Conversation | null> {
+    async findLatestOpen(platform, userId, cli): Promise<Conversation | null> {
       const [row] = await db
         .select()
         .from(conversations)
@@ -41,6 +30,7 @@ export function createConversationRepository(db: Db): ConversationRepository {
           and(
             eq(conversations.platform, platform),
             eq(conversations.userId, userId),
+            eq(conversations.cli, cli),
             ne(conversations.status, 'closed'),
             ne(conversations.status, 'closing'),
           ),
@@ -50,33 +40,9 @@ export function createConversationRepository(db: Db): ConversationRepository {
       return row ?? null
     },
 
-    async findLatestByUser(platform: Platform, userId: string): Promise<Conversation | null> {
-      const [row] = await db
-        .select()
-        .from(conversations)
-        .where(and(eq(conversations.platform, platform), eq(conversations.userId, userId)))
-        .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
-        .limit(1)
-      return row ?? null
-    },
-
     async findById(id: ConversationId): Promise<Conversation | null> {
       const [row] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1)
       return row ?? null
-    },
-
-    listOpenByUser(platform: Platform, userId: string): Promise<Conversation[]> {
-      return db
-        .select()
-        .from(conversations)
-        .where(
-          and(
-            eq(conversations.platform, platform),
-            eq(conversations.userId, userId),
-            ne(conversations.status, 'closed'),
-          ),
-        )
-        .orderBy(desc(conversations.updatedAt), desc(conversations.createdAt))
     },
 
     listRecentByUser(platform: Platform, userId: string, limit: number): Promise<Conversation[]> {

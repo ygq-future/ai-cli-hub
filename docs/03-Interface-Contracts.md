@@ -69,7 +69,7 @@ export interface EventMap {
   MessageGenerated: { conversationId: ConversationId; content: string; final: boolean }; // final=false 为流式增量
   CommandReply:     { ref: MessageRef; content: string };
   UserLanguageChanged: { userId: string; platform: Platform; language: 'zh' | 'en' };
-  UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }; // /cwd 等只切当前 scope 的目标边界、不创建 conversation
+  UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }; // /switch、/cwd 更新当前选中 CLI/cwd
 
   // —— 审批（Human-in-the-loop）——
   ApprovalRequested: { conversationId: ConversationId; approvalId: string; command: string; detail: string; autoApproveAt?: number; autoApproveSeconds?: number };
@@ -275,15 +275,9 @@ Core 与业务模块只依赖这些接口，不碰 Drizzle。表结构见 [04-�
 ```typescript
 export interface ConversationRepository {
   create(c: NewConversation): Promise<Conversation>;
-  // scope=(platform,userId) 内最新会话未 closing/closed 时复用；CLI/cwd 不参与 scope。
-  findActive(platform: Platform, userId: string): Promise<Conversation | null>;
-  // scope 内最新可复用会话；用于进程重启后恢复内存目标并复用 idle，不返回 closing/closed。
-  findLatestOpenByUser(platform: Platform, userId: string): Promise<Conversation | null>;
-  // scope 内最近任意会话；没有 open 会话时恢复持久 target cli。
-  findLatestByUser(platform: Platform, userId: string): Promise<Conversation | null>;
+  // scope=(platform,userId,cli) 内最新可复用会话，不返回 closing/closed。
+  findLatestOpen(platform: Platform, userId: string, cli: CliType): Promise<Conversation | null>;
   findById(id: ConversationId): Promise<Conversation | null>;
-  // scope 内所有非 closed 会话；新建会话前兜底关闭历史残留。
-  listOpenByUser(platform: Platform, userId: string): Promise<Conversation[]>;
   listRecentByUser(platform: Platform, userId: string, limit: number): Promise<Conversation[]>;
   updateStatus(id: ConversationId, status: SessionStatus): Promise<void>;
   // 进程重启对账：starting/running 复位 idle，closing 收尾 closed。

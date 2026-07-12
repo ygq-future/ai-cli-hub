@@ -55,7 +55,7 @@ flowchart LR
 ### M3 — Core 状态机与会话生命周期
 
 - `core/`：`SessionManager`（状态机，合法迁移见 02-架构 §5.2）、`Auth`（白名单二次校验）、`MessageRouter`。
-- 会话 scope：`findActive(platform,user)` 复用 / `/new` 关闭同 scope 旧会话后新建 / `/cwd` 切目标目录 / 归档扫描；CLI/cwd 不是隔离维度。
+- 会话 scope：`findLatestOpen(platform,user,cli)` 复用；`/switch <cli> [path]` 在各 CLI 会话间切换且不关闭其他 CLI；`/cwd` 切目标目录；按 idle 时间归档。
 - 进程占位：先用 **MockRuntime** 打通"收消息→路由→存库→回消息"闭环。
 - **验收**：状态机单测覆盖全部合法/非法迁移；用 Mock 打通端到端（无真实 PTY）；进程回收→会话转 `idle` 而非 `closed`。
 
@@ -84,7 +84,7 @@ flowchart LR
 
 - `transport/telegram`：Telegraf 封装，实现 `Transport` 全方法。
 - 白名单前置丢弃；流式 `editMessage`；审批 Markdown 卡片 + 回调 → `ApprovalApproved/Rejected`。
-- M6b 收口命令：`/new`、`/close`、`/status`、`/sessions`、`/lang`、`/cwd`；`/new` 旧会话 closed，新会话 idle；`/cwd <path>` 关闭当前会话并切换目标 cwd，不创建 conversation。
+- M6b 收口命令：`/switch`、`/close`、`/status`、`/sessions`、`/lang`、`/cwd`；`/switch` 恢复或创建目标 CLI 会话；`/cwd <path>` 关闭当前 CLI 会话并切换目标 cwd。
 - **验收**：真机 Telegram 端到端——发消息得流式回复；点 Approve 继续（SDK: `resolveApproval` allow）；点 Reject 中断；非白名单无响应。
 
 ### M7 — Audit 落地
@@ -166,6 +166,6 @@ flowchart TD
 - ✅ Bun+TS 架构 / Postgres+Drizzle+Repository / Event Bus / Config
 - ✅ Telegram + 腾讯官方 QQ Bot C2C 接入 / Claude Adapter（`@anthropic-ai/claude-agent-sdk`，SDK 家族）/ opencode Adapter（`@opencode-ai/sdk`，SDK 家族）/ 状态机会话生命周期
 - ✅ Message Aggregator / Approval Flow / 永久 Audit
-- ✅ 会话边界（cwd 目标 / `/new` / `/cwd` / `/close` / 归档）
+- ✅ 会话边界（CLI 目标 / `/switch` / `/cwd` / `/close` / 归档）
 - ✅ 记忆基础：实例级环境快照记忆 + 命令式全局记忆注入（向量列预留待 V1.5）
 - ✅ 全程满足依赖矩阵、无 env/SQL 越界、优雅关闭

@@ -13,7 +13,7 @@ export function getHelpText(language: UserLanguage): string {
       '## 📖 Available commands',
       '',
       '### Sessions',
-      '- `/new [cli] [cwd]` — Start a new session and save the selected CLI as default.',
+      '- `/switch <cli> [path]` — Resume that CLI session, or create one with its saved/default directory.',
       '- `/cwd [path]` — Change the active session CLI working directory.',
       '- `/cwd <cli> <path>` — Save a CLI directory when no session is active.',
       '- `/close` — Close the current session.',
@@ -33,7 +33,7 @@ export function getHelpText(language: UserLanguage): string {
       '- `/lang zh|en` — Change the reply language.',
       '',
       '> You can also say “remember this” naturally. The hub summarizes recent user/assistant messages with the configured memory model and saves a session-derived memory; it does not send that request to the CLI.',
-      '> Read-only shell queries run without approval. State-changing, composed, redirected, or unknown commands still require approval.',
+      '> Shell pipelines and command lists run without approval only when every AST node is confirmed read-only. Mutating or unknown commands still require approval.',
       '> Send text, emoji, stickers, images, or files to chat. Attachments are used only as text context and are never executed.',
     ].join('\n')
   }
@@ -42,7 +42,7 @@ export function getHelpText(language: UserLanguage): string {
     '## 📖 可用命令',
     '',
     '### 会话',
-    '- `/new [cli] [cwd]` — 开启新会话；指定 CLI 会同时更新默认 CLI。',
+    '- `/switch <cli> [path]` — 恢复该 CLI 的会话；不存在时按已保存/指定目录创建。',
     '- `/cwd [path]` — 切换当前活跃会话 CLI 的工作目录。',
     '- `/cwd <cli> <path>` — 没有活跃会话时，保存指定 CLI 的工作目录。',
     '- `/close` — 关闭当前会话。',
@@ -62,7 +62,7 @@ export function getHelpText(language: UserLanguage): string {
     '- `/lang zh|en` — 切换回复语言。',
     '',
     '> 也可自然地说“记住这个/记一下”。系统会用记忆模型总结当前会话最近的用户与助手消息，写入会话派生记忆；该请求不会发送给 CLI。',
-    '> 单条只读 shell 查询无需审批；写操作、组合命令、重定向及无法确认安全性的命令仍会请求审批。',
+    '> Shell 管道和组合命令仅在 AST 的每个节点都确认只读时免审批；写操作及无法确认安全性的命令仍会请求审批。',
     '> 直接发送文本、emoji、sticker、图片或文件即可对话；附件只作为文本上下文，不会执行。',
   ].join('\n')
 }

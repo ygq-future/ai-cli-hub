@@ -328,7 +328,7 @@ sequenceDiagram
 | **会话层 Conversation** | Postgres（长期） | 一次连续工作任务 / 一个项目上下文 | 显式 `/close` 或 `SESSION_ARCHIVE_DAYS` 天无活动 → 归档 |
 | **CLI/adapter 运行时** | 内存（临时） | 一个 SDK query 或 node-pty 子进程 | `AGENT_IDLE_TIMEOUT_MS` 空闲 → 关闭已启动的 CLI/adapter，conversation 保持 `idle` |
 
-> **核心区分**：`进程被回收` ≠ `会话被关闭`。进程回收后会话状态是 **`idle`**（可随时唤醒复用）；`/close`、`/new`、`/cwd <path>` 或长期无活动才进入 **`closed`（归档）**。
+> **核心区分**：`进程被回收` ≠ `会话被关闭`。进程回收后会话状态是 **`idle`**（可随时唤醒复用）；`/close`、`/cwd <path>` 或长期无活动才进入 **`closed`（归档）**。
 
 ### 5.1 什么时候新建一个会话（会话边界策略）
 
@@ -338,18 +338,18 @@ sequenceDiagram
 flowchart TD
     MSG[收到用户消息] --> CMD{系统命令?}
     CMD -->|/cwd path| CLOSESET[关闭当前会话<br/>更新目标 cwd<br/>不创建 conversation]
-    CMD -->|/new| CLOSENEW[关闭当前/目标旧会话<br/>新建 idle conversation]
-    CMD -->|否| FIND{最新同 platform+user 会话<br/>未 closing/closed?}
+    CMD -->|/switch cli| SWITCH[选择 CLI<br/>保留其他 CLI 会话]
+    CMD -->|否| FIND{同 platform+user+cli 会话<br/>未 closing/closed?}
     FIND -->|是| REUSE[复用该会话]
     FIND -->|否| CREATE[新建 idle conversation]
-    CLOSENEW --> RUN[等待首条普通消息懒启动]
+    SWITCH --> FIND
     CREATE --> RUN
     REUSE --> RUN
 ```
 
-- **默认复用**：会话 scope = `(platform,userId)`；普通消息优先复用同 scope 最新可复用会话（`idle/starting/running`）。若 Transport 重启丢失内存目标，用该会话的 `cli/cwd` 恢复目标并继续复用 `idle`。
+- **默认复用**：会话 scope = `(platform,userId,cli)`；普通消息只复用当前选中 CLI 的可复用会话（`idle/starting/running`），其他 CLI 会话保持不变。
 - **用户目标持久化**：`user_preferences` 保存语言与默认 CLI，`user_cli_cwds` 保存每 CLI cwd，均以 `(platform,userId)` 隔离。首次访问使用 `claude` 和 `~/ai-workspace/.claude`，并创建目录；普通消息在没有 open 会话时从该持久化目标创建会话。
-- **`/new`**：强制开新会话；新建前只关闭同 scope 所有非 `closed` 历史会话，新会话初始 `idle`。若没有 open 会话且入站目标 CLI 只是默认值，则从同 scope 最近 closed 会话恢复 CLI；显式 `/new <cli>` 覆盖恢复值。
+- **`/switch <cli> [path]`**：切换当前 CLI；目标 CLI 有未关闭会话时恢复，没有时按显式或持久化 cwd 创建 `idle` 会话。不会关闭其他 CLI；已有会话与显式 path 冲突时拒绝。
 - **`/cwd`**：无参数显示当前目标 cwd；带路径时关闭当前会话、更新目标 cwd，不创建 conversation，下一条普通消息再新建。
 - **`/close`**：显式结束，触发归档并生成 episodic 摘要（见 §7）。
 - **自动归档**：超过 `SESSION_ARCHIVE_DAYS` 无活动的 `idle` 会话自动转 `closed` 并生成摘要。
@@ -641,5 +641,5 @@ flowchart LR
 | 6 | 记忆归属实例级 namespace，不按 Transport user_id 隔离 | 个人 VPS 的 Telegram/QQ/WebSocket 操作者本质共享同一套环境事实与全局记忆；`user_id` 只服务会话隔离/鉴权/审批操作者 | 需用 `namespace` 支撑未来多人格/工作区；全局事实由 `conversation_id` 是否为空区分 |
 | 7 | 嵌入走 API 而非本地模型 | VPS 不跑模型，省内存运维 | 有网络延迟与调用成本 → 强制异步批量，V1 可先不用 |
 | 8 | 向量召回分阶段（V1.5 上 pgvector） | V1 先跑通命令式记忆与环境注入，不被召回调优拖慢 | V1 无语义模糊召回 |
-| 9 | 会话 scope = platform + user，目标由 CLI/cwd + `/new` + `/cwd` 管理 | 同一 QQ/TG 用户互不影响；每个 scope 仅一条未关闭会话，避免不同平台相同 ID 串线；记忆仍在 namespace 内共享并通过 `conversation_id` 标注来源 | `conversations` 持有 platform/user/cli/cwd；数据库部分唯一索引兜底 scope 单例 |
+| 9 | 会话 scope = platform + user + CLI，当前目标由 `/switch` + `/cwd` 管理 | 同一用户可并行保留各 CLI 上下文；每个 CLI 至多一条未关闭会话；记忆仍在 namespace 内共享 | `conversations` 持有 platform/user/cli/cwd；三列部分唯一索引兜底 |
 | 10 | **执行层接缝在语义化 `CLIAdapter`，非 `Runtime`；Claude 走 Agent SDK，PTY 家族仅作无 SDK 备用**（详见 D11） | 审批/输出结构化（`canUseTool`+`SDKMessage`）根治"解析 TUI 菜单"的脆性；接缝在 Adapter 才能同时容纳字节与结构化两形态；厂商中立靠"每 CLI 一个 Adapter"而非共享 SDK 基类 | SDK 依赖 +5.5MB（含原生二进制，依赖树干净、peerDeps zod^4 与本项目一致）；`Runtime`/`ApprovalDetector` 降级为 PTY 家族专属 |

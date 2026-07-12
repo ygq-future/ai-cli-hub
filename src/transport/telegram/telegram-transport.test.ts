@@ -214,7 +214,7 @@ describe('TelegramTransport 入站', () => {
     mock.handlers.text!({
       from: { id: 42 },
       chat: { id: 42 },
-      message: { text: '/new /tmp/other-project', message_id: 1 },
+      message: { text: '/switch claude /tmp/other-project', message_id: 1 },
     })
     await tick()
     bus.emit('SessionCreated', {

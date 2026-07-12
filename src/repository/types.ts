@@ -35,15 +35,9 @@ export type { CliType, Platform, SessionStatus, ConversationId, MessageId }
 
 export interface ConversationRepository {
   create(c: NewConversation): Promise<Conversation>
-  /** scope=(platform,userId) 内最新未 closed/closing 会话；cli/cwd 是会话属性而非隔离维度。 */
-  findActive(platform: Platform, userId: string): Promise<Conversation | null>
-  /** scope 内最新可复用会话；用于进程重启后恢复目标并复用 idle。 */
-  findLatestOpenByUser(platform: Platform, userId: string): Promise<Conversation | null>
-  /** scope 内最近任意会话；用于没有 open 会话时恢复持久 target cli。 */
-  findLatestByUser(platform: Platform, userId: string): Promise<Conversation | null>
+  /** scope=(platform,userId,cli) 内最新可复用会话。 */
+  findLatestOpen(platform: Platform, userId: string, cli: CliType): Promise<Conversation | null>
   findById(id: ConversationId): Promise<Conversation | null>
-  /** scope 内所有未 closed 会话：新建会话前兜底关闭历史残留。 */
-  listOpenByUser(platform: Platform, userId: string): Promise<Conversation[]>
   listRecentByUser(platform: Platform, userId: string, limit: number): Promise<Conversation[]>
   updateStatus(id: ConversationId, status: SessionStatus): Promise<void>
   /** 进程重启对账：starting/running 复位 idle，closing 收尾 closed；运行期 adapter 无法恢复。 */

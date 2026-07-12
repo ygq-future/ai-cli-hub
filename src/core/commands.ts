@@ -44,9 +44,6 @@ export interface CommandRouterDeps {
 }
 
 type CwdResolveResult = { ok: true; cwd: string } | { ok: false; message: string }
-type SessionTargetResolveResult =
-  { ok: true; cli: CliType; cwd: string; cliExplicit: boolean; cwdExplicit: boolean } | { ok: false; message: string }
-
 const KNOWN_CLI_TYPES: ReadonlySet<CliType> = new Set(['claude', 'opencode', 'codex', 'gemini'])
 const SUPPORTED_CLI_TYPES: ReadonlySet<CliType> = new Set(['claude', 'opencode'])
 const RECENT_SESSIONS_LIMIT = 10
@@ -87,43 +84,73 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
       if (!parsed) return false
 
       switch (parsed.name) {
-        case 'new': {
-          const fallback = getUserTarget
-            ? await getUserTarget(payload.platform, payload.userId)
-            : { cli: payload.cli, cwd: payload.cwd }
-          const target = await parseSessionTarget(
-            parsed.args,
-            fallback.cli,
-            fallback.cwd,
-            resolveCwd,
-            cli => getCwdForCli?.(payload.platform, payload.userId, cli) ?? Promise.resolve(fallback.cwd),
-          )
-          if (!target.ok) {
-            reply(payload, commandError('无法创建会话', target.message, '/new [cli] [cwd]'))
+        case 'switch': {
+          const cliArg = parsed.args[0]?.toLowerCase()
+          if (!cliArg) {
+            reply(payload, commandError('缺少 CLI', '必须指定要切换到的 CLI。', '/switch <cli> [path]'))
             return true
           }
-          const { cli, cwd, cliExplicit, cwdExplicit } = target
-          const current = await currentConversation(payload)
-          if (current) await sessionManager.close(current.id as ConversationId, 'user')
-          const cid = await sessionManager.forceNew({
+          if (!KNOWN_CLI_TYPES.has(cliArg as CliType) || !SUPPORTED_CLI_TYPES.has(cliArg as CliType)) {
+            reply(payload, commandError('不支持的 CLI', `\`${cliArg}\` 尚未接入。`, '/switch <cli> [path]'))
+            return true
+          }
+          const cli = cliArg as CliType
+          const rawPath = parsed.args.slice(1).join(' ')
+          let requestedCwd: string | undefined
+          if (rawPath) {
+            const resolved = await resolveCwd(rawPath)
+            if (!resolved.ok) {
+              reply(payload, commandError('工作目录无效', resolved.message, '/switch <cli> [path]'))
+              return true
+            }
+            requestedCwd = resolved.cwd
+          }
+
+          const existingId = await sessionManager.findCurrent({
             userId: payload.userId,
             platform: payload.platform,
             cli,
-            cwd,
-            text: payload.text,
-            cliExplicit,
-            cwdExplicit,
+            cwd: requestedCwd ?? payload.cwd,
           })
-          const created = await repos.conversations.findById(cid)
+          const existing = existingId ? await repos.conversations.findById(existingId) : null
+          if (existing && requestedCwd && existing.cwd !== requestedCwd) {
+            reply(
+              payload,
+              commandError(
+                '无法更换已有会话目录',
+                `\`${cli}\` 仍有未关闭会话，当前目录为 \`${existing.cwd}\`，请求目录为 \`${requestedCwd}\`。\n\n请使用 \`/switch ${cli}\` 恢复它；如需新目录，请先切换后执行 \`/close\`。`,
+                `/switch ${cli} ${requestedCwd}`,
+              ),
+            )
+            return true
+          }
+
+          const cwd =
+            existing?.cwd ??
+            requestedCwd ??
+            (await getCwdForCli?.(payload.platform, payload.userId, cli)) ??
+            payload.cwd
+          const cid =
+            existingId ??
+            (await sessionManager.findOrCreate({
+              userId: payload.userId,
+              platform: payload.platform,
+              cli,
+              cwd,
+              text: payload.text,
+            }))
           await setUserTarget(payload.platform, payload.userId, { cli, cwd })
           reply(
             payload,
             [
-              '## 🆕 新会话已创建',
+              existing ? '## 🔄 已切换 CLI' : '## 🆕 CLI 会话已创建',
               '',
               `- **ID**: \`${cid}\``,
-              `- **CLI**: \`${created?.cli ?? cli}\``,
-              `- **CWD**: \`${created?.cwd ?? cwd}\``,
+              `- **CLI**: \`${cli}\``,
+              `- **CWD**: \`${cwd}\``,
+              `- **状态**: \`${existing?.status ?? 'idle'}\``,
+              '',
+              existing ? '后续消息将继续此会话。' : '后续消息将在此会话中处理。',
             ].join('\n'),
           )
           return true
@@ -168,6 +195,25 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           if (!SUPPORTED_CLI_TYPES.has(cli)) {
             reply(payload, commandError('不支持的 CLI', `\`${cli}\` 尚未接入。`))
             return true
+          }
+          if (!hasActiveConversation) {
+            const targetConversationId = await sessionManager.findCurrent({
+              userId: payload.userId,
+              platform: payload.platform,
+              cli,
+              cwd: preferredTarget.cwd,
+            })
+            if (targetConversationId) {
+              reply(
+                payload,
+                commandError(
+                  '无法更换已有会话目录',
+                  `\`${cli}\` 仍有未关闭会话。请先执行 \`/switch ${cli}\`，确认上下文后再用 \`/close\` 结束它。`,
+                  `/switch ${cli}`,
+                ),
+              )
+              return true
+            }
           }
           const rawCwd = hasActiveConversation ? parsed.args.join(' ') : restArgs.join(' ')
           const resolved = await resolveCwd(rawCwd)
@@ -283,7 +329,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             payload.userId,
             RECENT_SESSIONS_LIMIT,
           )
-          reply(payload, formatSessions(sessions, await getUserLanguage(payload.platform, payload.userId)))
+          reply(payload, formatSessions(sessions, await getUserLanguage(payload.platform, payload.userId), payload.cli))
           return true
         }
 
@@ -459,36 +505,6 @@ function commandError(title: string, detail: string, usage?: string): string {
   return [`## ❌ ${title}`, '', detail, ...(usage ? ['', '### 用法', `\`${usage}\``] : [])].join('\n')
 }
 
-async function parseSessionTarget(
-  args: string[],
-  fallbackCli: CliType,
-  fallbackCwd: string,
-  resolveCwd: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult,
-  getCwdForCli: (cli: CliType) => Promise<string>,
-): Promise<SessionTargetResolveResult> {
-  const [first, ...rest] = args
-  if (!first) return { ok: true, cli: fallbackCli, cwd: fallbackCwd, cliExplicit: false, cwdExplicit: false }
-
-  if (KNOWN_CLI_TYPES.has(first as CliType)) {
-    const cli = first as CliType
-    if (!SUPPORTED_CLI_TYPES.has(cli)) return { ok: false, message: `暂不支持 CLI：${cli}` }
-    if (rest.length === 0) return { ok: true, cli, cwd: await getCwdForCli(cli), cliExplicit: true, cwdExplicit: false }
-    const resolved = await resolveCwd(rest.join(' '))
-    return resolved.ok ? { ...resolved, cli, cliExplicit: true, cwdExplicit: true } : resolved
-  }
-
-  if (looksLikeAbsolutePath(first)) {
-    const resolved = await resolveCwd(args.join(' '))
-    return resolved.ok ? { ...resolved, cli: fallbackCli, cliExplicit: false, cwdExplicit: true } : resolved
-  }
-
-  return { ok: false, message: `不支持的 CLI：${first}` }
-}
-
-function looksLikeAbsolutePath(value: string): boolean {
-  return /^([A-Za-z]:[\\/]|[\\/])/.test(value)
-}
-
 function formatStatus(conv: Conversation, language: UserLanguage, targetCli: CliType, targetCwd: string): string {
   const isEnglish = language === 'en'
   return [
@@ -508,7 +524,7 @@ function formatStatus(conv: Conversation, language: UserLanguage, targetCli: Cli
   ].join('\n')
 }
 
-function formatSessions(sessions: Conversation[], language: UserLanguage): string {
+function formatSessions(sessions: Conversation[], language: UserLanguage, selectedCli: CliType): string {
   const isEnglish = language === 'en'
   if (sessions.length === 0)
     return isEnglish ? '## 🗂️ Recent sessions\n\n_No session history yet._' : '## 🗂️ 最近会话\n\n_暂无历史会话。_'
@@ -518,7 +534,7 @@ function formatSessions(sessions: Conversation[], language: UserLanguage): strin
     ...sessions.map((session, index) =>
       [
         '',
-        `${index + 1}. **\`${shortId(session.id as ConversationId)}\`**`,
+        `${index + 1}. **\`${shortId(session.id as ConversationId)}\`**${session.cli === selectedCli && session.status !== 'closed' ? (isEnglish ? ' ← current' : ' ← 当前') : ''}`,
         `   - **${isEnglish ? 'Status' : '状态'}**: \`${session.status}\``,
         `   - **CLI**: \`${session.cli}\``,
         `   - **${isEnglish ? 'Updated' : '更新时间'}**: ${formatDate(session.updatedAt)}`,

@@ -12,7 +12,7 @@ const config = loadConfig()
 const repos = createRepositories(createDb(config.DATABASE_URL))
 const userId = config.WHITELIST_USER_IDS[0]!
 
-const active = await repos.conversations.findActive('telegram', userId)
+const active = await repos.conversations.findLatestOpen('telegram', userId, 'claude')
 if (active) {
   await repos.conversations.updateStatus(active.id as ConversationId, 'closed')
   console.log('closed stale conversation:', active.id)

@@ -57,6 +57,13 @@
       "when": 1783831200000,
       "tag": "0007_user_auto_approve_seconds",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783834800000,
+      "tag": "0008_conversation_cli_scope",
+      "breakpoints": true
     }
   ]
 }

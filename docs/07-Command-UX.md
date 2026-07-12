@@ -34,7 +34,7 @@ flowchart TD
 |---|---|---|---|
 | `/start` | — | 欢迎 + 当前会话状态 | 若无活跃会话则展示引导 |
 | `/help` | — | 命令帮助 | 返回本表精简版 |
-| `/new` | `[cli]` `[cwd]` | 强制开新会话 | 关闭当前/目标旧会话 → 新建 `idle` conversation → `SessionCreated`；指定 CLI 会持久化为默认 CLI |
+| `/switch` | `<cli> [path]` | 切换 CLI 会话 | 有未关闭会话则恢复；否则按显式或持久化 cwd 新建；不关闭其他 CLI 会话 |
 | `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；不做非 LLM 自动会话摘录 |
 | `/status` | — | 当前会话详情 | 展示完整 conversationId、status、cli/cwd、目标 cli/cwd、语言 |
 | `/cwd` | `[path]` 或 `<cli> <path>` | 查看或切换工作目录 | 有 open 会话（含 `idle`）时用 `/cwd <path>` 切换当前会话 CLI；没有 open 会话时必须用 `/cwd <cli> <path>` 保存对应 CLI 目录 |
@@ -49,7 +49,7 @@ flowchart TD
 | `/restart` | `[confirm]` | 受控重启 | Windows 上直接拒绝；非 Windows 无参数以 Markdown 预检卡片展示计划；`/restart confirm` 不更新代码，只写入重启通知 marker 并延迟交给守护器重启；用于验证重启与主动通知链路 |
 | `/forget` | `<memoryId>` | 删除实例级全局长期记忆 | 支持唯一短前缀；前缀不唯一时拒绝删除；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 
-> 用户目标按 `(platform,userId)` 持久化：语言、默认 CLI、自动审批开关及倒计时、每个 CLI 的 cwd 彼此隔离。首次访问默认 `language=zh`、`default_cli=claude`、`auto_approve_enabled=false`、`auto_approve_seconds=5`，未配置目录时自动使用并创建 `~/ai-workspace/.<cli>`。`/new <cli>` 会更新默认 CLI；`/new` 无参数、普通消息与 `/status` 均读取该持久化目标。当前已接入 `claude` 与 `opencode`；`codex/gemini` 等未实现 Adapter 前必须返回“不支持”，不得静默当作 cwd。
+> 用户目标按 `(platform,userId)` 持久化：语言、当前选中 CLI、自动审批开关及倒计时、每个 CLI 的 cwd 彼此隔离。首次访问默认 `language=zh`、`default_cli=claude`、`auto_approve_enabled=false`、`auto_approve_seconds=5`，未配置目录时自动使用并创建 `~/ai-workspace/.<cli>`。`/switch <cli> [path]` 更新当前选中 CLI；普通消息与 `/status` 读取该目标。当前已接入 `claude` 与 `opencode`。
 > 普通文本里的“记住/记一下/记录/remember this”等自然语言记忆请求不是 `/remember`：它不会直接写入 global 记忆，也不会进入 Claude SDK；系统会按 `MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 读取当前 conversation 最近的 user/assistant 消息调用配置的记忆 LLM 摘要，摘要语言跟随持久化的 `/lang` 偏好，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述，写入 conversation-derived episodic 记忆并用于后续 embedding 召回。
 
 ---
@@ -58,8 +58,8 @@ flowchart TD
 
 | 用户动作 | 会话结果 |
 |---|---|
-| 普通发消息 | 命中 `(platform, user)` scope 的活跃会话则复用；否则按该用户持久化的默认 CLI/CWD 新建 |
-| `/new` | 强制新建，关闭同 `(platform,user)` scope 旧会话；指定 CLI/CWD 会写回持久化目标；新建会话初始为 `idle`，第一条普通消息懒启动 CLI |
+| 普通发消息 | 命中 `(platform,user,selectedCli)` 的未关闭会话则复用；否则按该 CLI 持久化 cwd 新建 |
+| `/switch <cli> [path]` | 恢复该 CLI 的未关闭会话；不存在时创建 `idle` 会话。显式 path 仅在新建时持久化；与已有会话 cwd 冲突时拒绝 |
 | `/cwd` | 无参数仅查看持久化默认 CLI 的 cwd |
 | `/cwd <path>` | 有 open 会话时关闭当前会话并更新其 CLI 的 cwd；无 open 会话时拒绝并提示使用 `/cwd <cli> <path>` |
 | `/cwd <cli> <path>` | 无 open 会话时保存该 CLI 的 cwd，不创建 conversation |
@@ -158,7 +158,7 @@ Markdown 卡片 + 内联按钮：
 | `/restart` 执行 | Windows 上直接返回“重启不可用”且不执行命令；非 Windows 无参数返回重启预检计划；必须发送 `/restart confirm` 才执行；不执行 git pull、依赖安装、迁移或检查 |
 | `/restart confirm` 成功 | 返回 Markdown 重启安排，并在 `UPDATE_RESTART_DELAY_MS` 后执行同一组 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动后主动通知原 chat；marker 仅在发送成功后删除。 |
 | adapter 重启后继续同一会话 | 下一条 user message 会携带当前 conversation 最近 `RECENT_CONTEXT_LIMIT` 条历史消息；单条超长时按 `RECENT_CONTEXT_MESSAGE_MAX_CHARS` 保留尾部，避免丢失上一轮最新结论 |
-| CLI 运行中 `/new` | ℹ️ 已关闭当前会话，已为你开启新会话 |
+| CLI 运行中 `/switch opencode` | 🔄 已切换 CLI；原 CLI 会话保持未关闭，可随时切回 |
 | 进程被空闲回收后发消息 | （静默唤醒，重启进程，用户无感）|
 | 内部异常 | ⚠️ 出错了，已记录。可重试或 /status 查看状态 |
 

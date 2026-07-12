@@ -19,7 +19,7 @@ export interface EventMap {
   // —— 消息 ——
   /**
    * 用户消息入站（决策 D13）：Transport 发出时**不含 conversationId**——会话边界是
-   * (platform, userId) scope，由 Core 的 MessageRouter 经 sessionManager.findOrCreate 解析/新建。
+   * (platform, userId, cli) scope，由 Core 的 MessageRouter 经 sessionManager.findOrCreate 解析/新建。
    * 与架构 §4.1「Core 收到 MessageReceived 后才路由到会话」一致。
    */
   MessageReceived: {

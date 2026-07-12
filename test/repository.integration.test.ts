@@ -42,7 +42,7 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     await closeDb(db)
   })
 
-  test('ConversationRepository：create → findById → findActive → updateStatus → listStaleIdle', async () => {
+  test('ConversationRepository：create → findById → findLatestOpen → updateStatus → listStaleIdle', async () => {
     const created = await repos.conversations.create({
       id: cid,
       platform: 'telegram',
@@ -58,11 +58,8 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     const byId = await repos.conversations.findById(cid)
     expect(byId?.userId).toBe('u-int')
 
-    const active = await repos.conversations.findActive('telegram', 'u-int')
+    const active = await repos.conversations.findLatestOpen('telegram', 'u-int', 'claude')
     expect(active?.id).toBe(cid)
-
-    const latest = await repos.conversations.findLatestByUser('telegram', 'u-int')
-    expect(latest?.id).toBe(cid)
 
     await repos.conversations.updateStatus(cid, 'idle')
     const afterIdle = await repos.conversations.findById(cid)

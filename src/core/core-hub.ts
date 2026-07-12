@@ -53,7 +53,7 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
   const auth = createAuth(config.WHITELIST_USER_IDS)
 
   // SessionManager：会话生命周期
-  const sessionManager = createSessionManager(bus, repos, config.SESSION_ARCHIVE_DAYS, opts.getUserTarget)
+  const sessionManager = createSessionManager(bus, repos, config.SESSION_ARCHIVE_DAYS)
 
   const commandRouter =
     opts.commandRouter ??
