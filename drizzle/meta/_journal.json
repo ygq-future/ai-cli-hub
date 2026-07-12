@@ -36,6 +36,13 @@
       "when": 1783742400000,
       "tag": "0004_conversation_platform_user_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783824000000,
+      "tag": "0005_user_preferences",
+      "breakpoints": true
     }
   ]
 }
