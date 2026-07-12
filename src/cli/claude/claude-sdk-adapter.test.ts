@@ -121,27 +121,40 @@ describe('ClaudeSdkAdapter (real message flow)', () => {
     const allow1 = canUse!('Read', { file_path: '/x' }, { toolUseID: 't1' } as never)
     const allow2 = canUse!('Glob', { pattern: '*.ts' }, { toolUseID: 't2' } as never)
     const allow3 = canUse!('Bash', { command: 'ls -la /d/' }, { toolUseID: 't3' } as never)
+    const allow4 = canUse!('Bash', { command: 'Get-ChildItem -Force' }, { toolUseID: 't3b' } as never)
     const deny = canUse!('Write', { file_path: '/y' }, { toolUseID: 't4' } as never)
     const deny2 = canUse!('Bash', { command: 'rm -rf' }, { toolUseID: 't5' } as never)
+    const deny3 = canUse!('Bash', { command: 'Get-Content a.txt | Remove-Item' }, { toolUseID: 't6' } as never)
 
     // 只读工具同步 allow，返回 include updatedInput（SDK 要求 allow 传 updatedInput）
     expect(await allow1).toEqual({ behavior: 'allow', updatedInput: { file_path: '/x' }, toolUseID: 't1' })
     expect(await allow2).toEqual({ behavior: 'allow', updatedInput: { pattern: '*.ts' }, toolUseID: 't2' })
     expect(await allow3).toEqual({ behavior: 'allow', updatedInput: { command: 'ls -la /d/' }, toolUseID: 't3' })
+    expect(await allow4).toEqual({
+      behavior: 'allow',
+      updatedInput: { command: 'Get-ChildItem -Force' },
+      toolUseID: 't3b',
+    })
 
     await tick()
     // 写操作弹了审批请求，还没有决议
-    expect(reqs.length).toBe(2)
+    expect(reqs.length).toBe(3)
     expect(a.getState()).toBe('waitingApproval')
 
     // 审批后决议
     a.resolveApproval('t4', 'approve')
     a.resolveApproval('t5', 'reject')
+    a.resolveApproval('t6', 'reject')
     expect(await deny).toEqual({ behavior: 'allow', updatedInput: { file_path: '/y' }, toolUseID: 't4' })
     expect(await deny2).toEqual({
       behavior: 'deny',
       message: 'User rejected this tool use. Stop the current turn.',
       toolUseID: 't5',
+    })
+    expect(await deny3).toEqual({
+      behavior: 'deny',
+      message: 'User rejected this tool use. Stop the current turn.',
+      toolUseID: 't6',
     })
   })
 

@@ -27,40 +27,13 @@ import type {
 } from '../base'
 import { EMPTY_VISIBLE_RESULT_MESSAGE } from '../constants'
 import { sanitizeVisibleText } from '../format-output'
-import { buildSystemPromptAppend, emitHandlers, unsubscribeHandler } from '../utils'
-
-/** 只读工具名单：这些自动 allow，不触发审批。 */
-const READONLY_TOOLS = new Set([
-  'Read',
-  'Glob',
-  'Grep',
-  'WebSearch',
-  'WebFetch',
-  'ListMcpResources',
-  'ReadMcpResourceDir',
-  'ReadMcpResource',
-  'Projects',
-])
-
-const READONLY_BASH_COMMANDS = new Set([
-  'cat',
-  'dir',
-  'du',
-  'echo',
-  'git',
-  'grep',
-  'head',
-  'ls',
-  'pwd',
-  'tail',
-  'tree',
-  'type',
-  'wc',
-  'where',
-  'which',
-])
-
-const READONLY_GIT_SUBCOMMANDS = new Set(['branch', 'diff', 'log', 'ls-files', 'rev-parse', 'show', 'status'])
+import {
+  buildSystemPromptAppend,
+  emitHandlers,
+  isReadOnlyShellCommand,
+  isReadOnlyToolName,
+  unsubscribeHandler,
+} from '../utils'
 
 /** 异步输入队列。 */
 function createInputQueue() {
@@ -96,34 +69,9 @@ function inputRecord(value: unknown): Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
 
-function firstShellToken(command: string): string {
-  return (
-    command
-      .trim()
-      .split(/\s+/)[0]
-      ?.replace(/^.*[\\/]/, '')
-      .toLowerCase() ?? ''
-  )
-}
-
 function isReadOnlyBashCommand(toolInput: unknown): boolean {
   const command = inputRecord(toolInput).command
-  if (typeof command !== 'string') return false
-  const trimmed = command.trim()
-  if (!trimmed) return false
-
-  // 保守处理：只自动放行单条查询命令；含重定向/管道/串联/替换的一律走审批。
-  if (/[;&|<>`$]/.test(trimmed)) return false
-
-  const tool = firstShellToken(trimmed)
-  if (!READONLY_BASH_COMMANDS.has(tool)) return false
-
-  if (tool === 'git') {
-    const subcommand = trimmed.split(/\s+/)[1]?.toLowerCase() ?? ''
-    return READONLY_GIT_SUBCOMMANDS.has(subcommand)
-  }
-
-  return true
+  return typeof command === 'string' && isReadOnlyShellCommand(command)
 }
 
 export interface ClaudeSdkAdapterDeps {
@@ -151,7 +99,7 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
 
   /** 审批策略：只读工具自动 allow，其余弹审批。 */
   const handleCanUseTool: CanUseTool = (toolName, toolInput, { toolUseID }) => {
-    if (READONLY_TOOLS.has(toolName) || (toolName === 'Bash' && isReadOnlyBashCommand(toolInput))) {
+    if (isReadOnlyToolName(toolName) || (toolName === 'Bash' && isReadOnlyBashCommand(toolInput))) {
       return Promise.resolve({ behavior: 'allow', updatedInput: toolInput, toolUseID })
     }
     return new Promise<PermissionResult>(resolve => {

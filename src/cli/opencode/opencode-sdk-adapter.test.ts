@@ -309,6 +309,48 @@ describe('OpenCodeSdkAdapter', () => {
     ])
   })
 
+  test('read-only bash permission uses shared policy and replies once without approval', async () => {
+    const fake = createFakeOpenCode()
+    const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
+    const approvals: ApprovalRequest[] = []
+    adapter.onApprovalRequest(req => approvals.push(req))
+
+    await adapter.start(SPAWN)
+    fake.queue.push({
+      type: 'permission.updated',
+      properties: {
+        id: 'perm-read',
+        permission: 'bash',
+        sessionID: 's1',
+        messageID: 'm-read',
+        metadata: { command: 'Get-ChildItem -Force' },
+        time: { created: Date.now() },
+      },
+    })
+    await tick()
+
+    expect(approvals).toEqual([])
+    expect(fake.permissions).toEqual([{ permissionID: 'perm-read', response: 'once' }])
+    expect(adapter.getState()).toBe('busy')
+
+    fake.queue.push({
+      type: 'permission.updated',
+      properties: {
+        id: 'perm-web',
+        permission: 'webfetch',
+        sessionID: 's1',
+        messageID: 'm-web',
+        time: { created: Date.now() },
+      },
+    })
+    await tick()
+    expect(approvals).toEqual([])
+    expect(fake.permissions).toEqual([
+      { permissionID: 'perm-read', response: 'once' },
+      { permissionID: 'perm-web', response: 'once' },
+    ])
+  })
+
   test('raw logger keeps actionable events and drops startup, heartbeat, message, and catalog noise', async () => {
     const fake = createFakeOpenCode()
     const raw: string[] = []

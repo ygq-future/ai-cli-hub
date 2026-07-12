@@ -17,7 +17,13 @@ import type {
 } from '../base'
 import { EMPTY_VISIBLE_RESULT_MESSAGE } from '../constants'
 import { sanitizeVisibleText } from '../format-output'
-import { buildSystemPromptAppend, emitHandlers, unsubscribeHandler } from '../utils'
+import {
+  buildSystemPromptAppend,
+  emitHandlers,
+  isReadOnlyShellCommand,
+  isReadOnlyToolName,
+  unsubscribeHandler,
+} from '../utils'
 
 type CreateOpencodeFn = (options?: { signal?: AbortSignal; config?: Config }) => Promise<{
   client: OpencodeClient
@@ -147,6 +153,17 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
         const permission = parsePermission(properties)
         if (!permission || permission.sessionID !== sessionId) return
         pendingApprovals.set(permission.id, { id: permission.id, sessionID: permission.sessionID })
+        if (isReadOnlyPermission(properties)) {
+          state = 'busy'
+          void replyPermission(permission, 'once')
+            .then(() => pendingApprovals.delete(permission.id))
+            .catch(() => {
+              if (!pendingApprovals.has(permission.id)) return
+              state = 'waitingApproval'
+              emitHandlers(approvalHandlers, permissionToApproval(properties))
+            })
+          return
+        }
         state = 'waitingApproval'
         emitHandlers(approvalHandlers, permissionToApproval(properties))
         return
@@ -214,6 +231,16 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
         always: permission.always,
       }),
     }
+  }
+
+  async function replyPermission(permission: PendingOpenCodePermission, response: 'once' | 'reject'): Promise<void> {
+    if (!started) throw new Error('OpenCodeSdkAdapter: client is not ready')
+    const result = await started.client.postSessionIdPermissionsPermissionId({
+      path: { id: permission.sessionID, permissionID: permission.id },
+      query: { directory: cwd },
+      body: { response },
+    })
+    if (result.error) throw new Error(formatError(result.error))
   }
 
   async function listenForEvents(client: OpencodeClient, signal: AbortSignal) {
@@ -322,15 +349,9 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
       if (!permission || !started) return
       pendingApprovals.delete(approvalId)
       state = 'busy'
-      void started.client
-        .postSessionIdPermissionsPermissionId({
-          path: { id: permission.sessionID, permissionID: approvalId },
-          query: { directory: cwd },
-          body: { response: decision === 'approve' ? 'once' : 'reject' },
-        })
-        .catch(err => {
-          finishTurn(formatError(err))
-        })
+      void replyPermission(permission, decision === 'approve' ? 'once' : 'reject').catch(err => {
+        finishTurn(formatError(err))
+      })
     },
 
     onOutput(handler) {
@@ -381,6 +402,16 @@ function parsePermission(value: Record<string, unknown>): PendingOpenCodePermiss
   const sessionID = readString(value, 'sessionID')
   if (!id || !sessionID) return null
   return { id, sessionID }
+}
+
+function isReadOnlyPermission(value: Record<string, unknown>): boolean {
+  const permission = readString(value, 'permission') ?? readString(value, 'type')
+  if (!permission) return false
+  if (isReadOnlyToolName(permission)) return true
+  if (permission !== 'bash') return false
+  const metadata = asRecord(value.metadata)
+  const command = metadata ? readString(metadata, 'command') : undefined
+  return typeof command === 'string' && isReadOnlyShellCommand(command)
 }
 
 function shouldLogRawEvent(type: string, payload: unknown): boolean {
