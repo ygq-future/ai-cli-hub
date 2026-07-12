@@ -78,13 +78,7 @@ Configure at least:
 
 `settings.json` is local and gitignored. The application no longer loads business configuration from `.env`.
 
-After Claude Code is installed system-wide, remove the Agent SDK's redundant bundled CLI binaries:
-
-```bash
-bun run deps:prune
-```
-
-The command verifies the external Claude executable before deleting only `@anthropic-ai/claude-agent-sdk-<platform>` packages. `/update confirm` runs the same prune step after every dependency install.
+The root `overrides` map replaces every Agent SDK native CLI optional dependency with a tiny same-name local stub. A fresh `bun install` therefore installs only the SDK JS control layer and never downloads its bundled Claude binaries; PDF canvas optional dependencies are unaffected.
 
 ### Tencent Official QQ Bot
 
@@ -99,7 +93,6 @@ Open [QQ Bot quick registration](https://q.qq.com/qqbot/openclaw/login.html), cr
 ```bash
 bun install
 bun run setting:migrate
-bun run deps:prune
 bun run db:migrate
 pm2 start deploy/pm2.config.cjs
 pm2 logs ai-cli-hub

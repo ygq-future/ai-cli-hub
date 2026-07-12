@@ -129,7 +129,7 @@ flowchart LR
 
 - **R2-A 健康检查**：新增 `/health`，即时检查 Postgres ping、默认工作目录、媒体目录、关键 CLI 可用性与进程 uptime；不创建 conversation、不进入 CLI。
 - **R2-B 部署自检**：围绕 PM2/systemd、迁移状态、依赖安装与关键 env 做只读自检，为更新前检查提供报告。
-- **R2-C 受控自更新**：通过显式命令触发 `git pull --ff-only`、`bun install`、`bun run db:migrate`、`bun run format:check`/`typecheck` 等检查，最后执行 `bun run deps:prune`，验证系统 Claude CLI 后裁剪 SDK 重复平台二进制；成功后写入重启通知 marker 并交给 PM2/systemd 重启；新进程启动后主动通知原 chat；失败必须保留当前进程并报告原因。`/update` 与 `/restart` 仅适用于 Linux/VPS 部署，Windows 上直接拒绝执行。另提供 `/restart` 复用同一重启命令与通知 marker，仅验证重启链路，不更新代码。
+- **R2-C 受控自更新**：通过显式命令触发 `git pull --ff-only`、`bun install`、`bun run db:migrate`、`bun run format:check`/`typecheck` 等检查；Claude SDK 内置平台包在 Bun 解析依赖时已被同名本地 stub override，不发生下载；成功后写入重启通知 marker 并交给 PM2/systemd 重启；新进程启动后主动通知原 chat；失败必须保留当前进程并报告原因。`/update` 与 `/restart` 仅适用于 Linux/VPS 部署，Windows 上直接拒绝执行。另提供 `/restart` 复用同一重启命令与通知 marker，仅验证重启链路，不更新代码。
 - **R2-D 自动拉起与恢复验证**：依赖外部守护（PM2/systemd）自动拉起，应用启动后通过状态对账与 `/health` 验证恢复。
 - **验收**：`/health` 能区分 ok/degraded/down；自更新过程可审计、可失败回退到“未重启”；异常退出后守护器拉起且会话状态无脏 running/starting。
 

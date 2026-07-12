@@ -349,7 +349,7 @@ export function loadConfig(
 - `session.claudeExecutablePath` 为空时从 `PATH` 解析系统 `claude`，非空时使用配置的绝对路径；启动找不到系统 CLI 时 fail-fast。
 - 数据库的 host/port/db/username/password 被组装为兼容字段 `AppConfig.DATABASE_URL`；`db:migrate` 与主进程使用同一配置。
 - 代理配置会写回 `process.env.HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`，仅用于 Bun fetch 和 SDK 子进程继承；`process.env` 不是业务配置输入源。
-- `/update confirm` 依次执行 git pull、bun install、`setting:migrate`、`db:migrate`、format check、typecheck、lint 和 `deps:prune`；任一步失败都不安排重启。
+- `/update confirm` 依次执行 git pull、bun install、`setting:migrate`、`db:migrate`、format check、typecheck 和 lint；任一步失败都不安排重启。Claude SDK 平台包已在依赖解析阶段由本地 stub override，不需要安装后裁剪。
 
 ---
 

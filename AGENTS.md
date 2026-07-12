@@ -19,7 +19,7 @@
 | 运行时 | **Bun** | 用 `bun`，不用 node/npm/pnpm |
 | 语言 | **TypeScript**（strict） | 全量类型，禁止 `any`（除非注释说明） |
 | 终端劫持（按需） | **node-pty** | 仅接入无 SDK 的 PTY 家族 CLI 时再引入；当前未安装，见 D11/D67 |
-| CLI 接入（首选） | **@anthropic-ai/Codex-agent-sdk** | SDK 家族，`ClaudeSdkAdapter` 持 `query()`、审批经 `canUseTool`；Claude 复用系统 CLI，安装后裁剪 SDK 内置平台二进制 |
+| CLI 接入（首选） | **@anthropic-ai/Codex-agent-sdk** | SDK 家族，`ClaudeSdkAdapter` 持 `query()`、审批经 `canUseTool`；Claude 复用系统 CLI，本地 override 阻止安装 SDK 内置平台二进制 |
 | 数据库 | **Postgres** | V1 即用，非 SQLite |
 | ORM | **Drizzle** | 唯一 SQL 出口，全在 `repository/`+`storage/` |
 | 向量 | **pgvector** | 同库；V1 预留列，V1.5 启用 |

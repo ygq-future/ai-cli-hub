@@ -13,7 +13,6 @@
     "format:check": "prettier --check .",
     "setting:migrate": "bun scripts/setting-migrate.ts",
     "setting": "tsx scripts/setting.ts",
-    "deps:prune": "bun scripts/prune-claude-sdk-binaries.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun scripts/migrate.ts",
     "test": "bun test"
@@ -35,6 +34,16 @@
     "ws": "^8.21.0",
     "xlsx": "^0.18.5",
     "zod": "^4.4.3"
+  },
+  "overrides": {
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "file:vendor/claude-agent-sdk-native-stubs/darwin-arm64",
+    "@anthropic-ai/claude-agent-sdk-darwin-x64": "file:vendor/claude-agent-sdk-native-stubs/darwin-x64",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64": "file:vendor/claude-agent-sdk-native-stubs/linux-arm64",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "file:vendor/claude-agent-sdk-native-stubs/linux-arm64-musl",
+    "@anthropic-ai/claude-agent-sdk-linux-x64": "file:vendor/claude-agent-sdk-native-stubs/linux-x64",
+    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "file:vendor/claude-agent-sdk-native-stubs/linux-x64-musl",
+    "@anthropic-ai/claude-agent-sdk-win32-arm64": "file:vendor/claude-agent-sdk-native-stubs/win32-arm64",
+    "@anthropic-ai/claude-agent-sdk-win32-x64": "file:vendor/claude-agent-sdk-native-stubs/win32-x64"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

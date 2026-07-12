@@ -193,7 +193,7 @@ interface CLIAdapter {
 
 Adapter 分**两个家族**，同实现 `CLIAdapter`、对 Core 完全同形：
 
-- **SDK 家族（首选，Claude/opencode 走这条）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄，并通过 `pathToClaudeCodeExecutable` 复用系统安装的 Claude CLI；`bun run deps:prune` 在确认系统 CLI 后删除 SDK 内置平台二进制。`OpenCodeSdkAdapter` 通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并订阅事件。输出来自结构化消息/事件；**审批来自 SDK 结构化回调或 permission 事件**。**无需 scraping、无 `Runtime`、无 `ApprovalDetector`**。TUI 菜单只是渲染，程序接口里走 SDK。OpenCode 的 `message.part.updated` 同时包含 user/assistant part，Adapter 必须用 `message.updated.info.role` 与 `part.messageID` 关联，只转发 assistant part；raw debug 只保留 retry/session error、permission、tool 等可行动事件，不记录 plugin/catalog/heartbeat/delta/message 等启动或高频噪声。
+- **SDK 家族（首选，Claude/opencode 走这条）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄，并通过 `pathToClaudeCodeExecutable` 复用系统安装的 Claude CLI；根 `package.json` 用同名本地 stub override SDK 的全部平台 optional dependencies，使首次 `bun install` 就不会下载内置 Claude。`OpenCodeSdkAdapter` 通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并订阅事件。输出来自结构化消息/事件；**审批来自 SDK 结构化回调或 permission 事件**。**无需 scraping、无 `Runtime`、无 `ApprovalDetector`**。TUI 菜单只是渲染，程序接口里走 SDK。OpenCode 的 `message.part.updated` 同时包含 user/assistant part，Adapter 必须用 `message.updated.info.role` 与 `part.messageID` 关联，只转发 assistant part；raw debug 只保留 retry/session error、permission、tool 等可行动事件，不记录 plugin/catalog/heartbeat/delta/message 等启动或高频噪声。
 
 Config 加载 `settings.json` 后把 HTTP(S)/NO_PROXY 写回 `process.env`，供 Bun fetch 和 OpenCode SDK 拉起的子进程继承；这不会将环境变量重新变成业务配置源。
 
