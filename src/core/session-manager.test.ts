@@ -716,45 +716,6 @@ describe('MessageRouter with MockHandler', () => {
 })
 
 describe('CommandRouter', () => {
-  test('/cwd path 关闭当前会话并切换目标 cwd，不创建新会话', async () => {
-    const bus = createMockBus()
-    const repos = createMockRepos()
-    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
-    const commandRouter = createCommandRouter({
-      bus: bus as unknown as EventBus,
-      repos,
-      sessionManager: sm,
-      resolveCwd: cwd => ({ ok: true, cwd }),
-    })
-
-    const cid = await sm.findOrCreate({
-      userId: 'u1',
-      platform: 'telegram',
-      cli: 'claude',
-      cwd: '/old',
-      text: 'hi',
-    })
-
-    const targetChanges: unknown[] = []
-    const replies: unknown[] = []
-    bus.on('UserTargetChanged', p => targetChanges.push(p))
-    bus.on('CommandReply', p => replies.push(p))
-
-    await commandRouter.tryHandle({
-      userId: 'u1',
-      platform: 'telegram',
-      cli: 'claude',
-      cwd: '/old',
-      text: '/cwd /new',
-      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
-    })
-
-    expect((await repos.conversations.findById(cid))?.status).toBe('closed')
-    expect(targetChanges).toEqual([{ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/new' }])
-    expect(replies.length).toBe(1)
-    expect((replies[0] as { content: string }).content).toContain('工作目录已切换')
-  })
-
   test('/switch 拒绝未接入 CLI', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()

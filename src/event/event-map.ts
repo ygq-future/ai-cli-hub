@@ -35,7 +35,7 @@ export interface EventMap {
   /** 命令类回复：不绑定 conversation，直接回到原始客户端消息所在 chat。 */
   CommandReply: { ref: MessageRef; content: string }
   UserLanguageChanged: { userId: string; platform: Platform; language: 'zh' | 'en' }
-  /** 用户当前目标会话边界变更：例如 /cwd 只改目标，不创建 conversation。 */
+  /** 用户当前选中的 CLI/cwd 发生变化，例如执行 /switch。 */
   UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }
   /** Transport 生命周期诊断；用于确认外部 Bot Gateway 是否已真正就绪。 */
   TransportStatusChanged: {

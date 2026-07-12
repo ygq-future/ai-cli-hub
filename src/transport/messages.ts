@@ -14,8 +14,6 @@ export function getHelpText(language: UserLanguage): string {
       '',
       '### Sessions',
       '- `/switch <cli> [path]` — Resume that CLI session, or create one with its saved/default directory.',
-      '- `/cwd [path]` — Change the active session CLI working directory.',
-      '- `/cwd <cli> <path>` — Save a CLI directory when no session is active.',
       '- `/close` — Close the current session.',
       '- `/status` — Show the current session status.',
       '- `/sessions` — List recent sessions.',
@@ -33,6 +31,7 @@ export function getHelpText(language: UserLanguage): string {
       '- `/lang zh|en` — Change the reply language.',
       '',
       '> You can also say “remember this” naturally. The hub summarizes recent user/assistant messages with the configured memory model and saves a session-derived memory; it does not send that request to the CLI.',
+      '> A path passed to `/switch` is used only when that CLI has no open session. To change an existing CLI directory, run `/close`, then `/switch <cli> <path>`.',
       '> Shell pipelines and command lists run without approval only when every AST node is confirmed read-only. Mutating or unknown commands still require approval.',
       '> Send text, emoji, stickers, images, or files to chat. Attachments are used only as text context and are never executed.',
     ].join('\n')
@@ -43,8 +42,6 @@ export function getHelpText(language: UserLanguage): string {
     '',
     '### 会话',
     '- `/switch <cli> [path]` — 恢复该 CLI 的会话；不存在时按已保存/指定目录创建。',
-    '- `/cwd [path]` — 切换当前活跃会话 CLI 的工作目录。',
-    '- `/cwd <cli> <path>` — 没有活跃会话时，保存指定 CLI 的工作目录。',
     '- `/close` — 关闭当前会话。',
     '- `/status` — 查看当前会话状态。',
     '- `/sessions` — 查看最近会话。',
@@ -62,6 +59,7 @@ export function getHelpText(language: UserLanguage): string {
     '- `/lang zh|en` — 切换回复语言。',
     '',
     '> 也可自然地说“记住这个/记一下”。系统会用记忆模型总结当前会话最近的用户与助手消息，写入会话派生记忆；该请求不会发送给 CLI。',
+    '> `/switch` 的 path 仅在目标 CLI 没有未关闭会话时生效。若要更换已有 CLI 的目录，请先执行 `/close`，再执行 `/switch <cli> <path>`。',
     '> Shell 管道和组合命令仅在 AST 的每个节点都确认只读时免审批；写操作及无法确认安全性的命令仍会请求审批。',
     '> 直接发送文本、emoji、sticker、图片或文件即可对话；附件只作为文本上下文，不会执行。',
   ].join('\n')

@@ -69,7 +69,7 @@ export interface EventMap {
   MessageGenerated: { conversationId: ConversationId; content: string; final: boolean }; // final=false 为流式增量
   CommandReply:     { ref: MessageRef; content: string };
   UserLanguageChanged: { userId: string; platform: Platform; language: 'zh' | 'en' };
-  UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }; // /switch、/cwd 更新当前选中 CLI/cwd
+  UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }; // /switch 更新当前选中 CLI/cwd
 
   // —— 审批（Human-in-the-loop）——
   ApprovalRequested: { conversationId: ConversationId; approvalId: string; command: string; detail: string; autoApproveAt?: number; autoApproveSeconds?: number };

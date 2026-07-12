@@ -37,7 +37,6 @@ flowchart TD
 | `/switch` | `<cli> [path]` | 切换 CLI 会话 | 有未关闭会话则恢复；否则按显式或持久化 cwd 新建；不关闭其他 CLI 会话 |
 | `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；不做非 LLM 自动会话摘录 |
 | `/status` | — | 当前会话详情 | 展示完整 conversationId、status、cli/cwd、目标 cli/cwd、语言 |
-| `/cwd` | `[path]` 或 `<cli> <path>` | 查看或切换工作目录 | 有 open 会话（含 `idle`）时用 `/cwd <path>` 切换当前会话 CLI；没有 open 会话时必须用 `/cwd <cli> <path>` 保存对应 CLI 目录 |
 | `/sessions` | — | 列出该用户近期会话 | 历史查看，不表示 resume |
 | `/audit` | `[conversationId]` | 查看审批审计 | 无参数查看当前会话；带完整或短会话 ID 查看指定会话最近审批记录 |
 | `/autoapprove` | `[on\|off] [seconds]` | 查看或持久化自动审批 | 默认关闭、5 秒；秒数为 1–300 整数，省略则重置为 5 秒 |
@@ -60,9 +59,6 @@ flowchart TD
 |---|---|
 | 普通发消息 | 命中 `(platform,user,selectedCli)` 的未关闭会话则复用；否则按该 CLI 持久化 cwd 新建 |
 | `/switch <cli> [path]` | 恢复该 CLI 的未关闭会话；不存在时创建 `idle` 会话。显式 path 仅在新建时持久化；与已有会话 cwd 冲突时拒绝 |
-| `/cwd` | 无参数仅查看持久化默认 CLI 的 cwd |
-| `/cwd <path>` | 有 open 会话时关闭当前会话并更新其 CLI 的 cwd；无 open 会话时拒绝并提示使用 `/cwd <cli> <path>` |
-| `/cwd <cli> <path>` | 无 open 会话时保存该 CLI 的 cwd，不创建 conversation |
 | `/close` | 当前会话关闭；不自动写长期记忆，下条消息将开新会话 |
 | 长期无活动 | 超 `SESSION_ARCHIVE_DAYS` 自动归档（等同 `/close`，`reason:archiveTimeout`） |
 
@@ -145,8 +141,6 @@ Markdown 卡片 + 内联按钮：
 | 非白名单 | （无响应） |
 | CLI 启动失败 | ⚠️ 无法启动 {cli}，请稍后重试（详情见日志） |
 | 待审批时发普通消息 | ⏳ 当前有操作等待授权，请先 Approve / Reject |
-| `/cwd` 路径不存在 | ⚠️ 目录不存在：`{path}` |
-| `/cwd` 路径不是绝对路径 | ⚠️ 工作目录必须是绝对路径：`{path}` |
 | `/remember` 缺少内容 | 用法：/remember <要长期记住的事实或偏好> |
 | `/forget` 缺少 ID | 用法：/forget <memoryId> |
 | `/forget` 前缀不唯一 | 记忆 ID 前缀不唯一：`{prefix}` |

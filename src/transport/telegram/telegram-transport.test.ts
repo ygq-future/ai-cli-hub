@@ -239,7 +239,11 @@ describe('TelegramTransport 入站', () => {
     const received: unknown[] = []
     bus.on('MessageReceived', p => received.push(p))
 
-    mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: '/cwd /srv/app', message_id: 1 } })
+    mock.handlers.text!({
+      from: { id: 42 },
+      chat: { id: 42 },
+      message: { text: '/switch claude /srv/app', message_id: 1 },
+    })
     await tick()
     bus.emit('UserTargetChanged', { userId: '42', platform: 'telegram', cwd: '/srv/app' })
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 42 }, message: { text: 'hello', message_id: 2 } })
