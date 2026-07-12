@@ -196,7 +196,8 @@ describe('QQTransport 官方 C2C 入站', () => {
     await tick()
 
     expect(transport.getUserLanguage('qq-openid')).toBe('en')
-    expect(fake.messages[0]?.content).toBe('Language switched to English.')
+    expect(fake.messages[0]?.content.startsWith('## ')).toBe(true)
+    expect(fake.messages[0]?.content).toContain('Language updated')
   })
 })
 
@@ -306,11 +307,13 @@ describe('QQTransport 出站流式与审批', () => {
       command: 'Write',
       detail: '{"path":"a.txt"}',
       autoApproveAt: Date.now() + 5_000,
+      autoApproveSeconds: 9,
     })
     await tick()
     expect(fake.messages[0]?.keyboard?.content.rows[0]?.buttons.map(button => button.action.data)).toEqual([
       'ai-cli-hub:reject:auto-qq',
     ])
+    expect(fake.messages[0]?.content).toContain('9 秒')
 
     bus.emit('ApprovalApproved', {
       conversationId: CID,
@@ -320,6 +323,7 @@ describe('QQTransport 出站流式与审批', () => {
     })
     await tick()
     expect(fake.messages.some(message => message.content.includes('已自动审批'))).toBe(true)
+    expect(fake.messages.some(message => message.content.includes('9 秒倒计时'))).toBe(true)
     await transport.stop()
   })
 })

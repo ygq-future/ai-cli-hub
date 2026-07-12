@@ -52,6 +52,8 @@ export interface EventMap {
     detail: string
     /** 存在时表示到期自动批准；Transport 可据此展示倒计时。 */
     autoApproveAt?: number
+    /** 用户持久化的倒计时秒数，用于稳定展示。 */
+    autoApproveSeconds?: number
   }
   ApprovalApproved: { conversationId: ConversationId; approvalId: string; operator: string; automatic?: boolean }
   ApprovalRejected: { conversationId: ConversationId; approvalId: string; operator: string }

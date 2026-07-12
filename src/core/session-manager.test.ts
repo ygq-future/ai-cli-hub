@@ -815,7 +815,7 @@ describe('CommandRouter', () => {
     })
 
     expect(replies.length).toBe(1)
-    expect((replies[0] as { content: string }).content).toContain('CLI: opencode')
+    expect((replies[0] as { content: string }).content).toContain('**CLI**: `opencode`')
     expect((await repos.conversations.listRecentByUser('telegram', 'u1', 1))[0]?.cli).toBe('opencode')
   })
 
@@ -853,8 +853,8 @@ describe('CommandRouter', () => {
     const created = (await repos.conversations.listRecentByUser('telegram', 'u1', 10)).find(c => c.status === 'idle')
     expect(created?.cli).toBe('opencode')
     expect(created?.cwd).toBe('/default')
-    expect((replies[0] as { content: string }).content).toContain('CLI: opencode')
-    expect((replies[0] as { content: string }).content).toContain('CWD: /default')
+    expect((replies[0] as { content: string }).content).toContain('**CLI**: `opencode`')
+    expect((replies[0] as { content: string }).content).toContain('**CWD**: `/default`')
   })
 
   test('/new 只指定 cwd 时沿用最近 closed 会话 cli，但使用新 cwd', async () => {
@@ -1032,7 +1032,7 @@ describe('CommandRouter', () => {
 
     const content = (replies[0] as { content: string }).content
     expect(content).toContain('审批审计')
-    expect(content).toContain(`Conversation: ${cid}`)
+    expect(content).toContain(`**Conversation**: \`${cid}\``)
     expect(content).toContain('approved')
     expect(content).toContain('command=Bash')
   })
@@ -1074,7 +1074,7 @@ describe('CommandRouter', () => {
     })
 
     const content = (replies[0] as { content: string }).content
-    expect(content).toContain(`Conversation: ${cid}`)
+    expect(content).toContain(`**Conversation**: \`${cid}\``)
     expect(content).toContain('rejected')
   })
 
@@ -1107,7 +1107,7 @@ describe('CommandRouter', () => {
     expect(memories[0]!.conversationId).toBeNull()
     expect(memories[0]!.type).toBe('preference')
     expect(memories[0]!.content).toBe('always use Bun')
-    expect((replies[0] as { content: string }).content).toContain('已记住')
+    expect((replies[0] as { content: string }).content).toContain('长期记忆已保存')
     expect(updates).toEqual([
       {
         conversationId: null,
@@ -1169,7 +1169,7 @@ describe('CommandRouter', () => {
     expect((replies[0] as { content: string }).content).toContain('所有软件都放在 softs 文件夹')
     expect((replies[0] as { content: string }).content).not.toContain('importance=')
     expect((replies[0] as { content: string }).content).not.toContain('semantic')
-    expect((replies[1] as { content: string }).content).toContain('已删除记忆')
+    expect((replies[1] as { content: string }).content).toContain('长期记忆已删除')
     expect(await repos.memories.listGlobal('global')).toEqual([])
   })
 
@@ -1319,18 +1319,18 @@ describe('CommandRouter', () => {
     expect((replies[1] as { content: string }).content).toContain('重启已安排')
   })
 
-  test('/autoapprove on|off 立即持久化并返回 Markdown 状态', async () => {
+  test('/autoapprove on|off [seconds] 持久化倒计时、校验范围并返回 Markdown 状态', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()
     const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
-    let enabled = false
+    let preference = { enabled: false, seconds: 5 }
     const commandRouter = createCommandRouter({
       bus: bus as unknown as EventBus,
       repos,
       sessionManager: sm,
-      getAutoApproveEnabled: async () => enabled,
-      setAutoApproveEnabled: async (_platform, _userId, value) => {
-        enabled = value
+      getAutoApprove: async () => preference,
+      setAutoApprove: async (_platform, _userId, value) => {
+        preference = value
       },
     })
     const replies: Array<{ content: string }> = []
@@ -1343,13 +1343,47 @@ describe('CommandRouter', () => {
       ref: { platform: 'telegram' as const, chatId: 'c', nativeId: '1' },
     }
 
-    await commandRouter.tryHandle({ ...payload, text: '/autoapprove on' })
+    await commandRouter.tryHandle({ ...payload, text: '/autoapprove on 12' })
     await commandRouter.tryHandle({ ...payload, text: '/autoapprove' })
     await commandRouter.tryHandle({ ...payload, text: '/autoapprove off' })
+    await commandRouter.tryHandle({ ...payload, text: '/autoapprove on 301' })
 
-    expect(enabled).toBe(false)
+    expect(preference).toEqual({ enabled: false, seconds: 5 })
     expect(replies[0]!.content).toContain('自动审批已开启')
+    expect(replies[0]!.content).toContain('12 秒')
     expect(replies[1]!.content).toContain('✅ ON')
+    expect(replies[1]!.content).toContain('12 秒')
     expect(replies[2]!.content).toContain('自动审批已关闭')
+    expect(replies[2]!.content).toContain('5 秒')
+    expect(replies[3]!.content).toContain('1–300')
+  })
+
+  test('所有本地命令回复都经过 Markdown 卡片兜底', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({ bus: bus as unknown as EventBus, repos, sessionManager: sm })
+    const replies: Array<{ content: string }> = []
+    bus.on('CommandReply', payload => replies.push(payload))
+    const base = {
+      userId: 'u1',
+      platform: 'telegram' as const,
+      cli: 'claude' as const,
+      cwd: '/old',
+      ref: { platform: 'telegram' as const, chatId: 'c', nativeId: '1' },
+    }
+
+    for (const text of ['/close', '/remember', '/health', '/unknown']) {
+      await commandRouter.tryHandle({ ...base, text })
+    }
+
+    expect(replies).toHaveLength(4)
+    expect(replies.every(reply => /^(#{1,6}\s|\*\*)/.test(reply.content))).toBe(true)
+    expect(replies.map(reply => reply.content)).toEqual([
+      expect.stringContaining('无法关闭会话'),
+      expect.stringContaining('缺少记忆内容'),
+      expect.stringContaining('健康检查不可用'),
+      expect.stringContaining('未知命令'),
+    ])
   })
 })

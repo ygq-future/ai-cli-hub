@@ -13,7 +13,15 @@
  *  - 助手消息落库：累计本轮输出文本，delta.final 时落一条 assistant 消息。
  *  - adapter.onExit → 冲刷聚合器 + 清理该会话。
  */
-import type { CliType, ConversationId, Platform, Unsubscribe, UserLanguage } from './shared'
+import {
+  DEFAULT_AUTO_APPROVE_SECONDS,
+  type AutoApprovePreference,
+  type CliType,
+  type ConversationId,
+  type Platform,
+  type Unsubscribe,
+  type UserLanguage,
+} from './shared'
 import type { EventBus } from './event'
 import type { Repositories } from './repository'
 import type { MessageAggregator, MessageHandler } from './core'
@@ -33,8 +41,8 @@ export interface SessionOrchestratorDeps {
   /** adapter 工厂（默认 Claude SDK 家族）；测试可注入假 adapter。 */
   adapterFactory?: (cli: CliType) => CLIAdapter
   getUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage> | UserLanguage
-  getAutoApproveEnabled?: (platform: Platform, userId: string) => Promise<boolean>
-  /** 测试注入；生产默认 5 秒。 */
+  getAutoApprove?: (platform: Platform, userId: string) => Promise<AutoApprovePreference>
+  /** 测试注入计时长度；展示仍使用持久化秒数。 */
   autoApproveDelayMs?: number
   getSystemMemoryHint?: () => Promise<string> | string
   getRelevantMemoryHint?: (query: string) => Promise<string> | string
@@ -69,7 +77,6 @@ interface EnsureAdapterResult {
 const DEFAULT_RECENT_CONTEXT_LIMIT = 10
 const DEFAULT_RECENT_CONTEXT_MESSAGE_MAX_CHARS = 1200
 const DEFAULT_TURN_TIMEOUT_MS = 60_000
-const AUTO_APPROVE_DELAY_MS = 5_000
 const LOW_SIGNAL_MEMORY_QUERIES = new Set([
   'hello',
   'hi',
@@ -94,7 +101,6 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   const turnTimeoutMs = deps.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
   const recentContextLimit = deps.recentContextLimit ?? DEFAULT_RECENT_CONTEXT_LIMIT
   const recentContextMessageMaxChars = deps.recentContextMessageMaxChars ?? DEFAULT_RECENT_CONTEXT_MESSAGE_MAX_CHARS
-  const autoApproveDelayMs = deps.autoApproveDelayMs ?? AUTO_APPROVE_DELAY_MS
   const debugMessageFlow = deps.debugMessageFlow ?? false
 
   const entries = new Map<ConversationId, AdapterEntry>()
@@ -209,7 +215,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   }
 
   async function publishApprovalRequest(cid: ConversationId, entry: AdapterEntry, req: ApprovalRequest) {
-    if (!deps.getAutoApproveEnabled) {
+    if (!deps.getAutoApprove) {
       bus.emit('ApprovalRequested', {
         conversationId: cid,
         approvalId: req.approvalId,
@@ -218,19 +224,20 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       })
       return
     }
-    let autoApproveEnabled = false
+    let preference: AutoApprovePreference = { enabled: false, seconds: DEFAULT_AUTO_APPROVE_SECONDS }
     try {
-      autoApproveEnabled = (await deps.getAutoApproveEnabled?.(entry.platform, entry.userId)) ?? false
+      preference = (await deps.getAutoApprove(entry.platform, entry.userId)) ?? preference
     } catch (err) {
       reportError('orchestrator:autoApprovePreference', err, cid)
     }
-    const autoApproveAt = autoApproveEnabled ? Date.now() + autoApproveDelayMs : undefined
+    const delayMs = deps.autoApproveDelayMs ?? preference.seconds * 1000
+    const autoApproveAt = preference.enabled ? Date.now() + delayMs : undefined
     bus.emit('ApprovalRequested', {
       conversationId: cid,
       approvalId: req.approvalId,
       command: req.command,
       detail: req.detail,
-      ...(autoApproveAt ? { autoApproveAt } : {}),
+      ...(autoApproveAt ? { autoApproveAt, autoApproveSeconds: preference.seconds } : {}),
     })
     if (!autoApproveAt) return
     const key = approvalKey(cid, req.approvalId)

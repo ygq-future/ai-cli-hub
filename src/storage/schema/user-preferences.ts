@@ -1,5 +1,5 @@
 /** 用户级持久化偏好：语言与默认 CLI（按 platform + userId 隔离）。 */
-import { bigint, boolean, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
+import { bigint, boolean, integer, pgTable, primaryKey, text } from 'drizzle-orm/pg-core'
 import { cliEnum, platformEnum } from './enums'
 
 export const userPreferences = pgTable(
@@ -10,6 +10,7 @@ export const userPreferences = pgTable(
     language: text('language').notNull().default('zh'),
     defaultCli: cliEnum('default_cli').notNull().default('claude'),
     autoApproveEnabled: boolean('auto_approve_enabled').notNull().default(false),
+    autoApproveSeconds: integer('auto_approve_seconds').notNull().default(5),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
   },

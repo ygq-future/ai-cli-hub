@@ -172,13 +172,15 @@ describe('SessionOrchestrator', () => {
     const agg = createMessageAggregator(bus)
     const { repos } = createFakeRepos()
     const approvals: unknown[] = []
+    const requests: unknown[] = []
     bus.on('ApprovalApproved', p => approvals.push(p))
+    bus.on('ApprovalRequested', p => requests.push(p))
     const orch = createSessionOrchestrator({
       bus,
       repos,
       aggregator: agg,
       adapterFactory: () => fake.adapter,
-      getAutoApproveEnabled: async () => true,
+      getAutoApprove: async () => ({ enabled: true, seconds: 12 }),
       autoApproveDelayMs: 10,
     })
 
@@ -186,6 +188,9 @@ describe('SessionOrchestrator', () => {
     fake.emitApproval({ approvalId: 'auto-1', command: 'Bash', detail: '{"cmd":"ls"}' })
     await sleep(25)
 
+    expect(requests[0]).toEqual(
+      expect.objectContaining({ approvalId: 'auto-1', autoApproveSeconds: 12, autoApproveAt: expect.any(Number) }),
+    )
     expect(fake.calls.resolveApproval).toEqual([['auto-1', 'approve']])
     expect(approvals).toEqual([{ conversationId: CID, approvalId: 'auto-1', operator: 'auto:u1', automatic: true }])
 

@@ -34,10 +34,10 @@ export function createUserPreferenceRepository(db: Db): UserPreferenceRepository
         .where(and(eq(userPreferences.platform, platform), eq(userPreferences.userId, userId)))
     },
 
-    async setAutoApproveEnabled(platform, userId, enabled) {
+    async setAutoApprove(platform, userId, enabled, seconds) {
       await db
         .update(userPreferences)
-        .set({ autoApproveEnabled: enabled, updatedAt: Date.now() })
+        .set({ autoApproveEnabled: enabled, autoApproveSeconds: seconds, updatedAt: Date.now() })
         .where(and(eq(userPreferences.platform, platform), eq(userPreferences.userId, userId)))
     },
 

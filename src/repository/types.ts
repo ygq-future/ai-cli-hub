@@ -94,7 +94,7 @@ export interface UserPreferenceRepository {
   }): Promise<UserPreference>
   setLanguage(platform: Platform, userId: string, language: 'zh' | 'en'): Promise<void>
   setDefaultCli(platform: Platform, userId: string, cli: CliType): Promise<void>
-  setAutoApproveEnabled(platform: Platform, userId: string, enabled: boolean): Promise<void>
+  setAutoApprove(platform: Platform, userId: string, enabled: boolean, seconds: number): Promise<void>
   findCwd(platform: Platform, userId: string, cli: CliType): Promise<UserCliCwd | null>
   upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>
 }

@@ -16,7 +16,8 @@ import { Telegraf } from 'telegraf'
 import telegramify from 'telegramify-markdown'
 import type { AppConfig } from '../../config'
 import type { EventBus } from '../../event'
-import { getHelpText, getStartText } from '../messages'
+import { DEFAULT_AUTO_APPROVE_SECONDS } from '../../shared'
+import { getHelpText, getLanguageChangedText, getLanguageUsageText, getStartText } from '../messages'
 import { sanitizeFileName, withTimeout } from '../utils'
 import type {
   ApprovalCard,
@@ -610,12 +611,12 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     if (commandName === 'lang') {
       const lang = text.trim().split(/\s+/)[1] as UserLanguage | undefined
       if (lang !== 'zh' && lang !== 'en') {
-        void ctx.reply('用法：/lang zh 或 /lang en').catch(() => {})
+        void replyFormatted(ctx, getLanguageUsageText(await resolvedUserLanguage(userId))).catch(() => {})
         return
       }
       userLang.set(userId, lang)
       bus.emit('UserLanguageChanged', { userId, platform: 'telegram', language: lang })
-      void ctx.reply(lang === 'zh' ? '已切换为中文回复。' : 'Language switched to English.').catch(() => {})
+      void replyFormatted(ctx, getLanguageChangedText(lang)).catch(() => {})
       return
     }
 
@@ -780,6 +781,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
         command: p.command,
         detail: p.detail,
         ...(p.autoApproveAt ? { autoApproveAt: p.autoApproveAt } : {}),
+        ...(p.autoApproveSeconds ? { autoApproveSeconds: p.autoApproveSeconds } : {}),
       }
       const meta: TelegramApprovalMeta = {
         conversationId: p.conversationId,
@@ -821,13 +823,14 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
         void doEdit(meta.ref, '⚡ 自动审批倒计时已结束 — ✅ 已批准', {
           reply_markup: { inline_keyboard: [] },
         }).catch(() => {})
+      const seconds = meta.card.autoApproveSeconds ?? DEFAULT_AUTO_APPROVE_SECONDS
       void resolvedUserLanguage(meta.userId)
         .then(language =>
           sendFormatted(
             meta.chatId,
             language === 'en'
-              ? `## ✅ Automatically approved\n\nThe 5-second countdown ended and \`${meta.card.command}\` was approved automatically.`
-              : `## ✅ 已自动审批\n\n5 秒倒计时已结束，\`${meta.card.command}\` 已自动批准。`,
+              ? `## ✅ Automatically approved\n\nThe ${seconds}-second countdown ended and \`${meta.card.command}\` was approved automatically.`
+              : `## ✅ 已自动审批\n\n${seconds} 秒倒计时已结束，\`${meta.card.command}\` 已自动批准。`,
           ),
         )
         .catch(err => reportError('telegram:autoApprovalResult', err))

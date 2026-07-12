@@ -141,7 +141,7 @@ describe('TelegramTransport 入站', () => {
       from: { id: 42 },
       chat: { id: 42 },
       message: { text: '/status', message_id: 1 },
-      reply: async (t: string) => replies.push(t),
+      reply: async (text: string) => replies.push(text),
     })
 
     expect(received).toEqual([
@@ -157,7 +157,7 @@ describe('TelegramTransport 入站', () => {
     expect(replies.length).toBe(0)
   })
 
-  test('/lang zh|en 本地切换语言偏好，不 emit', () => {
+  test('/lang zh|en 本地切换语言偏好，不 emit', async () => {
     const bus = createEventBus()
     const mock = createMockBot()
     const transport = createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
@@ -166,19 +166,22 @@ describe('TelegramTransport 入站', () => {
     const changed: unknown[] = []
     bus.on('MessageReceived', p => received.push(p))
     bus.on('UserLanguageChanged', p => changed.push(p))
-    const replies: string[] = []
+    const replies: Array<{ text: string; extra?: unknown }> = []
 
     mock.handlers.text!({
       from: { id: 42 },
       chat: { id: 42 },
       message: { text: '/lang en', message_id: 1 },
-      reply: async (t: string) => replies.push(t),
+      reply: async (text: string, extra?: unknown) => replies.push({ text, extra }),
     })
+    await tick()
 
     expect(transport.getUserLanguage('42')).toBe('en')
     expect(received.length).toBe(0)
     expect(changed).toEqual([{ userId: '42', platform: 'telegram', language: 'en' }])
-    expect(replies).toEqual(['Language switched to English.'])
+    expect(replies).toHaveLength(1)
+    expect(replies[0]!.text).toContain('Language updated')
+    expect(replies[0]!.extra).toEqual({ parse_mode: 'MarkdownV2' })
   })
 
   test('切换英语后 /help 使用英语共享帮助文案', async () => {
@@ -715,6 +718,7 @@ describe('TelegramTransport 审批', () => {
       command: 'Bash',
       detail: '{"cmd":"ls"}',
       autoApproveAt: Date.now() + 5_000,
+      autoApproveSeconds: 9,
     })
     await tick()
     const extra = mock.sent[0]!.extra as { reply_markup: { inline_keyboard: Array<Array<{ callback_data: string }>> } }
@@ -729,6 +733,7 @@ describe('TelegramTransport 审批', () => {
     await tick()
     expect(mock.edited.some(item => item.text.includes('自动审批倒计时已结束'))).toBe(true)
     expect(mock.sent.some(item => item.text.includes('已自动审批'))).toBe(true)
+    expect(mock.sent.some(item => item.text.includes('9 秒'))).toBe(true)
     await transport.stop()
   })
 

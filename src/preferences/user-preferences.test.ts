@@ -10,6 +10,7 @@ function createRepos() {
       language: 'zh' | 'en'
       defaultCli: 'claude' | 'opencode' | 'codex' | 'gemini'
       autoApproveEnabled: boolean
+      autoApproveSeconds: number
     }
   >()
   const cwds = new Map<string, string>()
@@ -29,6 +30,7 @@ function createRepos() {
             language: input.language,
             defaultCli: input.defaultCli,
             autoApproveEnabled: false,
+            autoApproveSeconds: 5,
           }
           preferences.set(key(input.platform, input.userId), value)
           return { platform: input.platform, userId: input.userId, ...value, createdAt: 1, updatedAt: 1 }
@@ -45,8 +47,15 @@ function createRepos() {
           const value = preferences.get(key(platform, userId))!
           value.defaultCli = cli
         },
-        async setAutoApproveEnabled(platform: 'telegram' | 'qq' | 'websocket', userId: string, enabled: boolean) {
-          preferences.get(key(platform, userId))!.autoApproveEnabled = enabled
+        async setAutoApprove(
+          platform: 'telegram' | 'qq' | 'websocket',
+          userId: string,
+          enabled: boolean,
+          seconds: number,
+        ) {
+          const preference = preferences.get(key(platform, userId))!
+          preference.autoApproveEnabled = enabled
+          preference.autoApproveSeconds = seconds
         },
         async findCwd(platform: 'telegram' | 'qq' | 'websocket', userId: string, cli: string) {
           const cwd = cwds.get(cwdKey(platform, userId, cli))
@@ -82,10 +91,10 @@ describe('user preferences', () => {
 
     expect(await preferences.getTarget('telegram', 'u1')).toEqual({ cli: 'opencode', cwd: '/projects/open' })
     expect(await preferences.getLanguage('telegram', 'u1')).toBe('en')
-    expect(await preferences.getAutoApproveEnabled('telegram', 'u1')).toBe(false)
-    await preferences.setAutoApproveEnabled('telegram', 'u1', true)
-    expect(await preferences.getAutoApproveEnabled('telegram', 'u1')).toBe(true)
-    expect(await preferences.getAutoApproveEnabled('qq', 'u1')).toBe(false)
+    expect(await preferences.getAutoApprove('telegram', 'u1')).toEqual({ enabled: false, seconds: 5 })
+    await preferences.setAutoApprove('telegram', 'u1', { enabled: true, seconds: 12 })
+    expect(await preferences.getAutoApprove('telegram', 'u1')).toEqual({ enabled: true, seconds: 12 })
+    expect(await preferences.getAutoApprove('qq', 'u1')).toEqual({ enabled: false, seconds: 5 })
     expect(await preferences.getTarget('qq', 'u1')).toEqual({ cli: 'claude', cwd: defaultClaudeCwd })
   })
 })

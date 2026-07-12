@@ -29,4 +29,5 @@ export interface ApprovalCard {
   detail: string // 上下文说明
   /** 存在时只展示拒绝按钮，并在到期前显示自动批准倒计时。 */
   autoApproveAt?: number
+  autoApproveSeconds?: number
 }

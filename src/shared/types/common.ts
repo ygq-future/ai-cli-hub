@@ -21,6 +21,14 @@ export type ApprovalAction = 'approve' | 'reject'
 
 /** 当前个人 AI Hub 实例默认共享记忆池。 */
 export const DEFAULT_MEMORY_NAMESPACE = 'global'
+export const DEFAULT_AUTO_APPROVE_SECONDS = 5
+export const MIN_AUTO_APPROVE_SECONDS = 1
+export const MAX_AUTO_APPROVE_SECONDS = 300
+
+export interface AutoApprovePreference {
+  enabled: boolean
+  seconds: number
+}
 
 /** 分支品牌类型，防止不同 ID 串用。 */
 export type ConversationId = string & { readonly __brand: 'ConversationId' }

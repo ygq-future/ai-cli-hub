@@ -3,7 +3,8 @@ import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import type { AppConfig } from '../../config'
 import type { EventBus } from '../../event'
-import { getHelpText, getStartText } from '../messages'
+import { DEFAULT_AUTO_APPROVE_SECONDS } from '../../shared'
+import { getHelpText, getLanguageChangedText, getLanguageUsageText, getStartText } from '../messages'
 import { sanitizeFileName, withTimeout } from '../utils'
 import type {
   CliType,
@@ -170,7 +171,14 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
   const drafts = new Map<ConversationId, QQDraft>()
   const approvals = new Map<
     string,
-    { conversationId: ConversationId; chatId: string; userId: string; command: string; resolved: boolean }
+    {
+      conversationId: ConversationId
+      chatId: string
+      userId: string
+      command: string
+      autoApproveSeconds: number
+      resolved: boolean
+    }
   >()
   const discoveredOpenIds = new Set<string>()
   const unsubs: Unsubscribe[] = []
@@ -250,14 +258,13 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
     if (command === 'lang') {
       const language = text.trim().split(/\s+/)[1] as UserLanguage | undefined
       if (language !== 'zh' && language !== 'en') {
-        return void sendToContext(context, '用法：/lang zh 或 /lang en').catch(err => reportError('qq:lang', err))
+        return void sendToContext(context, getLanguageUsageText(await resolvedUserLanguage(context.userId))).catch(
+          err => reportError('qq:lang', err),
+        )
       }
       userLang.set(context.userId, language)
       bus.emit('UserLanguageChanged', { userId: context.userId, platform: 'qq', language })
-      return void sendToContext(
-        context,
-        language === 'zh' ? '已切换为中文回复。' : 'Language switched to English.',
-      ).catch(err => reportError('qq:lang', err))
+      return void sendToContext(context, getLanguageChangedText(language)).catch(err => reportError('qq:lang', err))
     }
     bus.emit('MessageReceived', {
       userId: context.userId,
@@ -448,11 +455,12 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       // 当 summary 第一行恰好和 p.command 相同时去重，避免重复行。
       const firstLine = summary.split('\n')[0] ?? ''
       const dedupedSummary = firstLine === `命令：${p.command}` ? summary.split('\n').slice(1).join('\n') : summary
+      const autoApproveSeconds = p.autoApproveSeconds ?? DEFAULT_AUTO_APPROVE_SECONDS
       const content = p.autoApproveAt
         ? [
             '⚠️ 自动审批已开启',
             '',
-            '⏳ 将在约 5 秒后自动批准；点击下方按钮会拒绝并中断本轮操作。',
+            `⏳ 将在约 ${autoApproveSeconds} 秒后自动批准；点击下方按钮会拒绝并中断本轮操作。`,
             '',
             `命令：${p.command}`,
             dedupedSummary,
@@ -465,6 +473,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
         chatId: context.chatId,
         userId: context.userId,
         command: p.command,
+        autoApproveSeconds,
         resolved: false,
       })
       void sendToContext(context, content, approvalKeyboard(p.approvalId, Boolean(p.autoApproveAt))).catch(err =>
@@ -484,8 +493,8 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
           client.sendC2CMessage(
             approval.chatId,
             language === 'en'
-              ? `✅ Automatically approved\n\nThe 5-second countdown ended and ${approval.command} was approved automatically.`
-              : `✅ 已自动审批\n\n5 秒倒计时已结束，${approval.command} 已自动批准。`,
+              ? `✅ Automatically approved\n\nThe ${approval.autoApproveSeconds}-second countdown ended and ${approval.command} was approved automatically.`
+              : `✅ 已自动审批\n\n${approval.autoApproveSeconds} 秒倒计时已结束，${approval.command} 已自动批准。`,
           ),
         )
         .catch(err => reportError('qq:autoApprovalResult', err))
@@ -533,9 +542,12 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
     async sendApproval(chatId, card) {
       const context = userContext.get(chatId)
       if (!context) throw new Error(`No QQ C2C context for ${chatId}.`)
+      const countdown = card.autoApproveAt
+        ? `\n\n⏳ 将在约 ${card.autoApproveSeconds ?? DEFAULT_AUTO_APPROVE_SECONDS} 秒后自动批准；期间可拒绝本轮。`
+        : ''
       return sendToContext(
         context,
-        `⚠️ ${card.title}\n\n命令：${card.command}\n\n说明：${card.detail}`,
+        `⚠️ ${card.title}${countdown}\n\n命令：${card.command}\n\n说明：${card.detail}`,
         approvalKeyboard(card.approvalId, Boolean(card.autoApproveAt)),
       )
     },

@@ -1,7 +1,14 @@
 import path from 'node:path'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
-import type { CliType, Platform, Unsubscribe, UserLanguage } from '../shared'
+import {
+  DEFAULT_AUTO_APPROVE_SECONDS,
+  type AutoApprovePreference,
+  type CliType,
+  type Platform,
+  type Unsubscribe,
+  type UserLanguage,
+} from '../shared'
 
 export interface UserTarget {
   cli: CliType
@@ -11,8 +18,8 @@ export interface UserTarget {
 export interface UserPreferences {
   getLanguage(platform: Platform, userId: string): Promise<UserLanguage>
   setLanguage(platform: Platform, userId: string, language: UserLanguage): Promise<void>
-  getAutoApproveEnabled(platform: Platform, userId: string): Promise<boolean>
-  setAutoApproveEnabled(platform: Platform, userId: string, enabled: boolean): Promise<void>
+  getAutoApprove(platform: Platform, userId: string): Promise<AutoApprovePreference>
+  setAutoApprove(platform: Platform, userId: string, preference: AutoApprovePreference): Promise<void>
   getTarget(platform: Platform, userId: string): Promise<UserTarget>
   getCwd(platform: Platform, userId: string, cli: CliType): Promise<string>
   setTarget(platform: Platform, userId: string, target: UserTarget): Promise<void>
@@ -34,7 +41,7 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
   const ensureDirectory = deps.ensureDirectory ?? (() => Promise.resolve())
   const languageCache = new Map<string, UserLanguage>()
   const targetCache = new Map<string, UserTarget>()
-  const autoApproveCache = new Map<string, boolean>()
+  const autoApproveCache = new Map<string, AutoApprovePreference>()
   const unsubs: Unsubscribe[] = []
 
   const cacheKey = (platform: Platform, userId: string) => `${platform}:${userId}`
@@ -80,19 +87,23 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
     bus.emit('UserTargetChanged', { platform, userId, cli: target.cli, cwd: target.cwd })
   }
 
-  async function getAutoApproveEnabled(platform: Platform, userId: string): Promise<boolean> {
+  async function getAutoApprove(platform: Platform, userId: string): Promise<AutoApprovePreference> {
     const key = cacheKey(platform, userId)
     const cached = autoApproveCache.get(key)
-    if (cached !== undefined) return cached
+    if (cached) return cached
     const preference = await ensurePreference(platform, userId)
-    autoApproveCache.set(key, preference.autoApproveEnabled)
-    return preference.autoApproveEnabled
+    const value = {
+      enabled: preference.autoApproveEnabled,
+      seconds: preference.autoApproveSeconds ?? DEFAULT_AUTO_APPROVE_SECONDS,
+    }
+    autoApproveCache.set(key, value)
+    return value
   }
 
-  async function setAutoApproveEnabled(platform: Platform, userId: string, enabled: boolean): Promise<void> {
+  async function setAutoApprove(platform: Platform, userId: string, preference: AutoApprovePreference): Promise<void> {
     await ensurePreference(platform, userId)
-    await repos.userPreferences.setAutoApproveEnabled(platform, userId, enabled)
-    autoApproveCache.set(cacheKey(platform, userId), enabled)
+    await repos.userPreferences.setAutoApprove(platform, userId, preference.enabled, preference.seconds)
+    autoApproveCache.set(cacheKey(platform, userId), preference)
   }
 
   unsubs.push(
@@ -117,8 +128,8 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
       return language
     },
     setLanguage,
-    getAutoApproveEnabled,
-    setAutoApproveEnabled,
+    getAutoApprove,
+    setAutoApprove,
     getTarget,
     getCwd,
     setTarget,

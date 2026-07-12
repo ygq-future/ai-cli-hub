@@ -6,7 +6,11 @@
  */
 import type { EventBus, EventMap } from '../event'
 import {
+  DEFAULT_AUTO_APPROVE_SECONDS,
   DEFAULT_MEMORY_NAMESPACE,
+  MAX_AUTO_APPROVE_SECONDS,
+  MIN_AUTO_APPROVE_SECONDS,
+  type AutoApprovePreference,
   type CliType,
   type ConversationId,
   type MemoryType,
@@ -28,8 +32,8 @@ export interface CommandRouterDeps {
   getUserTarget?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
   getCwdForCli?: (platform: Platform, userId: string, cli: CliType) => Promise<string>
   setUserTarget?: (platform: Platform, userId: string, target: { cli: CliType; cwd: string }) => Promise<void>
-  getAutoApproveEnabled?: (platform: Platform, userId: string) => Promise<boolean>
-  setAutoApproveEnabled?: (platform: Platform, userId: string, enabled: boolean) => Promise<void>
+  getAutoApprove?: (platform: Platform, userId: string) => Promise<AutoApprovePreference>
+  setAutoApprove?: (platform: Platform, userId: string, preference: AutoApprovePreference) => Promise<void>
   resolveCwd?: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
@@ -64,7 +68,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
   const resolveCwd = deps.resolveCwd ?? ((cwd: string) => ({ ok: true as const, cwd }))
 
   function reply(payload: EventMap['MessageReceived'], content: string) {
-    bus.emit('CommandReply', { ref: payload.ref, content })
+    bus.emit('CommandReply', { ref: payload.ref, content: ensureMarkdownCommandReply(content) })
   }
 
   async function currentConversation(payload: EventMap['MessageReceived']): Promise<Conversation | null> {
@@ -95,7 +99,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             cli => getCwdForCli?.(payload.platform, payload.userId, cli) ?? Promise.resolve(fallback.cwd),
           )
           if (!target.ok) {
-            reply(payload, target.message)
+            reply(payload, commandError('无法创建会话', target.message, '/new [cli] [cwd]'))
             return true
           }
           const { cli, cwd, cliExplicit, cwdExplicit } = target
@@ -112,18 +116,27 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           })
           const created = await repos.conversations.findById(cid)
           await setUserTarget(payload.platform, payload.userId, { cli, cwd })
-          reply(payload, `已开启新会话\nID: ${cid}\nCLI: ${created?.cli ?? cli}\nCWD: ${created?.cwd ?? cwd}`)
+          reply(
+            payload,
+            [
+              '## 🆕 新会话已创建',
+              '',
+              `- **ID**: \`${cid}\``,
+              `- **CLI**: \`${created?.cli ?? cli}\``,
+              `- **CWD**: \`${created?.cwd ?? cwd}\``,
+            ].join('\n'),
+          )
           return true
         }
 
         case 'close': {
           const conv = await currentConversation(payload)
           if (!conv) {
-            reply(payload, '当前没有可关闭的活跃会话。')
+            reply(payload, commandError('无法关闭会话', '当前没有可关闭的活跃会话。'))
             return true
           }
           await sessionManager.close(conv.id as ConversationId, 'user')
-          reply(payload, `已关闭当前会话\nID: ${conv.id}`)
+          reply(payload, `## ✅ 会话已关闭\n\n- **ID**: \`${conv.id}\``)
           return true
         }
 
@@ -145,18 +158,21 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             !hasActiveConversation &&
             (!firstArg || !KNOWN_CLI_TYPES.has(firstArg as CliType) || restArgs.length === 0)
           ) {
-            reply(payload, '当前没有活跃会话。请使用：`/cwd <cli> <绝对路径>`。')
+            reply(
+              payload,
+              commandError('无法切换工作目录', '当前没有活跃会话，必须明确指定 CLI。', '/cwd <cli> <绝对路径>'),
+            )
             return true
           }
           const cli = hasActiveConversation ? (conv!.cli as CliType) : (firstArg as CliType)
           if (!SUPPORTED_CLI_TYPES.has(cli)) {
-            reply(payload, `暂不支持 CLI：${cli}`)
+            reply(payload, commandError('不支持的 CLI', `\`${cli}\` 尚未接入。`))
             return true
           }
           const rawCwd = hasActiveConversation ? parsed.args.join(' ') : restArgs.join(' ')
           const resolved = await resolveCwd(rawCwd)
           if (!resolved.ok) {
-            reply(payload, resolved.message)
+            reply(payload, commandError('工作目录无效', resolved.message, '/cwd <cli> <绝对路径>'))
             return true
           }
           if (conv) await sessionManager.close(conv.id as ConversationId, 'user')
@@ -206,34 +222,57 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           const isEnglish = language === 'en'
           const value = parsed.args[0]?.toLowerCase()
           if (!value) {
-            const enabled = (await deps.getAutoApproveEnabled?.(payload.platform, payload.userId)) ?? false
+            const preference = (await deps.getAutoApprove?.(payload.platform, payload.userId)) ?? {
+              enabled: false,
+              seconds: DEFAULT_AUTO_APPROVE_SECONDS,
+            }
             reply(
               payload,
               [
                 isEnglish ? '## ⚡ Auto approval' : '## ⚡ 自动审批',
                 '',
-                `- **${isEnglish ? 'Status' : '状态'}**: ${enabled ? '✅ ON' : '⛔ OFF'}`,
+                `- **${isEnglish ? 'Status' : '状态'}**: ${preference.enabled ? '✅ ON' : '⛔ OFF'}`,
+                `- **${isEnglish ? 'Countdown' : '倒计时'}**: ${preference.seconds} ${isEnglish ? 'seconds' : '秒'}`,
                 '',
-                isEnglish ? 'Use `/autoapprove on|off` to change it.' : '使用 `/autoapprove on|off` 修改。',
+                isEnglish
+                  ? 'Use `/autoapprove on|off [seconds]` to change it.'
+                  : '使用 `/autoapprove on|off [seconds]` 修改。',
               ].join('\n'),
             )
             return true
           }
-          if (value !== 'on' && value !== 'off') {
-            reply(payload, isEnglish ? 'Usage: `/autoapprove on|off`' : '用法：`/autoapprove on|off`')
+          const secondsRaw = parsed.args[1]
+          const seconds = secondsRaw === undefined ? DEFAULT_AUTO_APPROVE_SECONDS : Number(secondsRaw)
+          if (
+            (value !== 'on' && value !== 'off') ||
+            parsed.args.length > 2 ||
+            !Number.isInteger(seconds) ||
+            seconds < MIN_AUTO_APPROVE_SECONDS ||
+            seconds > MAX_AUTO_APPROVE_SECONDS
+          ) {
+            reply(
+              payload,
+              commandError(
+                isEnglish ? 'Invalid auto-approval option' : '自动审批参数无效',
+                isEnglish
+                  ? `Use \`on\` or \`off\` and an integer from ${MIN_AUTO_APPROVE_SECONDS} to ${MAX_AUTO_APPROVE_SECONDS} seconds.`
+                  : `请使用 \`on\` 或 \`off\`，秒数必须是 ${MIN_AUTO_APPROVE_SECONDS}–${MAX_AUTO_APPROVE_SECONDS} 的整数。`,
+                '/autoapprove on|off [seconds]',
+              ),
+            )
             return true
           }
           const enabled = value === 'on'
-          await deps.setAutoApproveEnabled?.(payload.platform, payload.userId, enabled)
+          await deps.setAutoApprove?.(payload.platform, payload.userId, { enabled, seconds })
           reply(
             payload,
             enabled
               ? isEnglish
-                ? '## ⚡ Auto approval enabled\n\nCLI approval requests will be approved automatically after **5 seconds** unless you reject the current turn.'
-                : '## ⚡ 自动审批已开启\n\nCLI 审批请求将在 **5 秒后**自动批准；期间可拒绝并中断本轮操作。'
+                ? `## ⚡ Auto approval enabled\n\nCLI approval requests will be approved automatically after **${seconds} seconds** unless you reject the current turn.`
+                : `## ⚡ 自动审批已开启\n\nCLI 审批请求将在 **${seconds} 秒后**自动批准；期间可拒绝并中断本轮操作。`
               : isEnglish
-                ? '## ⛔ Auto approval disabled\n\nCLI approval requests now require a manual decision.'
-                : '## ⛔ 自动审批已关闭\n\nCLI 审批请求恢复为手动处理。',
+                ? `## ⛔ Auto approval disabled\n\nCLI approval requests now require a manual decision. The saved countdown is **${seconds} seconds**.`
+                : `## ⛔ 自动审批已关闭\n\nCLI 审批请求恢复为手动处理；已保存倒计时 **${seconds} 秒**。`,
           )
           return true
         }
@@ -251,7 +290,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
         case 'audit': {
           const resolved = await resolveAuditConversation(parsed.args, payload, repos, currentConversation)
           if (!resolved.ok) {
-            reply(payload, resolved.message)
+            reply(payload, commandError('无法查看审批审计', resolved.message, '/audit [conversationId]'))
             return true
           }
           const records = await repos.audit.listByConversation(resolved.conversation.id as ConversationId)
@@ -262,12 +301,12 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
         case 'remember': {
           const raw = parsed.args.join(' ').trim()
           if (!raw) {
-            reply(payload, '用法：/remember <要长期记住的事实或偏好>')
+            reply(payload, commandError('缺少记忆内容', '请提供要长期保存的事实或偏好。', '/remember <text>'))
             return true
           }
           const classified = classifyManualMemory(raw)
           if (!classified.content) {
-            reply(payload, '记忆内容不能为空。')
+            reply(payload, commandError('记忆内容为空', '请提供有效的事实或偏好。', '/remember <text>'))
             return true
           }
           const memory = await repos.memories.insert({
@@ -293,9 +332,17 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           })
           reply(
             payload,
-            [`已记住，下一条消息会加载最新记忆。`, `ID: ${memory.id}`, `Type: ${memory.type}`, memory.content].join(
-              '\n',
-            ),
+            [
+              '## 🧠 长期记忆已保存',
+              '',
+              `- **ID**: \`${memory.id}\``,
+              `- **Type**: \`${memory.type}\``,
+              '',
+              '### 内容',
+              memory.content,
+              '',
+              '> 下一条消息会加载最新记忆。',
+            ].join('\n'),
           )
           return true
         }
@@ -315,7 +362,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
 
         case 'health': {
           if (!deps.getHealthReport) {
-            reply(payload, '健康检查暂未配置。')
+            reply(payload, commandError('健康检查不可用', '服务尚未配置健康检查实现。'))
             return true
           }
           reply(payload, await deps.getHealthReport())
@@ -324,7 +371,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
 
         case 'update': {
           if (!deps.getUpdatePreview || !deps.performUpdate) {
-            reply(payload, '自更新暂未配置。')
+            reply(payload, commandError('自更新不可用', '服务尚未配置自更新实现。'))
             return true
           }
           if (parsed.args.length === 0) {
@@ -335,13 +382,16 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             reply(payload, await deps.performUpdate(payload.ref))
             return true
           }
-          reply(payload, '用法：/update 查看计划；/update confirm 执行自更新。')
+          reply(
+            payload,
+            commandError('自更新参数无效', '先查看更新计划，再明确确认执行。', '/update 或 /update confirm'),
+          )
           return true
         }
 
         case 'restart': {
           if (!deps.getRestartPreview || !deps.performRestart) {
-            reply(payload, '重启暂未配置。')
+            reply(payload, commandError('重启不可用', '服务尚未配置受控重启实现。'))
             return true
           }
           if (parsed.args.length === 0) {
@@ -352,19 +402,22 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             reply(payload, await deps.performRestart(payload.ref))
             return true
           }
-          reply(payload, '用法：/restart 查看计划；/restart confirm 执行重启。')
+          reply(
+            payload,
+            commandError('重启参数无效', '先查看重启计划，再明确确认执行。', '/restart 或 /restart confirm'),
+          )
           return true
         }
 
         case 'forget': {
           const target = parsed.args[0]?.trim()
           if (!target) {
-            reply(payload, '用法：/forget <memoryId>')
+            reply(payload, commandError('缺少记忆 ID', '请指定要删除的长期记忆。', '/forget <memoryId>'))
             return true
           }
           const resolved = await resolveMemory(target, repos)
           if (!resolved.ok) {
-            reply(payload, resolved.message)
+            reply(payload, commandError('无法删除记忆', resolved.message, '/forget <memoryId>'))
             return true
           }
           await repos.memories.delete(resolved.memory.id)
@@ -375,12 +428,12 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             memoryId: resolved.memory.id,
             operatorUserId: payload.userId,
           })
-          reply(payload, `已删除记忆，下一条消息会加载最新记忆。\nID: ${resolved.memory.id}`)
+          reply(payload, `## 🗑️ 长期记忆已删除\n\n- **ID**: \`${resolved.memory.id}\`\n\n> 下一条消息会加载最新记忆。`)
           return true
         }
 
         default:
-          reply(payload, `未知命令：/${parsed.name}\n发送 /help 查看可用命令。`)
+          reply(payload, commandError('未知命令', `无法识别 \`/${parsed.name}\`。`, '/help'))
           return true
       }
     },
@@ -394,6 +447,16 @@ function parseCommand(text: string): { name: string; args: string[] } | null {
   const name = head.slice(1).split('@')[0]?.toLowerCase()
   if (!name) return null
   return { name, args: parts.slice(1) }
+}
+
+function ensureMarkdownCommandReply(content: string): string {
+  const trimmed = content.trim()
+  if (/^(#{1,6}\s|\*\*|_|>|```|[-*+]\s|\d+\.\s)/.test(trimmed)) return trimmed
+  return `## ℹ️ 系统回复\n\n${trimmed}`
+}
+
+function commandError(title: string, detail: string, usage?: string): string {
+  return [`## ❌ ${title}`, '', detail, ...(usage ? ['', '### 用法', `\`${usage}\``] : [])].join('\n')
 }
 
 async function parseSessionTarget(
@@ -503,33 +566,40 @@ function auditNotFound(target: string): { ok: false; message: string } {
 
 function formatAudit(conv: Conversation, records: AuditLog[]): string {
   if (records.length === 0) {
-    return ['审批审计', `Conversation: ${conv.id}`, '暂无审批记录。'].join('\n')
+    return ['## 🧾 审批审计', '', `- **Conversation**: \`${conv.id}\``, '', '_暂无审批记录。_'].join('\n')
   }
 
   return [
-    '审批审计',
-    `Conversation: ${conv.id}`,
-    ...records.map(record =>
+    '## 🧾 审批审计',
+    '',
+    `- **Conversation**: \`${conv.id}\``,
+    ...records.map((record, index) =>
       [
-        `${formatDate(record.createdAt)} | ${formatAuditAction(record.action)} | ${record.operator}`,
+        '',
+        `### ${index + 1}. ${formatAuditAction(record.action)}`,
+        `- **Time**: \`${formatDate(record.createdAt)}\``,
+        `- **Operator**: \`${record.operator}\``,
+        '',
+        '```text',
         truncateForAudit(record.command),
+        '```',
       ].join('\n'),
     ),
-  ].join('\n\n')
+  ].join('\n')
 }
 
 function formatAuditAction(action: AuditLog['action']): string {
-  return action === 'approve' ? 'approved' : 'rejected'
+  return action === 'approve' ? '✅ approved' : '❌ rejected'
 }
 
 function formatMemories(memories: Memory[]): string {
   const globalMemories = memories
     .filter(m => m.namespace === DEFAULT_MEMORY_NAMESPACE && m.conversationId === null)
     .sort((a, b) => b.createdAt - a.createdAt)
-  if (globalMemories.length === 0) return '暂无长期记忆。'
+  if (globalMemories.length === 0) return '## 🧠 长期记忆\n\n_暂无长期记忆。_'
 
   return [
-    '**长期记忆**',
+    '## 🧠 长期记忆',
     ...globalMemories.map(m =>
       [
         `- **ID**: \`${shortMemoryId(m.id)}\``,
@@ -544,9 +614,9 @@ function formatEnvironmentMemories(memories: Memory[]): string {
   const envMemories = memories
     .filter(m => m.namespace === DEFAULT_MEMORY_NAMESPACE && m.conversationId === null && m.tag?.startsWith('env.'))
     .sort((a, b) => (a.tag ?? '').localeCompare(b.tag ?? ''))
-  if (envMemories.length === 0) return '暂无环境快照。'
+  if (envMemories.length === 0) return '## 🖥️ 环境快照\n\n_暂无环境快照。_'
 
-  return ['**环境快照**', ...envMemories.map(m => `- **${m.tag}**\n${m.content.trim()}`)].join('\n\n')
+  return ['## 🖥️ 环境快照', ...envMemories.map(m => `- **${m.tag}**\n${m.content.trim()}`)].join('\n\n')
 }
 
 function classifyManualMemory(rawText: string): { type: MemoryType; content: string } {

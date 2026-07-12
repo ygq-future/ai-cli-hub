@@ -22,7 +22,7 @@ export function getHelpText(language: UserLanguage): string {
       '',
       '### Memory and operations',
       '- `/audit [conversationId]` — View approval audit records.',
-      '- `/autoapprove on|off` — Persist automatic approval; when enabled, each request is approved after 5 seconds unless rejected.',
+      '- `/autoapprove on|off [seconds]` — Persist automatic approval and its 1–300 second countdown; omitted seconds reset to 5.',
       '- `/remember <text>` — Save a long-term memory.',
       '- `/memory` — View long-term memories.',
       '- `/forget <memoryId>` — Delete a long-term memory.',
@@ -33,6 +33,7 @@ export function getHelpText(language: UserLanguage): string {
       '- `/lang zh|en` — Change the reply language.',
       '',
       '> You can also say “remember this” naturally. The hub summarizes recent user/assistant messages with the configured memory model and saves a session-derived memory; it does not send that request to the CLI.',
+      '> Read-only shell queries run without approval. State-changing, composed, redirected, or unknown commands still require approval.',
       '> Send text, emoji, stickers, images, or files to chat. Attachments are used only as text context and are never executed.',
     ].join('\n')
   }
@@ -50,7 +51,7 @@ export function getHelpText(language: UserLanguage): string {
     '',
     '### 记忆与运维',
     '- `/audit [conversationId]` — 查看审批审计。',
-    '- `/autoapprove on|off` — 持久化自动审批；开启后每次审批等待 5 秒，期间可拒绝本轮，否则自动批准。',
+    '- `/autoapprove on|off [seconds]` — 持久化自动审批及 1–300 秒倒计时；省略秒数时重置为 5 秒。',
     '- `/remember <text>` — 写入长期记忆。',
     '- `/memory` — 查看长期记忆。',
     '- `/forget <memoryId>` — 删除长期记忆。',
@@ -61,6 +62,19 @@ export function getHelpText(language: UserLanguage): string {
     '- `/lang zh|en` — 切换回复语言。',
     '',
     '> 也可自然地说“记住这个/记一下”。系统会用记忆模型总结当前会话最近的用户与助手消息，写入会话派生记忆；该请求不会发送给 CLI。',
+    '> 单条只读 shell 查询无需审批；写操作、组合命令、重定向及无法确认安全性的命令仍会请求审批。',
     '> 直接发送文本、emoji、sticker、图片或文件即可对话；附件只作为文本上下文，不会执行。',
   ].join('\n')
+}
+
+export function getLanguageUsageText(language: UserLanguage): string {
+  return language === 'en'
+    ? '## ❌ Invalid language\n\nUse `/lang zh` or `/lang en`.'
+    : '## ❌ 语言参数无效\n\n请使用 `/lang zh` 或 `/lang en`。'
+}
+
+export function getLanguageChangedText(language: UserLanguage): string {
+  return language === 'en'
+    ? '## 🌐 Language updated\n\nFuture system and AI replies will use English.'
+    : '## 🌐 语言已更新\n\n后续系统回复和 AI 回复将使用中文。'
 }

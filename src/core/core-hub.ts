@@ -7,7 +7,7 @@
 import type { AppConfig } from '../config'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
-import type { CliType, MessageRef, Platform, UserLanguage } from '../shared'
+import type { AutoApprovePreference, CliType, MessageRef, Platform, UserLanguage } from '../shared'
 import { createAuth, type Auth } from './auth'
 import { createCommandRouter, type CommandRouter } from './commands'
 import { createSessionManager, type SessionManager } from './session-manager'
@@ -30,8 +30,8 @@ export interface CoreHubOptions {
   getUserTarget?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
   getCwdForCli?: (platform: Platform, userId: string, cli: CliType) => Promise<string>
   setUserTarget?: (platform: Platform, userId: string, target: { cli: CliType; cwd: string }) => Promise<void>
-  getAutoApproveEnabled?: (platform: Platform, userId: string) => Promise<boolean>
-  setAutoApproveEnabled?: (platform: Platform, userId: string, enabled: boolean) => Promise<void>
+  getAutoApprove?: (platform: Platform, userId: string) => Promise<AutoApprovePreference>
+  setAutoApprove?: (platform: Platform, userId: string, preference: AutoApprovePreference) => Promise<void>
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
   getUpdatePreview?: () => string
@@ -65,8 +65,8 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
       getUserTarget: opts.getUserTarget,
       getCwdForCli: opts.getCwdForCli,
       setUserTarget: opts.setUserTarget,
-      getAutoApproveEnabled: opts.getAutoApproveEnabled,
-      setAutoApproveEnabled: opts.setAutoApproveEnabled,
+      getAutoApprove: opts.getAutoApprove,
+      setAutoApprove: opts.setAutoApprove,
       resolveCwd: opts.resolveCwd,
       refreshEnvironmentSnapshot: opts.refreshEnvironmentSnapshot,
       getHealthReport: opts.getHealthReport,
