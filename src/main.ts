@@ -374,7 +374,10 @@ async function notifyRestartComplete(
     const notice = await store.consume()
     if (!notice) return
     const transport = transports.find(item => item.platform === notice.ref.platform)
-    if (!transport) throw new Error(`Restart notice transport unavailable: ${notice.ref.platform}`)
+    if (!transport) {
+      logger.warn({ platform: notice.ref.platform }, 'Restart notice transport unavailable')
+      return
+    }
     await transport.sendMessage(notice.ref.chatId, '✅ 服务已重启完成，可以继续发送消息。')
   } catch (err) {
     logger.error({ err }, 'Failed to send restart completion notification')

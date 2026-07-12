@@ -15,7 +15,7 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
-import type { CliType, Unsubscribe } from '../../shared'
+import type { CliType } from '../../shared'
 import type {
   AdapterState,
   ApprovalAction,
@@ -25,7 +25,9 @@ import type {
   OutputDelta,
   SpawnOptions,
 } from '../base'
+import { EMPTY_VISIBLE_RESULT_MESSAGE } from '../constants'
 import { sanitizeVisibleText } from '../format-output'
+import { buildSystemPromptAppend, emitHandlers, unsubscribeHandler } from '../utils'
 
 /** 只读工具名单：这些自动 allow，不触发审批。 */
 const READONLY_TOOLS = new Set([
@@ -59,15 +61,6 @@ const READONLY_BASH_COMMANDS = new Set([
 ])
 
 const READONLY_GIT_SUBCOMMANDS = new Set(['branch', 'diff', 'log', 'ls-files', 'rev-parse', 'show', 'status'])
-
-const OPERATION_RESULT_GUARDRAIL = [
-  'Remote operation guardrail:',
-  '- When the user asks you to create, modify, delete, move, or inspect local files or run shell commands, use the available tools to actually do or verify it.',
-  '- Never claim a filesystem or shell operation succeeded unless you received a successful tool result in this turn.',
-  '- If a required tool was not called, was denied, or failed, say the operation was not completed.',
-].join('\n')
-
-const EMPTY_VISIBLE_RESULT_MESSAGE = '本轮没有生成可见回复，请重试。'
 
 /** 异步输入队列。 */
 function createInputQueue() {
@@ -133,10 +126,6 @@ function isReadOnlyBashCommand(toolInput: unknown): boolean {
   return true
 }
 
-function buildSystemPromptAppend(systemLanguageHint?: string): string {
-  return [systemLanguageHint, OPERATION_RESULT_GUARDRAIL].filter(Boolean).join('\n\n')
-}
-
 export interface ClaudeSdkAdapterDeps {
   queryFn?: typeof query
   debugRawJson?: boolean
@@ -160,10 +149,6 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
     { resolve: (r: PermissionResult) => void; toolInput: Record<string, unknown> }
   >()
 
-  function emit<T>(handlers: Array<(v: T) => void>, value: T) {
-    for (const h of handlers) h(value)
-  }
-
   /** 审批策略：只读工具自动 allow，其余弹审批。 */
   const handleCanUseTool: CanUseTool = (toolName, toolInput, { toolUseID }) => {
     if (READONLY_TOOLS.has(toolName) || (toolName === 'Bash' && isReadOnlyBashCommand(toolInput))) {
@@ -172,7 +157,7 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
     return new Promise<PermissionResult>(resolve => {
       pendingApprovals.set(toolUseID, { resolve, toolInput: inputRecord(toolInput) })
       state = 'waitingApproval'
-      emit(approvalHandlers, { approvalId: toolUseID, command: toolName, detail: JSON.stringify(toolInput) })
+      emitHandlers(approvalHandlers, { approvalId: toolUseID, command: toolName, detail: JSON.stringify(toolInput) })
     })
   }
 
@@ -220,7 +205,7 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
             ? result.errors.filter((x): x is string => typeof x === 'string').join('\n')
             : ''
       const visibleText = sanitizeVisibleText(text)
-      emit(outputHandlers, {
+      emitHandlers(outputHandlers, {
         kind: 'text',
         text: visibleText.trim() ? visibleText : EMPTY_VISIBLE_RESULT_MESSAGE,
         final: true,
@@ -263,9 +248,9 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
       void (async () => {
         try {
           for await (const msg of q) handleMessage(msg)
-          emit(exitHandlers, { code: 0, reason: 'stop' })
+          emitHandlers(exitHandlers, { code: 0, reason: 'stop' })
         } catch {
-          emit(exitHandlers, { code: 1, reason: 'crash' })
+          emitHandlers(exitHandlers, { code: 1, reason: 'crash' })
         } finally {
           currentQuery = null
           state = 'stopped'
@@ -308,24 +293,17 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
 
     onOutput(handler) {
       outputHandlers.push(handler)
-      return unsub(outputHandlers, handler)
+      return unsubscribeHandler(outputHandlers, handler)
     },
     onApprovalRequest(handler) {
       approvalHandlers.push(handler)
-      return unsub(approvalHandlers, handler)
+      return unsubscribeHandler(approvalHandlers, handler)
     },
     onExit(handler) {
       exitHandlers.push(handler)
-      return unsub(exitHandlers, handler)
+      return unsubscribeHandler(exitHandlers, handler)
     },
 
     getState: () => state,
-  }
-}
-
-function unsub<T>(list: T[], item: T): Unsubscribe {
-  return () => {
-    const idx = list.indexOf(item)
-    if (idx >= 0) list.splice(idx, 1)
   }
 }

@@ -5,7 +5,7 @@
  * 输出来自 message.part.updated，审批来自 permission.asked。
  */
 import type { Config, OpencodeClient } from '@opencode-ai/sdk'
-import type { CliType, Unsubscribe } from '../../shared'
+import type { CliType } from '../../shared'
 import type {
   AdapterState,
   ApprovalAction,
@@ -15,16 +15,9 @@ import type {
   OutputDelta,
   SpawnOptions,
 } from '../base'
+import { EMPTY_VISIBLE_RESULT_MESSAGE } from '../constants'
 import { sanitizeVisibleText } from '../format-output'
-
-const OPERATION_RESULT_GUARDRAIL = [
-  'Remote operation guardrail:',
-  '- When the user asks you to create, modify, delete, move, or inspect local files or run shell commands, use the available tools to actually do or verify it.',
-  '- Never claim a filesystem or shell operation succeeded unless you received a successful tool result in this turn.',
-  '- If a required tool was denied or failed, say the operation was not completed.',
-].join('\n')
-
-const EMPTY_VISIBLE_RESULT_MESSAGE = '本轮没有生成可见回复，请重试。'
+import { buildSystemPromptAppend, emitHandlers, unsubscribeHandler } from '../utils'
 
 type CreateOpencodeFn = (options?: { signal?: AbortSignal; config?: Config }) => Promise<{
   client: OpencodeClient
@@ -77,10 +70,6 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
   const textParts = new Map<string, string>()
   const messageRoles = new Map<string, 'user' | 'assistant'>()
   const pendingApprovals = new Map<string, PendingOpenCodePermission>()
-
-  function emit<T>(handlers: Array<(v: T) => void>, value: T) {
-    for (const h of handlers) h(value)
-  }
 
   function emitRaw(value: unknown) {
     if (!debugRawJson) return
@@ -159,7 +148,7 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
         if (!permission || permission.sessionID !== sessionId) return
         pendingApprovals.set(permission.id, { id: permission.id, sessionID: permission.sessionID })
         state = 'waitingApproval'
-        emit(approvalHandlers, permissionToApproval(properties))
+        emitHandlers(approvalHandlers, permissionToApproval(properties))
         return
       }
       case 'session.idle': {
@@ -187,7 +176,7 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
   function finishTurn(errorText?: string) {
     if (!turnHasInput) return
     const text = errorText ?? (turnHasVisibleText ? '' : EMPTY_VISIBLE_RESULT_MESSAGE)
-    emit(outputHandlers, { kind: 'text', text, final: true })
+    emitHandlers(outputHandlers, { kind: 'text', text, final: true })
     turnHasInput = false
     turnHasVisibleText = false
     state = 'ready'
@@ -200,11 +189,11 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
     const visible = sanitizeVisibleText(chunk)
     if (!visible) return
     turnHasVisibleText = true
-    emit(outputHandlers, { kind: 'text', text: visible, final: false })
+    emitHandlers(outputHandlers, { kind: 'text', text: visible, final: false })
   }
 
   function handleToolPart(toolName: string, toolInput: Record<string, unknown>) {
-    emit(outputHandlers, { kind: 'tool_use', text: '', final: false, toolName, toolInput })
+    emitHandlers(outputHandlers, { kind: 'tool_use', text: '', final: false, toolName, toolInput })
   }
 
   function permissionToApproval(permission: Record<string, unknown>): ApprovalRequest {
@@ -234,10 +223,10 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
         if (signal.aborted) return
         handleEvent({ directory: cwd, payload: event })
       }
-      emit(exitHandlers, { code: 0, reason: 'stop' })
+      emitHandlers(exitHandlers, { code: 0, reason: 'stop' })
     } catch {
       if (signal.aborted) return
-      emit(exitHandlers, { code: 1, reason: 'crash' })
+      emitHandlers(exitHandlers, { code: 1, reason: 'crash' })
     } finally {
       if (!signal.aborted) {
         started = null
@@ -261,7 +250,7 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
       turnHasVisibleText = false
       abortController = new AbortController()
 
-      systemPrompt = buildSystemPrompt(opts.systemLanguageHint)
+      systemPrompt = buildSystemPromptAppend(opts.systemLanguageHint)
       const instance = await createOpencodeFn({
         signal: abortController.signal,
         config: buildOpenCodeConfig(systemPrompt),
@@ -346,15 +335,15 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
 
     onOutput(handler) {
       outputHandlers.push(handler)
-      return unsub(outputHandlers, handler)
+      return unsubscribeHandler(outputHandlers, handler)
     },
     onApprovalRequest(handler) {
       approvalHandlers.push(handler)
-      return unsub(approvalHandlers, handler)
+      return unsubscribeHandler(approvalHandlers, handler)
     },
     onExit(handler) {
       exitHandlers.push(handler)
-      return unsub(exitHandlers, handler)
+      return unsubscribeHandler(exitHandlers, handler)
     },
 
     getState: () => state,
@@ -458,10 +447,6 @@ function readMessageRole(source: Record<string, unknown>): 'user' | 'assistant' 
   return role === 'user' || role === 'assistant' ? role : undefined
 }
 
-function buildSystemPrompt(systemLanguageHint?: string): string {
-  return [systemLanguageHint, OPERATION_RESULT_GUARDRAIL].filter(Boolean).join('\n\n')
-}
-
 async function defaultCreateOpencode(options?: Parameters<CreateOpencodeFn>[0]): ReturnType<CreateOpencodeFn> {
   const sdk = await import('@opencode-ai/sdk')
   return sdk.createOpencode(options)
@@ -485,11 +470,4 @@ function formatSessionError(error: unknown): string {
 
 function normalizePath(value: string): string {
   return value.replace(/\\+/g, '/').replace(/\/+$/, '')
-}
-
-function unsub<T>(list: T[], item: T): Unsubscribe {
-  return () => {
-    const idx = list.indexOf(item)
-    if (idx >= 0) list.splice(idx, 1)
-  }
 }

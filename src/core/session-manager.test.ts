@@ -721,8 +721,8 @@ describe('MessageRouter with MockHandler', () => {
     expect(msgs.length).toBe(0)
     expect(handledByAdapter).toBe(false)
     expect(replies.length).toBe(1)
-    expect((replies[0] as Record<string, unknown>).content).toContain('当前会话')
-    expect((replies[0] as Record<string, unknown>).content).toContain('Language: en')
+    expect((replies[0] as Record<string, unknown>).content).toContain('Current session')
+    expect((replies[0] as Record<string, unknown>).content).toContain('**Language**: `en`')
   })
 })
 
@@ -954,7 +954,9 @@ describe('CommandRouter', () => {
       ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
     })
 
-    expect((replies[0] as { content: string }).content).toContain(`ID: ${cid}`)
+    const content = (replies[0] as { content: string }).content
+    expect(content).toContain('## 📊 当前会话')
+    expect(content).toContain(`**会话 ID**: \`${cid}\``)
   })
 
   test('/status 当前会话存在时 Target 使用当前会话边界', async () => {
@@ -986,10 +988,10 @@ describe('CommandRouter', () => {
     })
 
     const content = (replies[0] as { content: string }).content
-    expect(content).toContain('CLI: opencode')
-    expect(content).toContain('Target CLI: opencode')
-    expect(content).toContain('Target CWD: /project')
-    expect(content).not.toContain('Target CLI: claude')
+    expect(content).toContain('**CLI**: `opencode`')
+    expect(content).toContain('### 当前目标')
+    expect(content).toContain('**CWD**: `/project`')
+    expect(content).not.toContain('`claude`')
   })
 
   test('/audit 展示当前会话审批记录', async () => {

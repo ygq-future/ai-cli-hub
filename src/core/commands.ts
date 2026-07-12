@@ -126,13 +126,20 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
         case 'status': {
           const conv = await currentConversation(payload)
           if (!conv) {
+            const language = getUserLanguage(payload.platform, payload.userId)
+            const isEnglish = language === 'en'
             reply(
               payload,
               [
-                '当前没有活跃会话。直接发送消息会自动创建新会话。',
-                `Target CLI: ${payload.cli}`,
-                `Target CWD: ${payload.cwd}`,
-                `Language: ${getUserLanguage(payload.platform, payload.userId)}`,
+                isEnglish ? '## 📊 Session status' : '## 📊 会话状态',
+                '',
+                isEnglish
+                  ? '_No active session. Send a message to create one automatically._'
+                  : '_当前没有活跃会话。直接发送消息会自动创建新会话。_',
+                '',
+                `- **${isEnglish ? 'Target CLI' : '目标 CLI'}**: \`${payload.cli}\``,
+                `- **${isEnglish ? 'Target CWD' : '目标 CWD'}**: \`${payload.cwd}\``,
+                `- **${isEnglish ? 'Language' : '语言'}**: \`${language}\``,
               ].join('\n'),
             )
             return true
@@ -150,7 +157,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             payload.userId,
             RECENT_SESSIONS_LIMIT,
           )
-          reply(payload, formatSessions(sessions))
+          reply(payload, formatSessions(sessions, getUserLanguage(payload.platform, payload.userId)))
           return true
         }
 
@@ -332,27 +339,40 @@ function looksLikeAbsolutePath(value: string): boolean {
 }
 
 function formatStatus(conv: Conversation, language: UserLanguage, targetCli: CliType, targetCwd: string): string {
+  const isEnglish = language === 'en'
   return [
-    '当前会话',
-    `ID: ${conv.id}`,
-    `Status: ${conv.status}`,
-    `Platform: ${conv.platform}`,
-    `CLI: ${conv.cli}`,
-    `Language: ${language}`,
-    `CWD: ${conv.cwd}`,
-    `Target CLI: ${targetCli}`,
-    `Target CWD: ${targetCwd}`,
-    `Alive: ${formatDuration(Date.now() - conv.createdAt)}`,
+    isEnglish ? '## 📊 Current session' : '## 📊 当前会话',
+    '',
+    `- **${isEnglish ? 'Session ID' : '会话 ID'}**: \`${conv.id}\``,
+    `- **${isEnglish ? 'Status' : '状态'}**: \`${conv.status}\``,
+    `- **${isEnglish ? 'Platform' : '平台'}**: \`${conv.platform}\``,
+    `- **CLI**: \`${conv.cli}\``,
+    `- **${isEnglish ? 'Language' : '语言'}**: \`${language}\``,
+    `- **CWD**: \`${conv.cwd}\``,
+    '',
+    `### ${isEnglish ? 'Current target' : '当前目标'}`,
+    `- **CLI**: \`${targetCli}\``,
+    `- **CWD**: \`${targetCwd}\``,
+    `- **${isEnglish ? 'Alive' : '已存活'}**: ${formatDuration(Date.now() - conv.createdAt)}`,
   ].join('\n')
 }
 
-function formatSessions(sessions: Conversation[]): string {
-  if (sessions.length === 0) return '暂无历史会话。'
+function formatSessions(sessions: Conversation[], language: UserLanguage): string {
+  const isEnglish = language === 'en'
+  if (sessions.length === 0)
+    return isEnglish ? '## 🗂️ Recent sessions\n\n_No session history yet._' : '## 🗂️ 最近会话\n\n_暂无历史会话。_'
 
   return [
-    '最近会话',
-    ...sessions.map(
-      s => `${shortId(s.id as ConversationId)} | ${s.status} | ${s.cli} | ${formatDate(s.updatedAt)} | ${s.cwd}`,
+    isEnglish ? '## 🗂️ Recent sessions' : '## 🗂️ 最近会话',
+    ...sessions.map((session, index) =>
+      [
+        '',
+        `${index + 1}. **\`${shortId(session.id as ConversationId)}\`**`,
+        `   - **${isEnglish ? 'Status' : '状态'}**: \`${session.status}\``,
+        `   - **CLI**: \`${session.cli}\``,
+        `   - **${isEnglish ? 'Updated' : '更新时间'}**: ${formatDate(session.updatedAt)}`,
+        `   - **CWD**: \`${session.cwd}\``,
+      ].join('\n'),
     ),
   ].join('\n')
 }

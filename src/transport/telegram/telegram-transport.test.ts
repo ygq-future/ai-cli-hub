@@ -181,6 +181,25 @@ describe('TelegramTransport 入站', () => {
     expect(replies).toEqual(['Language switched to English.'])
   })
 
+  test('切换英语后 /help 使用英语共享帮助文案', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+    const replies: string[] = []
+    const context = {
+      from: { id: 42 },
+      chat: { id: 42 },
+      message: { text: '/lang en', message_id: 1 },
+      reply: async (text: string) => replies.push(text),
+    }
+
+    mock.handlers.text!(context)
+    mock.handlers.help!(context)
+    await tick()
+
+    expect(replies.at(-1)).toContain('Available commands')
+  })
+
   test('SessionCreated 后更新当前目标 cwd，后续普通消息沿用新 cwd', async () => {
     const bus = createEventBus()
     const mock = createMockBot()

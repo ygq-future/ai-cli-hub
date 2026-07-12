@@ -1,5 +1,5 @@
 import type { AppConfig } from '../config'
-import type { Message } from '../repository'
+import type { Message } from '../storage'
 import type { UserLanguage } from '../shared'
 
 export interface SummaryProvider {

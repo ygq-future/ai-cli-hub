@@ -14,6 +14,15 @@ describe('normalizeEmojis', () => {
       },
     ])
   })
+
+  test('覆盖常见的工程协作 emoji', () => {
+    expect(normalizeEmojis('🚀 🐛 🧪 💡')).toEqual([
+      { emoji: '🚀', name: 'rocket', keywords: ['launch', 'fast', 'deploy'] },
+      { emoji: '🐛', name: 'bug', keywords: ['bug', 'debug'] },
+      { emoji: '🧪', name: 'test tube', keywords: ['test', 'experiment'] },
+      { emoji: '💡', name: 'light bulb', keywords: ['idea', 'insight'] },
+    ])
+  })
 })
 
 describe('createMediaPreprocessor', () => {

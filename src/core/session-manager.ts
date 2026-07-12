@@ -10,7 +10,7 @@
  *
  * 不依赖任何具体 Transport/Adapter/Runtime。
  */
-import type { CliType, ConversationId, Platform, SessionStatus, Unsubscribe } from '../shared'
+import type { CliType, ConversationId, Platform, SessionStatus } from '../shared'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
 import { transition, type SessionEvent } from './session-machine'
@@ -59,12 +59,9 @@ export interface SessionManager {
 }
 
 export function createSessionManager(bus: EventBus, repos: Repositories, archiveDays: number): SessionManager {
-  // 订阅事件：外部事件触发状态迁移
-  const unsubs: Unsubscribe[] = []
-
-  const sm: SessionManager = {
+  return {
     async findOrCreate(opts) {
-      const { userId, platform, text: _text } = opts
+      const { userId, platform } = opts
 
       const current = await resolveCurrentConversation({ userId, platform, cli: opts.cli, cwd: opts.cwd })
       if (current) {
@@ -114,7 +111,7 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
     },
 
     async forceNew(opts) {
-      const { userId, platform, text: _text } = opts
+      const { userId, platform } = opts
 
       // /new 语义：历史未关闭会话全部关闭，新会话 idle，下一条普通消息懒启动 CLI。
       await closeOpenConversations(platform, userId)
@@ -185,14 +182,9 @@ export function createSessionManager(bus: EventBus, repos: Repositories, archive
     },
 
     destroy() {
-      for (const unsub of unsubs) {
-        unsub()
-      }
-      unsubs.length = 0
+      // SessionManager 当前不订阅 EventBus；保留此生命周期方法以符合 CoreHub 契约。
     },
   }
-
-  return sm
 
   async function resolveCurrentConversation(opts: { userId: string; platform: Platform; cli: CliType; cwd: string }) {
     const latest = await repos.conversations.findLatestOpenByUser(opts.platform, opts.userId)

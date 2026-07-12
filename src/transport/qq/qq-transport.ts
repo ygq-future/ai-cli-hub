@@ -3,6 +3,8 @@ import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import type { AppConfig } from '../../config'
 import type { EventBus } from '../../event'
+import { getHelpText, getStartText } from '../messages'
+import { sanitizeFileName, withTimeout } from '../utils'
 import type {
   CliType,
   ConversationId,
@@ -21,10 +23,6 @@ import {
   type QQGatewayStatusUpdate,
   type QQKeyboard,
 } from './qq-bot-client'
-
-const START_TEXT = '👋 AI CLI Hub 已就绪。直接发送消息即可开始；涉及写操作时会请求授权。\n发送 /help 查看帮助。'
-const HELP_TEXT =
-  '可用命令：\n/start — 欢迎与状态\n/help — 本帮助\n/new [cli] [cwd] — 开新会话\n/cwd [path] — 查看或切换工作目录\n/close — 关闭当前会话\n/status — 当前会话状态\n/sessions — 最近会话\n/audit [conversationId] — 审批审计\n/remember <text> — 写入长期记忆\n/memory — 查看长期记忆\n/env — 刷新并查看环境快照\n/health — 服务健康检查\n/update — 查看自更新计划；/update confirm 执行\n/restart — 查看重启计划；/restart confirm 执行\n/forget <memoryId> — 删除长期记忆\n/lang zh|en — 切换回复语言'
 
 interface QQInboundContext {
   userId: string
@@ -76,32 +74,6 @@ function mapQQContentType(contentType: unknown): InboundAttachment['kind'] {
   if (t === 'voice') return 'voice'
   if (t.startsWith('video/')) return 'video'
   return 'other'
-}
-
-function sanitizeFileName(name: string): string {
-  const forbidden = new Set(['<', '>', ':', '"', '/', '\\', '|', '?', '*'])
-  const cleaned = [...name]
-    .map(ch => {
-      const code = ch.codePointAt(0) ?? 0
-      return code < 32 || forbidden.has(ch) ? '_' : ch
-    })
-    .join('')
-    .trim()
-  return cleaned || 'qq-file'
-}
-
-async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_resolve, reject) => {
-        timeout = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
-      }),
-    ])
-  } finally {
-    if (timeout) clearTimeout(timeout)
-  }
 }
 
 /** 把 opencode / claude 的审批 detail JSON 精简为 2-3 行可读摘要，避免 QQ 消息被大段 JSON 淹没。 */
@@ -218,7 +190,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
     const baseName = opts.fileName ?? `qq-file-${crypto.randomUUID().slice(0, 8)}`
     const dir = path.resolve(config.MEDIA_DOWNLOAD_DIR)
     await mkdir(dir, { recursive: true })
-    const localPath = path.join(dir, `${Date.now()}-${sanitizeFileName(baseName)}`)
+    const localPath = path.join(dir, `${Date.now()}-${sanitizeFileName(baseName, 'qq-file')}`)
     await Bun.write(localPath, bytes)
     return localPath
   }
@@ -253,8 +225,14 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
   }
   function emitIncoming(context: QQInboundContext, text: string) {
     const command = parseCommandName(text)
-    if (command === 'start') return void sendToContext(context, START_TEXT).catch(err => reportError('qq:start', err))
-    if (command === 'help') return void sendToContext(context, HELP_TEXT).catch(err => reportError('qq:help', err))
+    if (command === 'start')
+      return void sendToContext(context, getStartText(getUserLanguage(context.userId))).catch(err =>
+        reportError('qq:start', err),
+      )
+    if (command === 'help')
+      return void sendToContext(context, getHelpText(getUserLanguage(context.userId))).catch(err =>
+        reportError('qq:help', err),
+      )
     if (command === 'lang') {
       const language = text.trim().split(/\s+/)[1] as UserLanguage | undefined
       if (language !== 'zh' && language !== 'en') {

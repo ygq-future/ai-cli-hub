@@ -16,6 +16,8 @@ import { Telegraf } from 'telegraf'
 import telegramify from 'telegramify-markdown'
 import type { AppConfig } from '../../config'
 import type { EventBus } from '../../event'
+import { getHelpText, getStartText } from '../messages'
+import { sanitizeFileName, withTimeout } from '../utils'
 import type {
   ApprovalCard,
   CliType,
@@ -161,11 +163,6 @@ export interface TelegramTransport extends Transport {
   getUserLanguage(userId: string): UserLanguage
 }
 
-const START_TEXT =
-  '👋 AI CLI Hub 已就绪。直接发消息即可与 Claude 对话；写操作会弹出授权卡片，请 Approve / Reject。\n发送 /help 查看帮助。'
-const HELP_TEXT =
-  '可用命令：\n/start — 欢迎与状态\n/help — 本帮助\n/new [cli] [cwd] — 开新会话，可指定工作目录\n/cwd [path] — 查看或切换工作目录\n/close — 关闭当前会话\n/status — 当前会话状态\n/sessions — 最近会话\n/audit [conversationId] — 审批审计\n/remember <text> — 写入长期记忆\n/memory — 查看长期记忆\n/env — 刷新并查看环境快照\n/health — 服务健康检查\n/update — 查看自更新计划；/update confirm 执行\n/restart — 查看重启计划；/restart confirm 执行\n/forget <memoryId> — 删除长期记忆\n/lang zh|en — 切换回复语言\n\n直接发送文本、emoji、sticker、图片或文件即可对话；附件只解析为文本上下文，不会执行。'
-
 const TELEGRAM_SAFE_TEXT_LIMIT = 3800
 interface TelegramDownloadRequest {
   fileId: string
@@ -298,18 +295,6 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     return userCwd.get(userId) ?? config.DEFAULT_CWD
   }
 
-  function sanitizeFileName(name: string): string {
-    const forbidden = new Set(['<', '>', ':', '"', '/', '\\', '|', '?', '*'])
-    const cleaned = [...name]
-      .map(ch => {
-        const code = ch.codePointAt(0) ?? 0
-        return code < 32 || forbidden.has(ch) ? '_' : ch
-      })
-      .join('')
-      .trim()
-    return cleaned || 'telegram-file'
-  }
-
   function inferExt(file: TelegramDownloadRequest, url?: string): string {
     const fromName = path.extname(file.fileName ?? '')
     if (fromName) return fromName
@@ -319,20 +304,6 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     if (file.mimeType?.startsWith('audio/')) return `.${file.mimeType.slice('audio/'.length).replace('mpeg', 'mp3')}`
     if (file.mimeType?.startsWith('video/')) return `.${file.mimeType.slice('video/'.length)}`
     return file.kind === 'photo' ? '.jpg' : ''
-  }
-
-  async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-    let timeout: ReturnType<typeof setTimeout> | undefined
-    try {
-      return await Promise.race([
-        promise,
-        new Promise<T>((_resolve, reject) => {
-          timeout = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
-        }),
-      ])
-    } finally {
-      if (timeout) clearTimeout(timeout)
-    }
   }
 
   async function defaultDownloadTelegramFile(file: TelegramDownloadRequest): Promise<string> {
@@ -354,7 +325,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     const baseName = file.fileName ?? `${file.fileUniqueId ?? file.fileId}${inferExt(file, url)}`
     const dir = path.resolve(config.MEDIA_DOWNLOAD_DIR)
     await mkdir(dir, { recursive: true })
-    const localPath = path.join(dir, `${Date.now()}-${sanitizeFileName(baseName)}`)
+    const localPath = path.join(dir, `${Date.now()}-${sanitizeFileName(baseName, 'telegram-file')}`)
     await Bun.write(localPath, bytes)
     return localPath
   }
@@ -380,6 +351,16 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   async function doSend(chatId: string, content: string, extra?: unknown): Promise<MessageRef> {
     const msg = await bot.telegram.sendMessage(chatId, content, extra)
     return { platform: 'telegram', chatId, nativeId: String(msg.message_id) }
+  }
+
+  async function replyFormatted(ctx: TgCtx, content: string): Promise<unknown> {
+      const {text, extra} = fmt(content)
+      try {
+          return await ctx.reply(text, extra)
+      } catch (err) {
+          if (!isParseEntitiesError(err)) throw err
+          return await ctx.reply(content)
+      }
   }
   async function doEdit(ref: MessageRef, content: string, extra?: unknown): Promise<void> {
     if (!content) return
@@ -416,7 +397,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       const ref = await doSend(chatId, chunk)
       firstRef ??= ref
     }
-    return firstRef ?? doSend(chatId, '')
+    return firstRef ?? await doSend(chatId, '')
   }
 
   async function editPlainChunks(ref: MessageRef, raw: string): Promise<void> {
@@ -580,11 +561,11 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
 
     const commandName = parseCommandName(text)
     if (commandName === 'start') {
-      void ctx.reply(START_TEXT).catch(() => {})
+      void replyFormatted(ctx, getStartText(getUserLanguage(userId))).catch(() => {})
       return
     }
     if (commandName === 'help') {
-      void ctx.reply(HELP_TEXT).catch(() => {})
+      void replyFormatted(ctx, getHelpText(getUserLanguage(userId))).catch(() => {})
       return
     }
     if (commandName === 'lang') {
@@ -670,8 +651,8 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   }
 
   // 注册 bot handlers（创建期注册；launch 在 start()）
-  bot.start(guarded(ctx => ctx.reply(START_TEXT)))
-  bot.help(guarded(ctx => ctx.reply(HELP_TEXT)))
+  bot.start(guarded(ctx => replyFormatted(ctx, getStartText(getUserLanguage(String(ctx.from?.id ?? ''))))))
+  bot.help(guarded(ctx => replyFormatted(ctx, getHelpText(getUserLanguage(String(ctx.from?.id ?? ''))))))
   bot.on(
     'message',
     guarded(ctx => void onIncoming(ctx).catch(err => reportError('telegram:incoming', err))),
