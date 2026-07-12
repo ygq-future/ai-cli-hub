@@ -166,6 +166,43 @@ describe('SessionOrchestrator', () => {
     agg.destroy()
   })
 
+  test('自动审批开启后倒计时到期批准，并允许 Reject 抢先中断本轮', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const approvals: unknown[] = []
+    bus.on('ApprovalApproved', p => approvals.push(p))
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => fake.adapter,
+      getAutoApproveEnabled: async () => true,
+      autoApproveDelayMs: 10,
+    })
+
+    await orch.handler.onMessage('do', CID)
+    fake.emitApproval({ approvalId: 'auto-1', command: 'Bash', detail: '{"cmd":"ls"}' })
+    await sleep(25)
+
+    expect(fake.calls.resolveApproval).toEqual([['auto-1', 'approve']])
+    expect(approvals).toEqual([{ conversationId: CID, approvalId: 'auto-1', operator: 'auto:u1', automatic: true }])
+
+    fake.emitApproval({ approvalId: 'auto-2', command: 'Write', detail: '{}' })
+    await tick()
+    bus.emit('ApprovalRejected', { conversationId: CID, approvalId: 'auto-2', operator: 'u1' })
+    await sleep(25)
+    expect(fake.calls.resolveApproval).toEqual([
+      ['auto-1', 'approve'],
+      ['auto-2', 'reject'],
+    ])
+    expect(fake.calls.interrupt).toBe(1)
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
   test('ApprovalApproved/Rejected → adapter.resolveApproval；Reject 中断并停止 adapter', async () => {
     const fake = createFakeAdapter()
     const bus = createEventBus()

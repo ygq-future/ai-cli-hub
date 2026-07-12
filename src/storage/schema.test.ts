@@ -62,7 +62,7 @@ describe('schema — 表结构与契约', () => {
   test('用户偏好：按 platform + userId 隔离语言、默认 CLI 和每 CLI CWD', () => {
     const preferences = getTableConfig(userPreferences)
     expect(preferences.columns.map(column => column.name)).toEqual(
-      expect.arrayContaining(['platform', 'user_id', 'language', 'default_cli']),
+      expect.arrayContaining(['platform', 'user_id', 'language', 'default_cli', 'auto_approve_enabled']),
     )
     expect(preferences.primaryKeys).toHaveLength(1)
 

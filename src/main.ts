@@ -164,6 +164,7 @@ async function main() {
       })
     },
     getUserLanguage,
+    getAutoApproveEnabled: userPreferences.getAutoApproveEnabled,
     getSystemMemoryHint: memory.recallGlobalContext,
     getRelevantMemoryHint: memory.recallRelevantContext,
     agentDescription: config.AGENT_DESCRIPTION,
@@ -185,6 +186,8 @@ async function main() {
     getUserTarget: userPreferences.getTarget,
     getCwdForCli: userPreferences.getCwd,
     setUserTarget: userPreferences.setTarget,
+    getAutoApproveEnabled: userPreferences.getAutoApproveEnabled,
+    setAutoApproveEnabled: userPreferences.setAutoApproveEnabled,
     resolveCwd,
     refreshEnvironmentSnapshot: memory.refreshEnvironmentSnapshot,
     getHealthReport: health.getReport,

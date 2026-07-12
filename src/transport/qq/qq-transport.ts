@@ -121,7 +121,7 @@ function summarizeApprovalDetail(detail: string): string {
   return detail.length > 300 ? `${detail.slice(0, 300)}…` : detail
 }
 
-function approvalKeyboard(approvalId: string): QQKeyboard {
+function approvalKeyboard(approvalId: string, autoApprove = false): QQKeyboard {
   const button = (id: string, label: string, style: 0 | 1, decision: 'approve' | 'reject') => ({
     id,
     render_data: { label, visited_label: decision === 'approve' ? '已批准' : '已拒绝', style },
@@ -134,7 +134,13 @@ function approvalKeyboard(approvalId: string): QQKeyboard {
   })
   return {
     content: {
-      rows: [{ buttons: [button('approve', '✅ Approve', 1, 'approve'), button('reject', '❌ Reject', 0, 'reject')] }],
+      rows: [
+        {
+          buttons: autoApprove
+            ? [button('reject', '❌ 拒绝本轮', 0, 'reject')]
+            : [button('approve', '✅ Approve', 1, 'approve'), button('reject', '❌ Reject', 0, 'reject')],
+        },
+      ],
     },
   }
 }
@@ -162,7 +168,10 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
   const userCwd = new Map<string, string>()
   const convContext = new Map<ConversationId, QQInboundContext>()
   const drafts = new Map<ConversationId, QQDraft>()
-  const approvals = new Map<string, { conversationId: ConversationId; chatId: string; resolved: boolean }>()
+  const approvals = new Map<
+    string,
+    { conversationId: ConversationId; chatId: string; userId: string; command: string; resolved: boolean }
+  >()
   const discoveredOpenIds = new Set<string>()
   const unsubs: Unsubscribe[] = []
 
@@ -439,12 +448,47 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       // 当 summary 第一行恰好和 p.command 相同时去重，避免重复行。
       const firstLine = summary.split('\n')[0] ?? ''
       const dedupedSummary = firstLine === `命令：${p.command}` ? summary.split('\n').slice(1).join('\n') : summary
-      const content = [`⚠️ 需要授权`, '', `命令：${p.command}`, dedupedSummary].filter(Boolean).join('\n')
-      void sendToContext(context, content, approvalKeyboard(p.approvalId))
-        .then(() =>
-          approvals.set(p.approvalId, { conversationId: p.conversationId, chatId: context.chatId, resolved: false }),
+      const content = p.autoApproveAt
+        ? [
+            '⚠️ 自动审批已开启',
+            '',
+            '⏳ 将在约 5 秒后自动批准；点击下方按钮会拒绝并中断本轮操作。',
+            '',
+            `命令：${p.command}`,
+            dedupedSummary,
+          ]
+            .filter(Boolean)
+            .join('\n')
+        : [`⚠️ 需要授权`, '', `命令：${p.command}`, dedupedSummary].filter(Boolean).join('\n')
+      approvals.set(p.approvalId, {
+        conversationId: p.conversationId,
+        chatId: context.chatId,
+        userId: context.userId,
+        command: p.command,
+        resolved: false,
+      })
+      void sendToContext(context, content, approvalKeyboard(p.approvalId, Boolean(p.autoApproveAt))).catch(err =>
+        reportError('qq:ApprovalRequested', err),
+      )
+    }),
+  )
+
+  unsubs.push(
+    bus.on('ApprovalApproved', p => {
+      if (!p.automatic) return
+      const approval = approvals.get(p.approvalId)
+      if (!approval || approval.resolved) return
+      approval.resolved = true
+      void resolvedUserLanguage(approval.userId)
+        .then(language =>
+          client.sendC2CMessage(
+            approval.chatId,
+            language === 'en'
+              ? `✅ Automatically approved\n\nThe 5-second countdown ended and ${approval.command} was approved automatically.`
+              : `✅ 已自动审批\n\n5 秒倒计时已结束，${approval.command} 已自动批准。`,
+          ),
         )
-        .catch(err => reportError('qq:ApprovalRequested', err))
+        .catch(err => reportError('qq:autoApprovalResult', err))
     }),
   )
 
@@ -492,7 +536,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       return sendToContext(
         context,
         `⚠️ ${card.title}\n\n命令：${card.command}\n\n说明：${card.detail}`,
-        approvalKeyboard(card.approvalId),
+        approvalKeyboard(card.approvalId, Boolean(card.autoApproveAt)),
       )
     },
     getUserLanguage,

@@ -1,5 +1,5 @@
 /**
- * ApprovalAudit —— Human Approval 永久审计旁路。
+ * ApprovalAudit —— 手动/自动 Approval 决议永久审计旁路。
  *
  * 只订阅审批事件并写 AuditRepository；失败转 ErrorOccurred，不阻塞主链路。
  */

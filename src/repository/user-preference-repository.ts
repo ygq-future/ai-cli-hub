@@ -34,6 +34,13 @@ export function createUserPreferenceRepository(db: Db): UserPreferenceRepository
         .where(and(eq(userPreferences.platform, platform), eq(userPreferences.userId, userId)))
     },
 
+    async setAutoApproveEnabled(platform, userId, enabled) {
+      await db
+        .update(userPreferences)
+        .set({ autoApproveEnabled: enabled, updatedAt: Date.now() })
+        .where(and(eq(userPreferences.platform, platform), eq(userPreferences.userId, userId)))
+    },
+
     async findCwd(platform, userId, cli) {
       const [row] = await db
         .select()

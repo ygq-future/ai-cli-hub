@@ -6,7 +6,11 @@ import { createUserPreferences } from './user-preferences'
 function createRepos() {
   const preferences = new Map<
     string,
-    { language: 'zh' | 'en'; defaultCli: 'claude' | 'opencode' | 'codex' | 'gemini' }
+    {
+      language: 'zh' | 'en'
+      defaultCli: 'claude' | 'opencode' | 'codex' | 'gemini'
+      autoApproveEnabled: boolean
+    }
   >()
   const cwds = new Map<string, string>()
   const key = (platform: string, userId: string) => `${platform}:${userId}`
@@ -24,6 +28,7 @@ function createRepos() {
           const value = preferences.get(key(input.platform, input.userId)) ?? {
             language: input.language,
             defaultCli: input.defaultCli,
+            autoApproveEnabled: false,
           }
           preferences.set(key(input.platform, input.userId), value)
           return { platform: input.platform, userId: input.userId, ...value, createdAt: 1, updatedAt: 1 }
@@ -39,6 +44,9 @@ function createRepos() {
         ) {
           const value = preferences.get(key(platform, userId))!
           value.defaultCli = cli
+        },
+        async setAutoApproveEnabled(platform: 'telegram' | 'qq' | 'websocket', userId: string, enabled: boolean) {
+          preferences.get(key(platform, userId))!.autoApproveEnabled = enabled
         },
         async findCwd(platform: 'telegram' | 'qq' | 'websocket', userId: string, cli: string) {
           const cwd = cwds.get(cwdKey(platform, userId, cli))
@@ -74,6 +82,10 @@ describe('user preferences', () => {
 
     expect(await preferences.getTarget('telegram', 'u1')).toEqual({ cli: 'opencode', cwd: '/projects/open' })
     expect(await preferences.getLanguage('telegram', 'u1')).toBe('en')
+    expect(await preferences.getAutoApproveEnabled('telegram', 'u1')).toBe(false)
+    await preferences.setAutoApproveEnabled('telegram', 'u1', true)
+    expect(await preferences.getAutoApproveEnabled('telegram', 'u1')).toBe(true)
+    expect(await preferences.getAutoApproveEnabled('qq', 'u1')).toBe(false)
     expect(await preferences.getTarget('qq', 'u1')).toEqual({ cli: 'claude', cwd: defaultClaudeCwd })
   })
 })

@@ -285,6 +285,43 @@ describe('QQTransport 出站流式与审批', () => {
     expect(approved).toEqual([{ conversationId: CID, approvalId: 'approval-1', operator: 'qq-openid' }])
     expect(fake.messages.some(message => message.content.includes('已批准'))).toBe(true)
   })
+
+  test('自动审批卡只显示拒绝按钮，自动通过后另发结果通知', async () => {
+    const bus = createEventBus()
+    const fake = createFakeClient()
+    const transport = createQQTransport({ bus, config: fakeConfig(), client: fake.client })
+    await transport.start()
+    fake.emit(c2c())
+    bus.emit('SessionCreated', {
+      conversationId: CID,
+      platform: 'qq',
+      userId: 'qq-openid',
+      cli: 'claude',
+      cwd: '/workspace',
+    })
+
+    bus.emit('ApprovalRequested', {
+      conversationId: CID,
+      approvalId: 'auto-qq',
+      command: 'Write',
+      detail: '{"path":"a.txt"}',
+      autoApproveAt: Date.now() + 5_000,
+    })
+    await tick()
+    expect(fake.messages[0]?.keyboard?.content.rows[0]?.buttons.map(button => button.action.data)).toEqual([
+      'ai-cli-hub:reject:auto-qq',
+    ])
+
+    bus.emit('ApprovalApproved', {
+      conversationId: CID,
+      approvalId: 'auto-qq',
+      operator: 'auto:qq-openid',
+      automatic: true,
+    })
+    await tick()
+    expect(fake.messages.some(message => message.content.includes('已自动审批'))).toBe(true)
+    await transport.stop()
+  })
 })
 
 describe('QQTransport 媒体入站', () => {

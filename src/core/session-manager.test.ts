@@ -1318,4 +1318,38 @@ describe('CommandRouter', () => {
     expect((replies[0] as { content: string }).content).toContain('重启预检')
     expect((replies[1] as { content: string }).content).toContain('重启已安排')
   })
+
+  test('/autoapprove on|off 立即持久化并返回 Markdown 状态', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    let enabled = false
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      getAutoApproveEnabled: async () => enabled,
+      setAutoApproveEnabled: async (_platform, _userId, value) => {
+        enabled = value
+      },
+    })
+    const replies: Array<{ content: string }> = []
+    bus.on('CommandReply', p => replies.push(p))
+    const payload = {
+      userId: 'u1',
+      platform: 'telegram' as const,
+      cli: 'claude' as const,
+      cwd: '/old',
+      ref: { platform: 'telegram' as const, chatId: 'c', nativeId: '1' },
+    }
+
+    await commandRouter.tryHandle({ ...payload, text: '/autoapprove on' })
+    await commandRouter.tryHandle({ ...payload, text: '/autoapprove' })
+    await commandRouter.tryHandle({ ...payload, text: '/autoapprove off' })
+
+    expect(enabled).toBe(false)
+    expect(replies[0]!.content).toContain('自动审批已开启')
+    expect(replies[1]!.content).toContain('✅ ON')
+    expect(replies[2]!.content).toContain('自动审批已关闭')
+  })
 })

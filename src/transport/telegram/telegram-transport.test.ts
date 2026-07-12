@@ -702,6 +702,36 @@ describe('TelegramTransport 审批', () => {
     expect(rejected).toEqual([{ conversationId: CID, approvalId: 'ap2', operator: '42' }])
   })
 
+  test('自动审批卡只显示拒绝按钮，自动通过后另发结果通知', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    const transport = createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+    mock.handlers.text!({ from: { id: 42 }, chat: { id: 1000 }, message: { text: 'hi', message_id: 1 } })
+    bus.emit('SessionCreated', { conversationId: CID, platform: 'telegram', userId: '42', cli: 'claude', cwd: '/w' })
+
+    bus.emit('ApprovalRequested', {
+      conversationId: CID,
+      approvalId: 'auto-tg',
+      command: 'Bash',
+      detail: '{"cmd":"ls"}',
+      autoApproveAt: Date.now() + 5_000,
+    })
+    await tick()
+    const extra = mock.sent[0]!.extra as { reply_markup: { inline_keyboard: Array<Array<{ callback_data: string }>> } }
+    expect(extra.reply_markup.inline_keyboard[0]!.map(button => button.callback_data)).toEqual(['reject:auto-tg'])
+
+    bus.emit('ApprovalApproved', {
+      conversationId: CID,
+      approvalId: 'auto-tg',
+      operator: 'auto:42',
+      automatic: true,
+    })
+    await tick()
+    expect(mock.edited.some(item => item.text.includes('自动审批倒计时已结束'))).toBe(true)
+    expect(mock.sent.some(item => item.text.includes('已自动审批'))).toBe(true)
+    await transport.stop()
+  })
+
   test('审批卡 MarkdownV2 解析失败 → 降级纯文本，保留按钮，授权流不中断', async () => {
     const bus = createEventBus()
     const mock = createMockBot({ failOnParseMode: true })

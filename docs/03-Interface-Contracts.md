@@ -72,8 +72,8 @@ export interface EventMap {
   UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }; // /cwd 等只切当前 scope 的目标边界、不创建 conversation
 
   // —— 审批（Human-in-the-loop）——
-  ApprovalRequested: { conversationId: ConversationId; approvalId: string; command: string; detail: string };
-  ApprovalApproved:  { conversationId: ConversationId; approvalId: string; operator: string };
+  ApprovalRequested: { conversationId: ConversationId; approvalId: string; command: string; detail: string; autoApproveAt?: number };
+  ApprovalApproved:  { conversationId: ConversationId; approvalId: string; operator: string; automatic?: boolean };
   ApprovalRejected:  { conversationId: ConversationId; approvalId: string; operator: string };
 
   // —— 进程 ——
@@ -299,7 +299,7 @@ export interface AuditRepository {
   listByConversation(id: ConversationId): Promise<AuditLog[]>;
 }
 
-// M7 审计范围：仅记录 Human Approval 决策。
+// 审计范围：记录手动与自动 Approval 决议；自动操作人格式为 auto:<userId>。
 // audit_logs.command 写入工具/命令名、approvalId 与请求详情的可读文本；
 // /audit [conversationId] 通过 listByConversation 查看最近审批记录。
 
@@ -323,12 +323,13 @@ export interface UserPreferenceRepository {
   getOrCreate(input: { platform: Platform; userId: string; language: UserLanguage; defaultCli: CliType }): Promise<UserPreference>;
   setLanguage(platform: Platform, userId: string, language: UserLanguage): Promise<void>;
   setDefaultCli(platform: Platform, userId: string, cli: CliType): Promise<void>;
+  setAutoApproveEnabled(platform: Platform, userId: string, enabled: boolean): Promise<void>;
   findCwd(platform: Platform, userId: string, cli: CliType): Promise<UserCliCwd | null>;
   upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>;
 }
 ```
 
-`UserPreferenceRepository` 是用户级持久化目标的唯一 SQL 出口：按 `(platform,userId)` 保存 `/lang`、默认 CLI，并按 `(platform,userId,cli)` 保存 cwd；不使用无类型的通用 KV 表。
+`UserPreferenceRepository` 是用户级持久化目标的唯一 SQL 出口：按 `(platform,userId)` 保存 `/lang`、默认 CLI 与自动审批开关，并按 `(platform,userId,cli)` 保存 cwd；不使用无类型的通用 KV 表。
 
 > `New*` 为插入用类型（无 id/时间戳），`Conversation`/`Message`/... 为读取用完整类型，均由 Drizzle `$inferInsert` / `$inferSelect` 推导，见 04。
 

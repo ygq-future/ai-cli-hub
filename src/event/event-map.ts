@@ -50,8 +50,10 @@ export interface EventMap {
     approvalId: string
     command: string
     detail: string
+    /** 存在时表示到期自动批准；Transport 可据此展示倒计时。 */
+    autoApproveAt?: number
   }
-  ApprovalApproved: { conversationId: ConversationId; approvalId: string; operator: string }
+  ApprovalApproved: { conversationId: ConversationId; approvalId: string; operator: string; automatic?: boolean }
   ApprovalRejected: { conversationId: ConversationId; approvalId: string; operator: string }
 
   // —— 进程 ——

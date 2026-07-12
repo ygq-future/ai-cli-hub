@@ -30,6 +30,8 @@ export interface CoreHubOptions {
   getUserTarget?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
   getCwdForCli?: (platform: Platform, userId: string, cli: CliType) => Promise<string>
   setUserTarget?: (platform: Platform, userId: string, target: { cli: CliType; cwd: string }) => Promise<void>
+  getAutoApproveEnabled?: (platform: Platform, userId: string) => Promise<boolean>
+  setAutoApproveEnabled?: (platform: Platform, userId: string, enabled: boolean) => Promise<void>
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
   getUpdatePreview?: () => string
@@ -63,6 +65,8 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
       getUserTarget: opts.getUserTarget,
       getCwdForCli: opts.getCwdForCli,
       setUserTarget: opts.setUserTarget,
+      getAutoApproveEnabled: opts.getAutoApproveEnabled,
+      setAutoApproveEnabled: opts.setAutoApproveEnabled,
       resolveCwd: opts.resolveCwd,
       refreshEnvironmentSnapshot: opts.refreshEnvironmentSnapshot,
       getHealthReport: opts.getHealthReport,

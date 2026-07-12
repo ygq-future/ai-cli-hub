@@ -27,4 +27,6 @@ export interface ApprovalCard {
   title: string // Markdown 标题
   command: string // 待审批命令 / 工具名
   detail: string // 上下文说明
+  /** 存在时只展示拒绝按钮，并在到期前显示自动批准倒计时。 */
+  autoApproveAt?: number
 }

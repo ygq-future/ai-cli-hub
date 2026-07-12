@@ -28,6 +28,8 @@ export interface CommandRouterDeps {
   getUserTarget?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
   getCwdForCli?: (platform: Platform, userId: string, cli: CliType) => Promise<string>
   setUserTarget?: (platform: Platform, userId: string, target: { cli: CliType; cwd: string }) => Promise<void>
+  getAutoApproveEnabled?: (platform: Platform, userId: string) => Promise<boolean>
+  setAutoApproveEnabled?: (platform: Platform, userId: string, enabled: boolean) => Promise<void>
   resolveCwd?: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
@@ -195,6 +197,43 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           reply(
             payload,
             formatStatus(conv, await getUserLanguage(payload.platform, payload.userId), conv.cli as CliType, conv.cwd),
+          )
+          return true
+        }
+
+        case 'autoapprove': {
+          const language = await getUserLanguage(payload.platform, payload.userId)
+          const isEnglish = language === 'en'
+          const value = parsed.args[0]?.toLowerCase()
+          if (!value) {
+            const enabled = (await deps.getAutoApproveEnabled?.(payload.platform, payload.userId)) ?? false
+            reply(
+              payload,
+              [
+                isEnglish ? '## ⚡ Auto approval' : '## ⚡ 自动审批',
+                '',
+                `- **${isEnglish ? 'Status' : '状态'}**: ${enabled ? '✅ ON' : '⛔ OFF'}`,
+                '',
+                isEnglish ? 'Use `/autoapprove on|off` to change it.' : '使用 `/autoapprove on|off` 修改。',
+              ].join('\n'),
+            )
+            return true
+          }
+          if (value !== 'on' && value !== 'off') {
+            reply(payload, isEnglish ? 'Usage: `/autoapprove on|off`' : '用法：`/autoapprove on|off`')
+            return true
+          }
+          const enabled = value === 'on'
+          await deps.setAutoApproveEnabled?.(payload.platform, payload.userId, enabled)
+          reply(
+            payload,
+            enabled
+              ? isEnglish
+                ? '## ⚡ Auto approval enabled\n\nCLI approval requests will be approved automatically after **5 seconds** unless you reject the current turn.'
+                : '## ⚡ 自动审批已开启\n\nCLI 审批请求将在 **5 秒后**自动批准；期间可拒绝并中断本轮操作。'
+              : isEnglish
+                ? '## ⛔ Auto approval disabled\n\nCLI approval requests now require a manual decision.'
+                : '## ⛔ 自动审批已关闭\n\nCLI 审批请求恢复为手动处理。',
           )
           return true
         }

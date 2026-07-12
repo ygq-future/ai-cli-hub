@@ -173,14 +173,14 @@ export type NewMemory = typeof memories.$inferInsert;
 
 ## 7. `user_preferences` / `user_cli_cwds` — 用户持久化目标
 
-用户偏好不使用泛化 JSON KV：语言、默认 CLI 和目录都是稳定、可约束的查询字段，采用两张强类型表并以 `(platform, user_id)` 隔离。
+用户偏好不使用泛化 JSON KV：语言、默认 CLI、自动审批和目录都是稳定、可约束的查询字段，采用两张强类型表并以 `(platform, user_id)` 隔离。
 
 ```text
-user_preferences: (platform, user_id) → language, default_cli
+user_preferences: (platform, user_id) → language, default_cli, auto_approve_enabled
 user_cli_cwds:    (platform, user_id, cli) → cwd
 ```
 
-- 首次访问懒创建 `language='zh'`、`default_cli='claude'`。
+- 首次访问懒创建 `language='zh'`、`default_cli='claude'`、`auto_approve_enabled=false`。
 - 缺少 CLI 目录时，应用创建并写入 `~/ai-workspace/.<cli>`。
 - `INSERT ... ON CONFLICT DO UPDATE` 幂等写入每 CLI 的 cwd；不会覆盖另一个 CLI 的目录。
 - 这是“按用户命名空间的 KV”语义，但保留 Postgres 枚举、主键和类型约束。
@@ -194,7 +194,7 @@ user_cli_cwds:    (platform, user_id, cli) → cwd
 | conversations | unique `(platform, user_id) WHERE status <> 'closed'` | 每个 scope 仅一条未关闭会话 |
 | conversations | `(platform, user_id, updated_at)` | scope 内最新会话定位（复用/新建/目标恢复） |
 | conversations | `(status, updated_at)` | 归档扫描 `listStaleIdle` |
-| user_preferences | primary `(platform, user_id)` | 读取语言与默认 CLI |
+| user_preferences | primary `(platform, user_id)` | 读取语言、默认 CLI 与自动审批开关 |
 | user_cli_cwds | primary `(platform, user_id, cli)` | 读取/写入每 CLI 工作目录 |
 | messages | `(conversation_id, created_at)` | 历史查看、审计与后续摘要；当前不做完整上下文回放 |
 | audit_logs | `(conversation_id, created_at)` | 审计查询 |

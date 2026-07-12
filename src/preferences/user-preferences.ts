@@ -11,6 +11,8 @@ export interface UserTarget {
 export interface UserPreferences {
   getLanguage(platform: Platform, userId: string): Promise<UserLanguage>
   setLanguage(platform: Platform, userId: string, language: UserLanguage): Promise<void>
+  getAutoApproveEnabled(platform: Platform, userId: string): Promise<boolean>
+  setAutoApproveEnabled(platform: Platform, userId: string, enabled: boolean): Promise<void>
   getTarget(platform: Platform, userId: string): Promise<UserTarget>
   getCwd(platform: Platform, userId: string, cli: CliType): Promise<string>
   setTarget(platform: Platform, userId: string, target: UserTarget): Promise<void>
@@ -32,6 +34,7 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
   const ensureDirectory = deps.ensureDirectory ?? (() => Promise.resolve())
   const languageCache = new Map<string, UserLanguage>()
   const targetCache = new Map<string, UserTarget>()
+  const autoApproveCache = new Map<string, boolean>()
   const unsubs: Unsubscribe[] = []
 
   const cacheKey = (platform: Platform, userId: string) => `${platform}:${userId}`
@@ -77,6 +80,21 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
     bus.emit('UserTargetChanged', { platform, userId, cli: target.cli, cwd: target.cwd })
   }
 
+  async function getAutoApproveEnabled(platform: Platform, userId: string): Promise<boolean> {
+    const key = cacheKey(platform, userId)
+    const cached = autoApproveCache.get(key)
+    if (cached !== undefined) return cached
+    const preference = await ensurePreference(platform, userId)
+    autoApproveCache.set(key, preference.autoApproveEnabled)
+    return preference.autoApproveEnabled
+  }
+
+  async function setAutoApproveEnabled(platform: Platform, userId: string, enabled: boolean): Promise<void> {
+    await ensurePreference(platform, userId)
+    await repos.userPreferences.setAutoApproveEnabled(platform, userId, enabled)
+    autoApproveCache.set(cacheKey(platform, userId), enabled)
+  }
+
   unsubs.push(
     bus.on('UserLanguageChanged', payload => {
       void setLanguage(payload.platform, payload.userId, payload.language).catch(err =>
@@ -99,6 +117,8 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
       return language
     },
     setLanguage,
+    getAutoApproveEnabled,
+    setAutoApproveEnabled,
     getTarget,
     getCwd,
     setTarget,

@@ -42,6 +42,15 @@ interface TgCtx {
   reply(text: string, extra?: unknown): Promise<unknown>
   answerCbQuery(text?: string): Promise<unknown>
 }
+interface TelegramApprovalMeta {
+  conversationId: ConversationId
+  chatId: string
+  userId: string
+  card: ApprovalCard
+  ref?: MessageRef
+  resolved: boolean
+  countdownTimer: ReturnType<typeof setInterval> | null
+}
 interface TgMessageEntity {
   type: string
   offset: number
@@ -271,8 +280,9 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   const userCli = new Map<string, CliType>() // userId → current cli target
   const userCwd = new Map<string, string>() // userId → current cwd target
   const convChat = new Map<string, string>() // conversationId → chatId
+  const convUser = new Map<string, string>() // conversationId → userId
   const drafts = new Map<string, { ref: MessageRef; lastContent: string }>() // 当前流式草稿
-  const approvals = new Map<string, { conversationId: ConversationId; ref: MessageRef; resolved: boolean }>()
+  const approvals = new Map<string, TelegramApprovalMeta>()
   const unsubs: Unsubscribe[] = []
 
   function reportError(scope: string, err: unknown) {
@@ -450,25 +460,48 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   async function doDelete(ref: MessageRef): Promise<void> {
     await bot.telegram.deleteMessage(ref.chatId, Number(ref.nativeId))
   }
-  async function doSendApproval(chatId: string, card: ApprovalCard): Promise<MessageRef> {
-    const detail = card.detail || 'Claude 请求执行上述操作。'
-    const keyboard = {
-      inline_keyboard: [
-        [
+  function approvalKeyboard(card: ApprovalCard) {
+    const buttons = card.autoApproveAt
+      ? [{ text: '❌ 拒绝本轮', callback_data: `reject:${card.approvalId}` }]
+      : [
           { text: '✅ Approve', callback_data: `approve:${card.approvalId}` },
           { text: '❌ Reject', callback_data: `reject:${card.approvalId}` },
-        ],
-      ],
+        ]
+    return { inline_keyboard: [buttons] }
+  }
+
+  function approvalMarkdown(card: ApprovalCard, remainingSeconds?: number): string {
+    const detail = card.detail || 'Claude 请求执行上述操作。'
+    if (card.autoApproveAt) {
+      const remaining = remainingSeconds ?? Math.max(1, Math.ceil((card.autoApproveAt - Date.now()) / 1000))
+      return `⚠️ **自动审批已开启**\n\n⏳ 将在 **${remaining} 秒后**自动批准；点击下方按钮会拒绝并中断本轮操作。\n\n命令：\`${card.command}\`\n\n说明：${detail}`
     }
+    return `⚠️ **需要授权**\n\n命令：\`${card.command}\`\n\n说明：${detail}`
+  }
+
+  async function editApprovalCard(ref: MessageRef, card: ApprovalCard, remainingSeconds: number): Promise<void> {
+    const md = approvalMarkdown(card, remainingSeconds)
+    const keyboard = approvalKeyboard(card)
+    const { text, extra } = fmt(md)
+    try {
+      await doEdit(ref, text, { ...extra, reply_markup: keyboard })
+    } catch (err) {
+      if (!isParseEntitiesError(err)) throw err
+      await doEdit(ref, md, { reply_markup: keyboard })
+    }
+  }
+
+  async function doSendApproval(chatId: string, card: ApprovalCard): Promise<MessageRef> {
+    const keyboard = approvalKeyboard(card)
     // GFM 卡面经 telegramify → MarkdownV2；command/detail（工具名+参数）含特殊字符也被安全转义
-    const md = `⚠️ **需要授权**\n\n命令：\`${card.command}\`\n\n说明：${detail}`
+    const md = approvalMarkdown(card)
     const { text, extra } = fmt(md)
     try {
       return await doSend(chatId, text, { ...extra, reply_markup: keyboard })
     } catch (err) {
       if (!isParseEntitiesError(err)) throw err
       // 降级：纯文本卡面（保留审批按钮），确保授权流不因渲染失败而中断
-      const plain = `⚠️ 需要授权\n\n命令：\n${card.command}\n\n说明：${detail}`
+      const plain = md.replace(/[*`]/g, '')
       return doSend(chatId, plain, { reply_markup: keyboard })
     }
   }
@@ -645,6 +678,8 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       return // 幂等：重复点击只生效一次
     }
     meta.resolved = true
+    if (meta.countdownTimer) clearInterval(meta.countdownTimer)
+    meta.countdownTimer = null
     const operator = String(ctx.from?.id ?? '')
     if (decision === 'approve') {
       bus.emit('ApprovalApproved', { conversationId: meta.conversationId, approvalId, operator })
@@ -652,7 +687,10 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       bus.emit('ApprovalRejected', { conversationId: meta.conversationId, approvalId, operator })
     }
     const label = decision === 'approve' ? '✅ 已批准' : '❌ 已拒绝'
-    void doEdit(meta.ref, `⚠️ 需要授权 — ${label}（by ${operator}）`).catch(() => {})
+    if (meta.ref)
+      void doEdit(meta.ref, `⚠️ 需要授权 — ${label}（by ${operator}）`, {
+        reply_markup: { inline_keyboard: [] },
+      }).catch(() => {})
     void ctx.answerCbQuery(decision === 'approve' ? '已批准' : '已拒绝').catch(() => {})
   }
 
@@ -679,7 +717,10 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   }) {
     if (p.platform && p.platform !== 'telegram') return
     const chatId = userChat.get(p.userId)
-    if (chatId && p.conversationId) convChat.set(p.conversationId, chatId)
+    if (chatId && p.conversationId) {
+      convChat.set(p.conversationId, chatId)
+      convUser.set(p.conversationId, p.userId)
+    }
     if (p.cli) userCli.set(p.userId, p.cli)
     if (p.cwd) userCwd.set(p.userId, p.cwd)
   }
@@ -732,17 +773,64 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     bus.on('ApprovalRequested', async p => {
       const chatId = convChat.get(p.conversationId)
       if (!chatId) return
+      const userId = convUser.get(p.conversationId) ?? chatId
+      const card: ApprovalCard = {
+        approvalId: p.approvalId,
+        title: '需要授权',
+        command: p.command,
+        detail: p.detail,
+        ...(p.autoApproveAt ? { autoApproveAt: p.autoApproveAt } : {}),
+      }
+      const meta: TelegramApprovalMeta = {
+        conversationId: p.conversationId,
+        chatId,
+        userId,
+        card,
+        resolved: false,
+        countdownTimer: null,
+      }
+      approvals.set(p.approvalId, meta)
       try {
-        const ref = await doSendApproval(chatId, {
-          approvalId: p.approvalId,
-          title: '需要授权',
-          command: p.command,
-          detail: p.detail,
-        })
-        approvals.set(p.approvalId, { conversationId: p.conversationId, ref, resolved: false })
+        meta.ref = await doSendApproval(chatId, card)
+        if (meta.resolved || !card.autoApproveAt) return
+        meta.countdownTimer = setInterval(() => {
+          if (meta.resolved || !meta.ref || !card.autoApproveAt) return
+          const remaining = Math.max(0, Math.ceil((card.autoApproveAt - Date.now()) / 1000))
+          if (remaining <= 0) {
+            if (meta.countdownTimer) clearInterval(meta.countdownTimer)
+            meta.countdownTimer = null
+            return
+          }
+          void editApprovalCard(meta.ref, card, remaining).catch(err => reportError('telegram:approvalCountdown', err))
+        }, 1_000)
       } catch (err) {
         reportError('telegram:ApprovalRequested', err)
       }
+    }),
+  )
+
+  unsubs.push(
+    bus.on('ApprovalApproved', p => {
+      if (!p.automatic) return
+      const meta = approvals.get(p.approvalId)
+      if (!meta || meta.resolved) return
+      meta.resolved = true
+      if (meta.countdownTimer) clearInterval(meta.countdownTimer)
+      meta.countdownTimer = null
+      if (meta.ref)
+        void doEdit(meta.ref, '⚡ 自动审批倒计时已结束 — ✅ 已批准', {
+          reply_markup: { inline_keyboard: [] },
+        }).catch(() => {})
+      void resolvedUserLanguage(meta.userId)
+        .then(language =>
+          sendFormatted(
+            meta.chatId,
+            language === 'en'
+              ? `## ✅ Automatically approved\n\nThe 5-second countdown ended and \`${meta.card.command}\` was approved automatically.`
+              : `## ✅ 已自动审批\n\n5 秒倒计时已结束，\`${meta.card.command}\` 已自动批准。`,
+          ),
+        )
+        .catch(err => reportError('telegram:autoApprovalResult', err))
     }),
   )
 
@@ -756,6 +844,9 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     },
 
     stop() {
+      for (const approval of approvals.values()) {
+        if (approval.countdownTimer) clearInterval(approval.countdownTimer)
+      }
       for (const u of unsubs) u()
       unsubs.length = 0
       try {
