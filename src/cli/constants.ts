@@ -142,4 +142,15 @@ export const READ_ONLY_GIT_SUBCOMMANDS = new Set([
   'status',
 ])
 
-export const VERSION_ONLY_COMMANDS = new Set(['bun', 'claude', 'deno', 'node', 'npm', 'opencode', 'python', 'python3'])
+export const VERSION_ONLY_COMMANDS = new Set([
+  'bun',
+  'claude',
+  'deno',
+  'nginx',
+  'node',
+  'npm',
+  'opencode',
+  'pm2',
+  'python',
+  'python3',
+])

@@ -200,7 +200,7 @@ export type AdapterState = 'stopped' | 'starting' | 'ready' | 'busy' | 'waitingA
 
 > **事件映射（EventMap 不变）**：Adapter 的 `onApprovalRequest` → `bus.emit('ApprovalRequested', { approvalId, command, detail, conversationId })`；Transport 的 [Approve]/[Reject] → `bus.emit('ApprovalApproved'|'ApprovalRejected')` → Core 调 `adapter.resolveApproval(id, 'approve'|'reject')`。SDK 家族据此 `resolve({ behavior: 'allow'|'deny' })`；PTY 家族据此 `runtime.write("y\r"|"n\r")`。
 
-> **共享只读查询策略**：所有 CLI Adapter 必须复用 `cli/utils.isReadOnlyShellCommand`。仅单条、明确的 POSIX/cmd/PowerShell 查询可免审批；含重定向、管道、串联、命令替换或未知/写操作时返回 false。Claude 在 `canUseTool(Bash)` 放行，OpenCode 在 `permission=bash` 时直接 reply `once`。
+> **共享只读查询策略**：所有 CLI Adapter 必须复用 `cli/utils.isReadOnlyShellCommand`。策略使用 `unbash` AST 和 `read-only | mutating | unknown` 三态模型；管道、`&&`、`||`、`;` 仅在所有叶子命令都确定只读时免审批，`2>&1` 等文件描述符复制不视为写文件，具名文件输出仍视为写入。`docker exec`、`bash/sh -c`、PowerShell/cmd 包装命令递归分析内部命令；解析失败、动态命令名和未知程序一律审批。Claude 在 `canUseTool(Bash)` 放行，OpenCode 在 `permission=bash` 时直接 reply `once`。
 
 ### 3.2 PtyRuntime（`runtime/`）—— **PTY 家族内部容器**，非跨形态抽象
 
