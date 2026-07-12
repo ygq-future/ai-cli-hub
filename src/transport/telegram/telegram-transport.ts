@@ -354,13 +354,13 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   }
 
   async function replyFormatted(ctx: TgCtx, content: string): Promise<unknown> {
-      const {text, extra} = fmt(content)
-      try {
-          return await ctx.reply(text, extra)
-      } catch (err) {
-          if (!isParseEntitiesError(err)) throw err
-          return await ctx.reply(content)
-      }
+    const { text, extra } = fmt(content)
+    try {
+      return await ctx.reply(text, extra)
+    } catch (err) {
+      if (!isParseEntitiesError(err)) throw err
+      return await ctx.reply(content)
+    }
   }
   async function doEdit(ref: MessageRef, content: string, extra?: unknown): Promise<void> {
     if (!content) return
@@ -397,7 +397,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       const ref = await doSend(chatId, chunk)
       firstRef ??= ref
     }
-    return firstRef ?? await doSend(chatId, '')
+    return firstRef ?? (await doSend(chatId, ''))
   }
 
   async function editPlainChunks(ref: MessageRef, raw: string): Promise<void> {
