@@ -1,4 +1,4 @@
-import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, test } from 'bun:test'
@@ -17,7 +17,7 @@ describe('createDefaultFileTextExtractor', () => {
     expect(result.status === 'ok' ? result.text.length : 0).toBeGreaterThan(0)
   })
 
-  test('提取 XLS 工作表为 CSV 文本', async () => {
+  test('Excel 交给外部文件处理能力，不在进程内解析', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'ai-cli-hub-xls-'))
     try {
       const file = path.join(dir, 'book.xls')
@@ -30,9 +30,10 @@ describe('createDefaultFileTextExtractor', () => {
         mimeType: 'application/vnd.ms-excel',
       })
 
-      expect(result.status).toBe('ok')
-      expect(result.status === 'ok' ? result.text : '').toContain('Sheet: Sheet1')
-      expect(result.status === 'ok' ? result.text : '').toContain('apples,3')
+      expect(result).toEqual({
+        status: 'unsupported',
+        reason: 'No text extractor is configured for this file type.',
+      })
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -59,11 +60,11 @@ describe('createDefaultFileTextExtractor', () => {
     }
   })
 
-  test('PDF 无可提取文本时返回 unsupported，供 OCR 抽象兜底', async () => {
+  test('PDF 交给外部 OCR 服务处理，不在进程内解析', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'ai-cli-hub-pdf-'))
     try {
       const file = path.join(dir, 'empty.pdf')
-      await copyFile('node_modules/mammoth/test/test-data/empty.docx', file)
+      await writeFile(file, '%PDF-1.7')
       const extractor = createDefaultFileTextExtractor()
       const result = await extractor.extract({
         localPath: file,
@@ -71,7 +72,10 @@ describe('createDefaultFileTextExtractor', () => {
         mimeType: 'application/pdf',
       })
 
-      expect(['unsupported', 'failed']).toContain(result.status)
+      expect(result).toEqual({
+        status: 'unsupported',
+        reason: 'No text extractor is configured for this file type.',
+      })
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

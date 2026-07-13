@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-12 · 阶段：**V3 JSON setting 迁移进行中**
+> 最后更新：2026-07-13 · 阶段：**V3 JSON setting 迁移进行中**
 
 ---
 
@@ -33,7 +33,7 @@
 | M6b | 会话管理命令 & 生产级加固 | ✅ 完成 | `/switch` `/close` `/status` `/sessions` `/lang`；支持在 CLI 会话间切换并恢复上下文，cwd 统一由 `/switch <cli> [path]` 管理 |
 | M7 | Audit 落地 | ✅ 完成 | 手动/自动 Approval 审计 + `/audit [conversationId]` 查看 |
 | M8 | 全局记忆基础 | ✅ | 环境画像记忆、adapter start 全局注入、`/remember`、`/memory`、`/env`、`/forget`、记忆变更后下一条消息实时加载已落地 |
-| M9 | 媒体/文件入站 + Light OCR 接入 | ✅ 完成 | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、PDF/Office 按需解析能力保留；QQ 媒体能力已同步接入；Vision 暂缓 |
+| M9 | 媒体/文件入站 + Light OCR 接入 | ✅ 完成 | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、DOCX 按需解析；PDF 按需交给本地 OCR 服务转图识别，Excel 交给外部文件处理能力；QQ 媒体能力已同步接入；Vision 暂缓 |
 | M10 | 加固与交付 | ✅ 完成 | 启动状态对账、优雅关闭、adapter 故障隔离、审批幂等、PM2/systemd 部署示例完成；用户已在 VPS 宿主机 + PM2 部署跑通 |
 | V1.5 | 记忆增强（pgvector） | ✅ 完成 | 默认 BAAI/bge-m3/1024 维/Top-K 10；embedding provider、HNSW 迁移、向量召回注入、自然语言记忆 LLM 摘要已落地 |
 | V2-R1 | 优化和 Bug 修复 | ✅ 首批完成 | 常量配置化、记忆摘要窗口语义收口、移除 `SessionClosed` 非 LLM 自动摘录、Claude SDK 审批 approve 保留原始 tool input、PTY approval 目录说明、async/import 清理、SDK raw JSON 与消息链路 debug 拆分、短问候跳过语义召回、Agent SDK host 指令泄漏清洗 |
@@ -89,7 +89,7 @@
 | D37 | **记忆变更后实时生效但不丢最近语境**：`/remember`、`/forget` 后停止当前用户已启动 adapter，conversation 不关闭；下一条普通消息重新 start adapter，system hint 注入最新全局记忆与 `AGENT_DESCRIPTION`，user message 前缀携带当前 conversation 最近 `RECENT_CONTEXT_LIMIT` 条历史消息（不含当前消息本身），单条超长历史按 `RECENT_CONTEXT_MESSAGE_MAX_CHARS` 保留尾部，不做完整 messages replay。 | 2026-07-06 |
 | D38 | **会话当前态以“用户最新可复用会话”为准并带新建兜底**：普通消息、`/status`、`/close`、`/cwd` 优先回查该用户最新 `idle/starting/running` 会话，恢复 `cli/cwd` 后复用，解决 Transport 重启或内存目标丢失后看不到最新 idle 的问题；每次新建 conversation 前必须关闭该用户所有非 `closed` 历史会话（含卡在 `closing` 的记录），保证同一用户至多一条未关闭会话。 | 2026-07-07 |
 | D39 | **M9 收口为媒体入站基础 + OCR 抽象，Vision 暂缓**：OCR 方案尚未定稿，M9 先定义 `OcrProvider` 抽象；原设想包含图片/PDF 路径调用，后由 D44 收口为上传时仅图片即时 OCR。PDF/Office 具体文本提取 adapter 后续接入，并仅在用户明确要求时按需调用。M9-D Vision（图片语义理解、static sticker/thumbnail Vision、animated/video sticker 抽帧）明确移到项目 V1 完成后的优化迭代。 | 2026-07-07 |
-| D40 | **M9 PDF/Office 文本提取库定稿**：文字型 PDF 用 `pdf-parse`；`.docx` 用 `mammoth.extractRawText`；`.xls/.xlsx` 用 `xlsx` 读取工作表并转 CSV 文本；旧 `.doc` 不支持，提示用户转 `.docx`/PDF/text。D44 已收口：这些库只作为用户明确要求后的按需解析能力，不在上传时自动调用。 | 2026-07-08 |
+| D40 | **M9 PDF/Office 文本提取库定稿（PDF/Excel 部分已由 D69/D70 修正）**：`.docx` 用 `mammoth.extractRawText`；旧 `.doc` 不支持，提示用户转 `.docx`/PDF/text。D44 已收口：解析能力只在用户明确要求后按需调用，不在上传时自动调用。PDF 不再使用 `pdf-parse`，见 D69；Excel 不再使用 `xlsx`，见 D70。 | 2026-07-08 |
 | D41 | **OCR provider 采用 Light OCR HTTP API 可配置接入**：继续保留 `OcrProvider` 抽象；默认实现通过 `OCR_API_BASE_URL` + `OCR_API_TIMEOUT_MS` 调用 `POST /ocr/file`，multipart/form-data 字段 `file`，解析返回 `{ text, lines }`；`OCR_API_BASE_URL` 为空时保持未配置状态，不阻塞媒体入站。 | 2026-07-08 |
 | D42 | **Telegram 可下载文件/附件默认保存，不做文件类型白名单**：白名单用户已经是信任边界；Transport 对 Telegram `photo/document/audio/voice/video/video_note/animation` 均下载到 `MEDIA_DOWNLOAD_DIR` 并传入文件预处理；TG 任意普通文件统一走 `document`，跨 Transport/未知来源可归为 `other`。保留 `MEDIA_MAX_FILE_BYTES` 与 `MEDIA_PARSE_TIMEOUT_MS` 作为资源保护，不按扩展名或 MIME 拦截。音视频第一版只保存与记录 metadata，不做转写或内容理解。 | 2026-07-08 |
 | D43 | **拒绝工具审批后丢弃当前 adapter 上下文**：Reject 表示当前工具路径不应继续，orchestrator 在 `interrupt()+resolve reject` 后停止该会话 adapter；下一条普通消息会重新 start，并通过最近上下文带回已入库的最新文件 metadata/local_path，避免 Claude 留在上一轮 `.doc`/工具失败语境里继续误判。 | 2026-07-08 |
@@ -119,7 +119,9 @@
 | D65 | **setting 交互编辑器改用 `@clack/prompts`（放弃手写 ANSI 全屏 TUI）**：手写 ANSI 全屏双面板在真机翻车（左侧面板不显示、布局错乱，终端尺寸/cup 定位/背景色渲染兼容性差），改用成熟的 `@clack/prompts` 流式交互。三层循环：主菜单 `select` 选分类 → 字段 `select`（hint 显示类型+当前值）→ 按类型编辑（`text`/`password`/`confirm`/`select`）。每次编辑确认后立即写盘 + Zod 校验（复用 `src/config/schema` 的 `SettingsJsonSchema`），校验错误显示在主菜单与 `p.log.warn`。`password` 用 clack 独立 `p.password()` prompt（mask 输入，留空保留原值）。TTY 检测 + `import.meta.main` 守卫。新增 `scripts/setting.test.ts` 18 个纯函数测试（字段定义/嵌套读写/hint 格式化/校验）。依赖新增 `@clack/prompts@1.7.0`。 | 2026-07-11 |
 | D66 | **setting 脚本用 tsx(Node) 跑，避开 Bun readline 兼容问题**：clack core 依赖 `node:readline.emitKeypressEvents` 解析按键，Bun 实现不完整——多字节按键序列（方向键/ESC）偶发解析失败，状态机卡住，单字节回车能触发新事件解锁（真机表现为"卡死，按回车恢复"）。修复：`bun setting` 底层改为 `tsx scripts/setting.ts`（Node + esbuild 转译，readline 稳定），`setting.ts` 的 `Bun.write` 换成 `writeFileSync` 去掉 Bun 运行时依赖。依赖新增 `tsx@4.23.0`（放 dependencies，VPS 运行需要）。用户仍跑 `bun setting`，底层 tsx 透明。`setting-migrate` 等非交互脚本保持 bun 跑（无 readline 问题）。 | 2026-07-11 |
 | D67 | **未装配的 PTY 实现与 node-pty 依赖按需化**：当前 Claude/OpenCode 都是 SDK 家族，Composition Root 和任何 Adapter 均未使用 `NodePtyRuntime`；为避免每个平台约 60 MB 的原生依赖成本，删除现有占位实现、测试与直接依赖。D11 的 PTY 家族架构扩展点保留，接入首个无 SDK CLI 时再连同 `runtime/`、ApprovalDetector 和 node-pty 一起实现。 | 2026-07-12 |
-| D68 | **Claude Agent SDK 复用系统 CLI，并在解析阶段阻止内置二进制下载**：`session.claudeExecutablePath` 可指定绝对路径，留空时用 `Bun.which('claude')`；Composition Root fail-fast 解析后传给 SDK `pathToClaudeCodeExecutable`。根 `package.json` 为 SDK 声明的全部 `@anthropic-ai/claude-agent-sdk-<platform>` optional dependency 配置同名本地 file stub override，使普通 `bun install` 零下载内置 Claude；契约测试会在 SDK 新增平台包或版本变化时失败。不用全局 `--omit optional`，避免误删 PDF canvas。 | 2026-07-12 |
+| D68 | **Claude Agent SDK 复用系统 CLI，并在解析阶段阻止内置二进制下载**：`session.claudeExecutablePath` 可指定绝对路径，留空时用 `Bun.which('claude')`；Composition Root fail-fast 解析后传给 SDK `pathToClaudeCodeExecutable`。根 `package.json` 为 SDK 声明的全部 `@anthropic-ai/claude-agent-sdk-<platform>` optional dependency 配置同名本地 file stub override，使普通 `bun install` 零下载内置 Claude；契约测试会在 SDK 新增平台包或版本变化时失败。不用全局 `--omit optional`，避免误删其它依赖的 optional package。 | 2026-07-12 |
+| D69 | **PDF 统一交给本地 OCR 服务，Hub 删除进程内 PDF 渲染栈**：PDF 仍按非图片附件懒加载；用户明确要求读取时，由本地 OCR 服务用轻量 PDF 转图组件生成临时图片并识别。Hub 删除未装配的 `pdf-parse` 代码与直接依赖，从依赖树同步移除 `pdfjs-dist`、`@napi-rs/canvas` 及平台 Canvas 包。DOCX 的 `mammoth` 按需解析保留。 | 2026-07-13 |
+| D70 | **删除存在已知高危漏洞且未装配的 `xlsx@0.18.5`**：npm registry 的 `xlsx` 停在同时受 CVE-2023-30533 与 CVE-2024-22363 影响的 0.18.5；安全版本需改从 SheetJS CDN 获取。当前 Excel extractor 未被 Composition Root 装配，故不引入 CDN tarball或替代库，直接删除解析代码与依赖；Excel 文件继续懒加载，明确处理时交给外部文件能力。 | 2026-07-13 |
 
 ---
 
@@ -150,7 +152,9 @@
 
 | 日期 | 内容 |
 |---|---|
-| 2026-07-12 | **Claude SDK 系统 CLI 复用与首次安装零下载完成**：新增系统 Claude 路径自动发现/显式配置，`ClaudeSdkAdapter` 通过 `pathToClaudeCodeExecutable` 复用外部安装。根据用户进一步明确的“新拉项目首次安装就不要下载”要求，将安装后裁剪升级为 Bun 顶层 overrides + 8 个同名本地空包，在依赖解析阶段替代全部 SDK 平台 optional dependency；删除 `deps:prune` 及 `/update` 裁剪步骤，新增依赖策略契约测试，PDF canvas 不受影响。当前 Windows 系统 Claude 为 2.1.207；真实 `bun install` 只安装 8 个本地 stub（36ms），forced frozen dry-run 中全部 Claude 平台包均解析到 `vendor/`。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；完整依赖环境 `bun test` 375 pass / 7 skip / 0 fail。 |
+| 2026-07-13 | **存在高危漏洞的 xlsx 依赖移除**：核对 NVD 与 SheetJS 官方公告，确认 `xlsx@0.18.5` 受 CVE-2023-30533（修复于 0.19.3）和 CVE-2024-22363（修复于 0.20.2）影响，而 npm registry 仍停在 0.18.5；代码溯源确认 Excel extractor 未被 Composition Root 装配。按最小依赖原则删除 `xlsx` 解析代码、直接依赖及 `codepage` 等传递依赖，不改用 SheetJS CDN tarball；Excel 附件继续懒加载并交给外部文件处理能力。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；目标测试 4 pass / 0 fail；完整依赖环境 `bun test` 375 pass / 7 skip / 0 fail。 |
+| 2026-07-13 | **PDF 依赖栈移除**：依赖溯源确认项目直接依赖 `pdf-parse`，它带入 `pdfjs-dist` 与 `@napi-rs/canvas`/平台二进制；默认 `FileTextExtractor` 又未被 Composition Root 装配。删除进程内 PDF 解析实现与直接依赖，PDF 保持懒加载并在用户明确要求时交给本地 OCR 服务转临时图片识别；DOCX 按需解析保留。锁文件已无三个包，当前 Windows 旧 `node_modules` 残留也已清理。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；媒体目标测试 16 pass / 0 fail；完整依赖环境 `bun test` 375 pass / 7 skip / 0 fail。 |
+| 2026-07-12 | **Claude SDK 系统 CLI 复用与首次安装零下载完成**：新增系统 Claude 路径自动发现/显式配置，`ClaudeSdkAdapter` 通过 `pathToClaudeCodeExecutable` 复用外部安装。根据用户进一步明确的“新拉项目首次安装就不要下载”要求，将安装后裁剪升级为 Bun 顶层 overrides + 8 个同名本地空包，在依赖解析阶段替代全部 SDK 平台 optional dependency；删除 `deps:prune` 及 `/update` 裁剪步骤，新增依赖策略契约测试；当时保留的 PDF Canvas 后由 D69 删除。当前 Windows 系统 Claude 为 2.1.207；真实 `bun install` 只安装 8 个本地 stub（36ms），forced frozen dry-run 中全部 Claude 平台包均解析到 `vendor/`。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；完整依赖环境 `bun test` 375 pass / 7 skip / 0 fail。 |
 | 2026-07-12 | **依赖体积首轮清理**：依赖溯源确认 `node-pty` 只有未装配的备用实现/测试，当前 Claude/OpenCode SDK Adapter 与 Composition Root 均不使用；删除 `src/runtime` 占位实现、测试及 `node-pty` 直接依赖，PTY 架构扩展点保留到首个无 SDK CLI 接入时再实现。同步 PRD/架构/接口契约/实施计划/README/Agent 规范。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；完整依赖环境 `bun test` 370 pass / 7 skip / 0 fail。 |
 | 2026-07-11 | **setting Windows 改为单 readline 稳定模式**：用户真机确认上轮 raw mode 交接补丁仍会卡死，否定其作为根治方案，并从代码中移除该补丁与对应测试。Windows 现在完全绕过 Clack、raw mode 和方向键解析：`main` 只创建一个 Node `readline/promises` interface，主菜单、分类菜单、字符串/数字/数组/布尔/枚举/密码编辑全部共用 cooked-mode 编号 + Enter 交互，`0`/`q` 返回或退出；密码编辑会明确提示 Windows 稳定模式下输入可见。Linux 继续使用已验证正常的 Clack 界面，行为不变。新增编号解析与 Windows 完整编辑流测试；真实 Windows ConPTY 驱动 `bun setting` 完成 50 轮“进入分类→返回主菜单”并以 0 退出，无输入卡死。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；目标测试 24 pass / 0 fail / 313 expect；全量测试 313 pass / 7 skip / 0 fail / 1106 expect。 |
 | 2026-07-11 | **setting Windows prompt 交接卡死修复**：用 Node + node-pty 对连续“进入分类→返回主菜单”压测，确认新 prompt 完全渲染后键盘始终正常，故障位于 Clack 连续 prompt 的 stdin 交接窗口：上一 prompt close 会关闭 raw mode，Windows 上此时落入的按键会进入等待换行的行缓冲，表现为方向键/ESC/输入无效，必须 Enter 才恢复。新增统一 `runPrompt` 包装，仅在 Windows 上于每个 prompt resolve 后立即恢复 raw mode，遮住菜单跳转/保存/日志间的行缓冲窗口；编辑器退出时统一还原终端模式，异常路径改用 `process.exitCode` 确保 finally 可执行。新增 4 个终端模式回归测试，覆盖 Windows TTY 恢复、退出还原、非 TTY 与非 Windows 不受影响。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、目标测试全部通过（25 pass / 0 fail / 304 expect）；全量 `bun test` 非沙箱通过（314 pass / 7 skip / 0 fail / 1097 expect）；渲染驱动 PTY 30 轮菜单切换全部成功。 |

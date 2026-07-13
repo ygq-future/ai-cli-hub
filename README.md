@@ -78,7 +78,7 @@ Configure at least:
 
 `settings.json` is local and gitignored. The application no longer loads business configuration from `.env`.
 
-The root `overrides` map replaces every Agent SDK native CLI optional dependency with a tiny same-name local stub. A fresh `bun install` therefore installs only the SDK JS control layer and never downloads its bundled Claude binaries; PDF canvas optional dependencies are unaffected.
+The root `overrides` map replaces every Agent SDK native CLI optional dependency with a tiny same-name local stub. A fresh `bun install` therefore installs only the SDK JS control layer and never downloads its bundled Claude binaries. PDF rendering is delegated to the external OCR service, so the Hub does not install `pdf-parse`, `pdfjs-dist`, or Canvas.
 
 ### Tencent Official QQ Bot
 

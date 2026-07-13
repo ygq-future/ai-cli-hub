@@ -123,14 +123,14 @@ Markdown 卡片 + 内联按钮：
 | Unicode emoji | 从文本中识别 emoji，补充 short name/keywords 到上下文 | 否 |
 | Telegram sticker/custom emoji | 解析 `emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id` 等 metadata | 否 |
 | 图片/photo | 下载到受控目录，记录 metadata；调用 `OcrProvider`，配置 `OCR_API_BASE_URL` 后走 Light OCR `POST /ocr/file` | 是 |
-| PDF/扫描 PDF | 下载并记录 metadata/local_path；上传时不提取文本、不 OCR；用户明确要求处理时，文字型 PDF 可用 `pdf-parse`，扫描页再按需调用 OCR | 按需 |
-| Word/Excel 文件 | 下载并记录 metadata/local_path；上传时不提取文本；用户明确要求处理时，`.docx` 可用 `mammoth`，`.xls/.xlsx` 可用 `xlsx`，旧 `.doc` 不支持并提示转换 | 否 |
+| PDF/扫描 PDF | 下载并记录 metadata/local_path；上传时不提取文本、不 OCR；用户明确要求处理时，由本地 OCR 服务把 PDF 转为临时图片后统一识别 | 按需 |
+| Word/Excel 文件 | 下载并记录 metadata/local_path；上传时不提取文本；用户明确要求处理时，`.docx` 可用 `mammoth`，Excel 交给外部文件处理能力；旧 `.doc` 不支持并提示转换 | 否 |
 | 文本文件 | 下载并记录 metadata/local_path；上传时不读取正文、不作为本轮上下文 | 否 |
 | 其它普通文件 | 作为 `document` 或 `other` 保存到受控目录，记录 metadata/local_path；不做自动处理 | 否 |
 | 音频/语音/video/animation | 下载到受控目录，记录 metadata；暂不做转写或内容理解 | 否 |
 | 动态/video sticker | 第一版只记录 metadata；Vision/抽帧暂不实现 | 否，属于后续 Vision |
 
-> 上传文件不等于处理文件。除图片可立即 OCR 外，非图片文件只保存并登记路径，正文不会自动进入 prompt；当用户说“读取/总结/转换/移动刚才那个文件”时，才按 `local_path` 执行对应操作。OCR 当前提供 Light OCR HTTP provider：`POST /ocr/file`，multipart 字段 `file`，返回 `{ text, lines }`。动态 sticker 的画面含义属于 Vision/抽帧增强，已明确延后到 V1 后优化。
+> 上传文件不等于处理文件。除图片可立即 OCR 外，非图片文件只保存并登记路径，正文不会自动进入 prompt；当用户说“读取/总结/转换/移动刚才那个文件”时，才按 `local_path` 执行对应操作。OCR 当前提供 Light OCR HTTP provider：`POST /ocr/file`，multipart 字段 `file`，返回 `{ text, lines }`；PDF 转临时图片由本地 OCR 服务负责，主进程不安装 `pdf-parse`、`pdfjs-dist` 或 Canvas。动态 sticker 的画面含义属于 Vision/抽帧增强，已明确延后到 V1 后优化。
 
 ---
 
@@ -174,4 +174,4 @@ bun setting
 
 `setting:migrate` 只在 `settings.json` 与 `settings.json.example` 之间对齐结构：保留现有值、补新 key、删旧 key。它不读取 `.env`。`/update confirm` 也会在数据库迁移前自动执行该命令。
 
-`session.claudeExecutablePath` 可填写系统 Claude CLI 的绝对路径；留空时从 `PATH` 自动查找。根 `package.json` 为 Agent SDK 声明的每个平台 CLI 包配置同名本地 stub override，因此普通 `bun install` 只安装 SDK JS 控制层，不下载原生 Claude CLI，也不影响 PDF canvas 可选依赖。
+`session.claudeExecutablePath` 可填写系统 Claude CLI 的绝对路径；留空时从 `PATH` 自动查找。根 `package.json` 为 Agent SDK 声明的每个平台 CLI 包配置同名本地 stub override，因此普通 `bun install` 只安装 SDK JS 控制层，不下载原生 Claude CLI。PDF 渲染统一交给外部 OCR 服务，Hub 本身不安装 Canvas。
