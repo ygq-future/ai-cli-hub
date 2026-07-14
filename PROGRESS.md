@@ -165,6 +165,7 @@
 | 2026-07-14 | **`/clear`/`/reset` CLI 上下文清理补齐**：确认此前只删除 DB messages/files，运行中的 Claude/OpenCode adapter 仍保留 SDK 上下文。现统一在清理完成后发 `ConversationContextReset`，orchestrator 停止并摘除当前 adapter；conversation 保持未关闭，下一条消息重新启动干净 CLI。该通知与兼容文件清理事件分离，避免已同步删除文件后重复异步删除误伤新上传附件；聚合器同步丢弃未定稿旧输出。共享中英文帮助、命令回复、接口契约、命令 UX 与实施计划同步。自动验收：format/format:check/typecheck/lint 全绿，完整测试 407 pass / 7 skip / 0 fail。 |
 | 2026-07-14 | **平台隔离默认工作目录**：默认 cwd 从 `~/ai-workspace/.<cli>` 调整为 `~/ai-workspace/.<cli>-<platform>`，首次访问与 `/reset` 均按 Telegram/QQ/WebSocket 分目录创建。数据库中已有显式/默认 cwd 保持不变，不做破坏性迁移；需要切换旧用户时可执行 `/reset`，或关闭当前会话后 `/switch <cli> <path>`。补充 Telegram/QQ 不同默认目录与 reset 回归测试，并同步 README、架构、数据模型和命令 UX。自动验收：format/format:check/typecheck/lint 全绿，完整测试 407 pass / 7 skip / 0 fail。 |
 | 2026-07-14 | **`/reset` 默认值覆盖语义修复**：修正仓储层删除 `user_preferences`/`user_cli_preferences` 的错误行为，改为保留记录并覆盖系统默认值；已接入的 Claude/OpenCode cwd 恢复平台隔离默认目录、model ID/name 清空，同时更新该 `(platform,userId)` 下所有未关闭（含 idle）conversation 的 cwd。随后沿用 `UserPreferencesReset` 停止全部相关 adapter，使下一条消息在默认 cwd 启动干净 CLI。同步接口契约、命令 UX 与回归测试。 |
+| 2026-07-14 | **Telegram `/status` 列表间距修复**：移除 Model ID 与“已存活”之间位于同一 Markdown 列表内部的空行，避免 `telegramify-markdown` 将整组字段识别并序列化为 loose list、进而在 Telegram MarkdownV2 中为每项插入空行；QQ 与 Telegram 现均保持紧凑状态列表。新增源文案回归断言。 |
 | 2026-07-14 | **文件处理优化，第 1–3 阶段完成（后续已由全面复核整改补齐）**：审计确认 QQ 单条消息已支持多附件逐个 OCR；当时 Telegram 相册仍逐张独立入站。新增 `conversation_files` 表及 `0011_conversation_files.sql`、`ConversationFileRepository`、`ConversationCleared`、`/clear` 和媒体生命周期订阅器。 |
 
 > 每个工作会话追加一行：日期 · 做了什么 · 产出/决策。
