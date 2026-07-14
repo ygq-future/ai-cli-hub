@@ -39,6 +39,7 @@ export interface UserPreferencesDeps {
 
 const DEFAULT_LANGUAGE: UserLanguage = 'zh'
 const DEFAULT_CLI: CliType = 'claude'
+const SUPPORTED_CLI_TYPES: readonly CliType[] = ['claude', 'opencode']
 
 export function createUserPreferences(deps: UserPreferencesDeps): UserPreferences {
   const { bus, repos } = deps
@@ -123,13 +124,15 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
   }
 
   async function reset(platform: Platform, userId: string): Promise<UserTarget> {
-    await repos.userPreferences.reset(platform, userId)
+    const defaults = SUPPORTED_CLI_TYPES.map(cli => ({ cli, cwd: defaultCwd(deps.homeDir, cli, platform) }))
+    await Promise.all(defaults.map(value => ensureDirectory(value.cwd)))
+    await repos.userPreferences.reset(platform, userId, defaults)
+    await repos.conversations.resetOpenCwds(platform, userId, defaults)
     const key = cacheKey(platform, userId)
     languageCache.delete(key)
     targetCache.delete(key)
     autoApproveCache.delete(key)
     const target = { cli: DEFAULT_CLI, cwd: defaultCwd(deps.homeDir, DEFAULT_CLI, platform) }
-    await ensureDirectory(target.cwd)
     bus.emit('UserTargetChanged', { platform, userId, ...target })
     bus.emit('UserPreferencesReset', { platform, userId })
     return target

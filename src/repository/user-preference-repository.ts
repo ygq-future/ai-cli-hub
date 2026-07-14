@@ -79,14 +79,48 @@ export function createUserPreferenceRepository(db: Db): UserPreferenceRepository
         )
     },
 
-    async reset(platform, userId) {
+    async reset(platform, userId, defaults) {
       await db.transaction(async tx => {
+        const now = Date.now()
         await tx
-          .delete(userCliPreferences)
-          .where(and(eq(userCliPreferences.platform, platform), eq(userCliPreferences.userId, userId)))
-        await tx
-          .delete(userPreferences)
-          .where(and(eq(userPreferences.platform, platform), eq(userPreferences.userId, userId)))
+          .insert(userPreferences)
+          .values({
+            platform,
+            userId,
+            language: 'zh',
+            defaultCli: 'claude',
+            autoApproveEnabled: false,
+            autoApproveSeconds: 5,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [userPreferences.platform, userPreferences.userId],
+            set: {
+              language: 'zh',
+              defaultCli: 'claude',
+              autoApproveEnabled: false,
+              autoApproveSeconds: 5,
+              updatedAt: now,
+            },
+          })
+        for (const value of defaults) {
+          await tx
+            .insert(userCliPreferences)
+            .values({
+              platform,
+              userId,
+              cli: value.cli,
+              cwd: value.cwd,
+              modelId: null,
+              modelName: null,
+              updatedAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [userCliPreferences.platform, userCliPreferences.userId, userCliPreferences.cli],
+              set: { cwd: value.cwd, modelId: null, modelName: null, updatedAt: now },
+            })
+        }
       })
     },
   }

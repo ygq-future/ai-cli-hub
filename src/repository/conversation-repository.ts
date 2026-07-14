@@ -59,6 +59,25 @@ export function createConversationRepository(db: Db): ConversationRepository {
       await db.update(conversations).set({ status, updatedAt: Date.now() }).where(eq(conversations.id, id))
     },
 
+    async resetOpenCwds(platform, userId, defaults): Promise<void> {
+      await db.transaction(async tx => {
+        for (const value of defaults) {
+          await tx
+            .update(conversations)
+            .set({ cwd: value.cwd, updatedAt: Date.now() })
+            .where(
+              and(
+                eq(conversations.platform, platform),
+                eq(conversations.userId, userId),
+                eq(conversations.cli, value.cli),
+                ne(conversations.status, 'closed'),
+                ne(conversations.status, 'closing'),
+              ),
+            )
+        }
+      })
+    },
+
     async reconcileRuntimeStatuses(now: number): Promise<void> {
       await db
         .update(conversations)

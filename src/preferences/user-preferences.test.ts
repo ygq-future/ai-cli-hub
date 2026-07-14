@@ -15,6 +15,7 @@ function createRepos() {
   >()
   const cwds = new Map<string, string>()
   const models = new Map<string, { modelId: string; modelName: string }>()
+  const conversationResets: unknown[] = []
   const key = (platform: string, userId: string) => `${platform}:${userId}`
   const cwdKey = (platform: string, userId: string, cli: string) => `${platform}:${userId}:${cli}`
 
@@ -84,17 +85,33 @@ function createRepos() {
         ) {
           models.set(cwdKey(platform, userId, cli), { modelId, modelName })
         },
-        async reset(platform: 'telegram' | 'qq' | 'websocket', userId: string) {
-          preferences.delete(key(platform, userId))
-          for (const storedKey of [...cwds.keys()]) {
-            if (storedKey.startsWith(`${platform}:${userId}:`)) cwds.delete(storedKey)
-          }
-          for (const storedKey of [...models.keys()]) {
-            if (storedKey.startsWith(`${platform}:${userId}:`)) models.delete(storedKey)
+        async reset(
+          platform: 'telegram' | 'qq' | 'websocket',
+          userId: string,
+          defaults: ReadonlyArray<{ cli: 'claude' | 'opencode' | 'codex' | 'gemini'; cwd: string }>,
+        ) {
+          preferences.set(key(platform, userId), {
+            language: 'zh',
+            defaultCli: 'claude',
+            autoApproveEnabled: false,
+            autoApproveSeconds: 5,
+          })
+          for (const value of defaults) {
+            cwds.set(cwdKey(platform, userId, value.cli), value.cwd)
+            models.delete(cwdKey(platform, userId, value.cli))
           }
         },
       },
+      conversations: {
+        async resetOpenCwds(platform: string, userId: string, defaults: unknown) {
+          conversationResets.push({ platform, userId, defaults })
+        },
+      },
     },
+    preferences,
+    cwds,
+    models,
+    conversationResets,
   }
 }
 
@@ -138,11 +155,11 @@ describe('user preferences', () => {
     expect(created).toEqual([telegramClaudeCwd, qqClaudeCwd])
   })
 
-  test('reset 删除持久化偏好与缓存并恢复默认值', async () => {
+  test('reset 以默认值覆盖持久化偏好、CLI cwd 与模型选择', async () => {
     const bus = createEventBus()
     const resetEvents: unknown[] = []
     bus.on('UserPreferencesReset', payload => resetEvents.push(payload))
-    const { repos } = createRepos()
+    const { repos, preferences: storedPreferences, cwds, models, conversationResets } = createRepos()
     const preferences = createUserPreferences({ bus, repos: repos as never, homeDir: '/home/hub' })
     await preferences.getTarget('telegram', 'u1')
     await preferences.setTarget('telegram', 'u1', { cli: 'opencode', cwd: '/projects/open' })
@@ -156,6 +173,24 @@ describe('user preferences', () => {
     expect(await preferences.getLanguage('telegram', 'u1')).toBe('zh')
     expect(await preferences.getAutoApprove('telegram', 'u1')).toEqual({ enabled: false, seconds: 5 })
     expect(await preferences.getModel('telegram', 'u1', 'opencode')).toBeNull()
+    expect(storedPreferences.get('telegram:u1')).toEqual({
+      language: 'zh',
+      defaultCli: 'claude',
+      autoApproveEnabled: false,
+      autoApproveSeconds: 5,
+    })
+    expect(cwds.get('telegram:u1:opencode')).toBe(path.join('/home/hub', 'ai-workspace', '.opencode-telegram'))
+    expect(models.has('telegram:u1:opencode')).toBeFalse()
+    expect(conversationResets).toEqual([
+      {
+        platform: 'telegram',
+        userId: 'u1',
+        defaults: [
+          { cli: 'claude', cwd: path.join('/home/hub', 'ai-workspace', '.claude-telegram') },
+          { cli: 'opencode', cwd: path.join('/home/hub', 'ai-workspace', '.opencode-telegram') },
+        ],
+      },
+    ])
     expect(resetEvents).toEqual([{ platform: 'telegram', userId: 'u1' }])
   })
 })

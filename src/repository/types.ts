@@ -44,10 +44,17 @@ export interface ConversationRepository {
   findById(id: ConversationId): Promise<Conversation | null>
   listRecentByUser(platform: Platform, userId: string, limit: number): Promise<Conversation[]>
   updateStatus(id: ConversationId, status: SessionStatus): Promise<void>
+  /** 将用户所有未关闭会话恢复到各 CLI 的默认 cwd，不改变会话状态。 */
+  resetOpenCwds(platform: Platform, userId: string, defaults: ReadonlyArray<CliCwdDefault>): Promise<void>
   /** 进程重启对账：starting/running 复位 idle，closing 收尾 closed；运行期 adapter 无法恢复。 */
   reconcileRuntimeStatuses(now: number): Promise<void>
   /** 归档扫描：updatedAt < beforeTs 的 idle 会话。 */
   listStaleIdle(beforeTs: number): Promise<Conversation[]>
+}
+
+export interface CliCwdDefault {
+  cli: CliType
+  cwd: string
 }
 
 export interface MessageRepository {
@@ -108,8 +115,8 @@ export interface UserPreferenceRepository {
   findCliPreference(platform: Platform, userId: string, cli: CliType): Promise<UserCliPreference | null>
   upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>
   setModel(platform: Platform, userId: string, cli: CliType, modelId: string, modelName: string): Promise<void>
-  /** 删除用户级与各 CLI 偏好，使后续读取重新采用系统默认值。 */
-  reset(platform: Platform, userId: string): Promise<void>
+  /** 以默认值覆盖用户级与各 CLI 偏好；记录保留，模型选择清空。 */
+  reset(platform: Platform, userId: string, defaults: ReadonlyArray<CliCwdDefault>): Promise<void>
 }
 
 /** 装配根注入 Core/业务模块的仓储集合（docs/03 §7）。 */
