@@ -15,7 +15,7 @@
 | 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID 且无重复目标字段。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 13 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
-| 下一步 | 文件处理优化进入最终验收：全量 format/typecheck/lint/test、复核迁移实际应用并分组提交；随后真机验证 Telegram 相册与 PDF OCR。 |
+| 下一步 | 文件处理优化已完成；在 VPS 真机验证 Telegram 相册、PDF `@readN` OCR、`/clear`/`/reset`，随后继续 Linux `/update confirm` 回归。 |
 
 ---
 
@@ -155,7 +155,7 @@
 
 ## 5. 会话日志（Changelog）
 
-| 2026-07-14 | **文件处理优化全面复核整改**：补齐 `/help` 中 `/clear`、`/reset`、`/file`、`@readN`、`@fileN`；实现 `/reset` 删除用户/CLI 偏好，`/clear` 改为等待 DB 映射与受控磁盘文件删除完成；文件编号增加 Postgres advisory transaction lock，MessageRouter 改为顺序登记同批附件。Telegram 相册按 `media_group_id` 聚合后一次循环 OCR；PDF 通过 `pdf-to-img` 按需逐页转 PNG 并复用 OCR，支持页数/scale 上限和临时页清理；图片 `@readN`、DOCX、UTF-8/UTF-16 未知文本可读，Excel 明确不解析。清理 Memory 类型的旧兼容字段及测试，schema 契约确认无 conversation/message 列。修复 Drizzle journal 漏登记 0011/0012，并新增“每个 SQL 必须存在 journal entry”的回归测试，避免 `db:migrate` 再次静默跳过。 |
+| 2026-07-14 | **文件处理优化全面复核整改完成**：补齐 `/help` 中 `/clear`、`/reset`、`/file`、`@readN`、`@fileN`；实现 `/reset` 删除用户/CLI 偏好，`/clear` 改为等待 DB 映射与受控磁盘文件删除完成；文件编号增加 Postgres advisory transaction lock，MessageRouter 改为顺序登记同批附件。Telegram 相册按 `media_group_id` 聚合后一次循环 OCR；PDF 通过 `pdf-to-img` 按需逐页转 PNG 并复用 OCR，支持页数/scale 上限和临时页清理；图片 `@readN`、DOCX、UTF-8/UTF-16 未知文本可读，Excel 明确不解析。清理 Memory 类型的旧兼容字段及测试，schema 契约确认无 conversation/message 列。修复 Drizzle journal 漏登记 0011/0012，并新增“每个 SQL 必须存在 journal entry”的回归测试。最终验收：format/format:check/typecheck/lint 全绿，完整测试 403 pass / 7 skip / 0 fail；`bun run db:migrate` 成功，实际数据库确认 `conversation_files` 存在，`memories.conversation_id/source_message_id` 均不存在。提交拆分为 `44679b9`、`ee85320`、`93452cb`。 |
 | 2026-07-14 | **文件处理优化，第 1–3 阶段完成（后续已由全面复核整改补齐）**：审计确认 QQ 单条消息已支持多附件逐个 OCR；当时 Telegram 相册仍逐张独立入站。新增 `conversation_files` 表及 `0011_conversation_files.sql`、`ConversationFileRepository`、`ConversationCleared`、`/clear` 和媒体生命周期订阅器。 |
 
 > 每个工作会话追加一行：日期 · 做了什么 · 产出/决策。
