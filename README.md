@@ -71,7 +71,7 @@ Configure at least:
 - `transport.qqBotAppId` / `transport.qqBotAppSecret`: optional Tencent Official QQ Bot credentials; configure both or neither.
 - `transport.qqBotOpenIdDiscovery`: temporarily enable it to log an unapproved QQ C2C sender OpenID.
 - `transport.whitelistUserIds`: mixed Telegram numeric IDs and QQ user OpenIDs allowed to control the hub.
-- User targets are stored in Postgres by `(platform, userId)`: language, default CLI, and one CWD per CLI. On first use, a CLI defaults to `~/ai-workspace/.<cli>`.
+- User targets are stored in Postgres by `(platform, userId)`: language, default CLI, and one CWD per CLI. On first use, a CLI defaults to `~/ai-workspace/.<cli>-<platform>` (for example `.claude-telegram` or `.claude-qq`). Existing persisted CWDs are not rewritten automatically.
 - `session.agentDescription`: optional role hint injected when the adapter starts.
 - `session.claudeExecutablePath`: optional absolute path to the system Claude CLI. Leave empty to resolve `claude` from `PATH`.
 - `ocr.apiBaseUrl`: optional Light OCR API base URL; leave empty to disable image OCR.

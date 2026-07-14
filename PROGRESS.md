@@ -131,6 +131,7 @@
 | D77 | **长期记忆彻底脱离 conversation/message 外键**：`memories` 删除 `conversation_id` 与 `source_message_id`；`semantic`/`preference` 在 namespace 内全量查询和注入，`episodic` 只做跨会话向量召回。短期消息/会话清理不影响长期记忆。 | 2026-07-14 |
 | D78 | **文件平台标识只保留一个可空 `file_id`**：不持久化有时效的下载 URL；Telegram 将稳定的 `file_unique_id` 写入该列，QQ 无等价稳定标识时写 NULL。Telegram long polling 由 Transport 监督，异常退出后按 2–60 秒指数退避重新 launch，401 鉴权错误除外。 | 2026-07-14 |
 | D79 | **`/clear`/`/reset` 通过停止 Adapter 清除 CLI 上下文**：不分别调用 Claude `/clear` 或 OpenCode `/new` 等平台私有命令；持久内容清理完成后发 `ConversationContextReset`，orchestrator 立即摘除并停止当前会话 adapter。conversation 不关闭，下一条消息按原配置（`/reset` 为默认配置）懒启动干净 CLI。 | 2026-07-14 |
+| D80 | **CLI 默认工作目录按平台隔离**：未保存 cwd 时使用 `~/ai-workspace/.<cli>-<platform>`，例如 Telegram Claude 为 `.claude-telegram`、QQ Claude 为 `.claude-qq`，避免不同 Transport 的并行 Adapter 共享磁盘工作区。已有 `user_cli_preferences.cwd` 不自动迁移，防止静默切走正在使用的项目；`/reset` 会回到新的平台默认目录。 | 2026-07-14 |
 
 ---
 
@@ -161,6 +162,7 @@
 | 2026-07-14 | **文件标识与 Telegram 断线自恢复整改**：新增 `0013_conversation_file_identifier`，删除 `file_unique_id` 列并将 `file_id` 改为 nullable；迁移历史 Telegram 行时保留稳定 unique ID，QQ/其他平台清除临时 URL。入站映射同步改为 Telegram unique ID、QQ NULL。Telegram polling 新增生命周期监督，socket 等异常退出会记录错误并按 2–60 秒指数退避自动重新 launch，主动 stop 可取消等待，401 鉴权错误停止重试。同步接口、数据模型和命令 UX，并增加 schema、平台标识与断线重连回归测试。自动验收：format/format:check/typecheck/lint 全绿，完整测试 404 pass / 7 skip / 0 fail。 |
 | 2026-07-14 | **0013 迁移顺序修复**：VPS 有现存 QQ 文件行时，原迁移先写 `file_id=NULL`、后解除 NOT NULL，触发 PostgreSQL 23502 并整段回滚。现调整为先 `DROP NOT NULL`、再迁移平台标识、最后删除旧列，并增加 SQL 顺序回归测试。失败的 VPS 迁移未写入 Drizzle journal，更新代码后可直接重新执行 `bun db:migrate`。 |
 | 2026-07-14 | **`/clear`/`/reset` CLI 上下文清理补齐**：确认此前只删除 DB messages/files，运行中的 Claude/OpenCode adapter 仍保留 SDK 上下文。现统一在清理完成后发 `ConversationContextReset`，orchestrator 停止并摘除当前 adapter；conversation 保持未关闭，下一条消息重新启动干净 CLI。该通知与兼容文件清理事件分离，避免已同步删除文件后重复异步删除误伤新上传附件；聚合器同步丢弃未定稿旧输出。共享中英文帮助、命令回复、接口契约、命令 UX 与实施计划同步。自动验收：format/format:check/typecheck/lint 全绿，完整测试 407 pass / 7 skip / 0 fail。 |
+| 2026-07-14 | **平台隔离默认工作目录**：默认 cwd 从 `~/ai-workspace/.<cli>` 调整为 `~/ai-workspace/.<cli>-<platform>`，首次访问与 `/reset` 均按 Telegram/QQ/WebSocket 分目录创建。数据库中已有显式/默认 cwd 保持不变，不做破坏性迁移；需要切换旧用户时可执行 `/reset`，或关闭当前会话后 `/switch <cli> <path>`。补充 Telegram/QQ 不同默认目录与 reset 回归测试，并同步 README、架构、数据模型和命令 UX。自动验收：format/format:check/typecheck/lint 全绿，完整测试 407 pass / 7 skip / 0 fail。 |
 | 2026-07-14 | **文件处理优化，第 1–3 阶段完成（后续已由全面复核整改补齐）**：审计确认 QQ 单条消息已支持多附件逐个 OCR；当时 Telegram 相册仍逐张独立入站。新增 `conversation_files` 表及 `0011_conversation_files.sql`、`ConversationFileRepository`、`ConversationCleared`、`/clear` 和媒体生命周期订阅器。 |
 
 > 每个工作会话追加一行：日期 · 做了什么 · 产出/决策。
