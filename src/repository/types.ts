@@ -16,7 +16,7 @@ import type {
   Memory,
   NewMemory,
   UserPreference,
-  UserCliCwd,
+  UserCliPreference,
 } from '../storage'
 
 export type {
@@ -29,7 +29,7 @@ export type {
   Memory,
   NewMemory,
   UserPreference,
-  UserCliCwd,
+  UserCliPreference,
 }
 export type { CliType, Platform, SessionStatus, ConversationId, MessageId }
 
@@ -89,8 +89,9 @@ export interface UserPreferenceRepository {
   setLanguage(platform: Platform, userId: string, language: 'zh' | 'en'): Promise<void>
   setDefaultCli(platform: Platform, userId: string, cli: CliType): Promise<void>
   setAutoApprove(platform: Platform, userId: string, enabled: boolean, seconds: number): Promise<void>
-  findCwd(platform: Platform, userId: string, cli: CliType): Promise<UserCliCwd | null>
+  findCliPreference(platform: Platform, userId: string, cli: CliType): Promise<UserCliPreference | null>
   upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>
+  setModel(platform: Platform, userId: string, cli: CliType, modelId: string): Promise<void>
 }
 
 /** 装配根注入 Core/业务模块的仓储集合（docs/03 §7）。 */

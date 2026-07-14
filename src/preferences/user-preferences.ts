@@ -22,7 +22,9 @@ export interface UserPreferences {
   setAutoApprove(platform: Platform, userId: string, preference: AutoApprovePreference): Promise<void>
   getTarget(platform: Platform, userId: string): Promise<UserTarget>
   getCwd(platform: Platform, userId: string, cli: CliType): Promise<string>
+  getModel(platform: Platform, userId: string, cli: CliType): Promise<string | null>
   setTarget(platform: Platform, userId: string, target: UserTarget): Promise<void>
+  setModel(platform: Platform, userId: string, cli: CliType, modelId: string): Promise<void>
   destroy(): void
 }
 
@@ -51,12 +53,21 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
   }
 
   async function getCwd(platform: Platform, userId: string, cli: CliType): Promise<string> {
-    const row = await repos.userPreferences.findCwd(platform, userId, cli)
+    const row = await repos.userPreferences.findCliPreference(platform, userId, cli)
     if (row) return row.cwd
     const cwd = defaultCwd(deps.homeDir, cli)
     await ensureDirectory(cwd)
     await repos.userPreferences.upsertCwd(platform, userId, cli, cwd)
     return cwd
+  }
+
+  async function getModel(platform: Platform, userId: string, cli: CliType): Promise<string | null> {
+    return (await repos.userPreferences.findCliPreference(platform, userId, cli))?.modelId ?? null
+  }
+
+  async function setModel(platform: Platform, userId: string, cli: CliType, modelId: string): Promise<void> {
+    await getCwd(platform, userId, cli)
+    await repos.userPreferences.setModel(platform, userId, cli, modelId)
   }
 
   async function getTarget(platform: Platform, userId: string): Promise<UserTarget> {
@@ -132,7 +143,9 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
     setAutoApprove,
     getTarget,
     getCwd,
+    getModel,
     setTarget,
+    setModel,
     destroy() {
       for (const unsubscribe of unsubs) unsubscribe()
       unsubs.length = 0

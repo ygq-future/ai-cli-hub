@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import type { Db } from '../storage'
-import { userCliCwds, userPreferences } from '../storage/schema'
+import { userCliPreferences, userPreferences } from '../storage/schema'
 import type { UserPreferenceRepository } from './types'
 
 export function createUserPreferenceRepository(db: Db): UserPreferenceRepository {
@@ -41,23 +41,42 @@ export function createUserPreferenceRepository(db: Db): UserPreferenceRepository
         .where(and(eq(userPreferences.platform, platform), eq(userPreferences.userId, userId)))
     },
 
-    async findCwd(platform, userId, cli) {
+    async findCliPreference(platform, userId, cli) {
       const [row] = await db
         .select()
-        .from(userCliCwds)
-        .where(and(eq(userCliCwds.platform, platform), eq(userCliCwds.userId, userId), eq(userCliCwds.cli, cli)))
+        .from(userCliPreferences)
+        .where(
+          and(
+            eq(userCliPreferences.platform, platform),
+            eq(userCliPreferences.userId, userId),
+            eq(userCliPreferences.cli, cli),
+          ),
+        )
         .limit(1)
       return row ?? null
     },
 
     async upsertCwd(platform, userId, cli, cwd) {
       await db
-        .insert(userCliCwds)
+        .insert(userCliPreferences)
         .values({ platform, userId, cli, cwd, updatedAt: Date.now() })
         .onConflictDoUpdate({
-          target: [userCliCwds.platform, userCliCwds.userId, userCliCwds.cli],
+          target: [userCliPreferences.platform, userCliPreferences.userId, userCliPreferences.cli],
           set: { cwd, updatedAt: Date.now() },
         })
+    },
+
+    async setModel(platform, userId, cli, modelId) {
+      await db
+        .update(userCliPreferences)
+        .set({ modelId, updatedAt: Date.now() })
+        .where(
+          and(
+            eq(userCliPreferences.platform, platform),
+            eq(userCliPreferences.userId, userId),
+            eq(userCliPreferences.cli, cli),
+          ),
+        )
     },
   }
 }

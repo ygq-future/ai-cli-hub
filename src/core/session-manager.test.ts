@@ -716,6 +716,81 @@ describe('MessageRouter with MockHandler', () => {
 })
 
 describe('CommandRouter', () => {
+  test('/model 激活 idle 会话、列出模型并持久化选择', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const cid = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'create',
+    })
+    const selectedModels: string[] = []
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      getSelectedModel: async () => selectedModels.at(-1) ?? null,
+      listModels: async modelCid => {
+        expect(modelCid).toBe(cid)
+        return [{ id: 'sonnet', name: 'Sonnet' }]
+      },
+      selectModel: async (modelCid, modelId) => {
+        expect(modelCid).toBe(cid)
+        selectedModels.push(modelId)
+        return modelId
+      },
+    })
+    const replies: Array<{ content: string }> = []
+    bus.on('CommandReply', reply => replies.push(reply))
+    const payload = {
+      userId: 'u1',
+      platform: 'telegram' as const,
+      cli: 'claude' as const,
+      cwd: '/project',
+      ref: { platform: 'telegram' as const, chatId: 'c', nativeId: '1' },
+    }
+
+    await commandRouter.tryHandle({ ...payload, text: '/model' })
+    expect((await repos.conversations.findById(cid))?.status).toBe('running')
+    expect(replies[0]?.content).toContain('`sonnet` — Sonnet')
+
+    await commandRouter.tryHandle({ ...payload, text: '/model sonnet' })
+    expect(selectedModels).toEqual(['sonnet'])
+    expect(replies[1]?.content).toContain('模型已切换')
+    expect(replies[1]?.content).toContain('`sonnet`')
+  })
+
+  test('/model 没有当前 CLI 会话时不会隐式创建', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      getSelectedModel: async () => null,
+      listModels: async () => [],
+      selectModel: async (_cid, modelId) => modelId,
+    })
+    const replies: Array<{ content: string }> = []
+    bus.on('CommandReply', reply => replies.push(reply))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: '/model',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    expect(await repos.conversations.listRecentByUser('telegram', 'u1', 10)).toEqual([])
+    expect(replies[0]?.content).toContain('当前 CLI 没有未关闭会话')
+  })
+
   test('/switch 拒绝未接入 CLI', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()

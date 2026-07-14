@@ -13,5 +13,5 @@ export type {
   Memory,
   NewMemory,
   UserPreference,
-  UserCliCwd,
+  UserCliPreference,
 } from './schema'

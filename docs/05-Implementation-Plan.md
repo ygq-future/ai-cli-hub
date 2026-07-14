@@ -62,6 +62,7 @@ flowchart LR
 ### M4 — Claude Adapter（SDK 家族，首选）
 
 - `cli/`：`ClaudeSdkAdapter` 实现 `CLIAdapter`（§3.1），内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄；V2-R3 扩展 `OpenCodeSdkAdapter`，通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并映射 SSE/permission 事件。
+  - 模型管理：Claude 使用 `supportedModels()` / `setModel()`；OpenCode 列出已连接 provider 的模型并在每轮 prompt 携带所选 `{providerID,modelID}`；选择写入 `user_cli_preferences.model_id`。
   - `sendUserInput` → 流式输入（`AsyncIterable<SDKUserMessage>` / `streamInput`）；`onOutput` ← `SDKMessage`（assistant/tool_use/result）。
   - **审批走 `canUseTool` 回调**：拿到工具名+参数 → `onApprovalRequest` → `bus.emit('ApprovalRequested')`；`resolveApproval(id,'approve'|'reject')` → `resolve({behavior:'allow'|'deny'})`。**无 scraping、无 `Runtime`、无 `ApprovalDetector`。**
   - 生命周期：CLI/adapter 起止/崩溃 → `onExit` → `PTYStarted/PTYExited` 或 adapter exit；`AGENT_IDLE_TIMEOUT_MS` 空闲关闭已启动 CLI/adapter（`query.interrupt()`/close），conversation 保持 `idle`。
@@ -85,7 +86,7 @@ flowchart LR
 
 - `transport/telegram`：Telegraf 封装，实现 `Transport` 全方法。
 - 白名单前置丢弃；流式 `editMessage`；审批 Markdown 卡片 + 回调 → `ApprovalApproved/Rejected`。
-- M6b 收口命令：`/switch`、`/close`、`/status`、`/sessions`、`/lang`；`/switch` 恢复或创建目标 CLI 会话，并可为新会话持久化 cwd。
+- M6b 收口命令：`/switch`、`/model`、`/close`、`/status`、`/sessions`、`/lang`；`/switch` 恢复或创建目标 CLI 会话并持久化 cwd，`/model` 激活当前会话并列出/持久化模型。
 - **验收**：真机 Telegram 端到端——发消息得流式回复；点 Approve 继续（SDK: `resolveApproval` allow）；点 Reject 中断；非白名单无响应。
 
 ### M7 — Audit 落地

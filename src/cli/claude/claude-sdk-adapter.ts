@@ -10,6 +10,7 @@
 import {
   query,
   type CanUseTool,
+  type ModelInfo,
   type PermissionResult,
   type Query,
   type SDKMessage,
@@ -20,6 +21,7 @@ import type {
   AdapterState,
   ApprovalAction,
   ApprovalRequest,
+  CliModel,
   CLIAdapter,
   ExitInfo,
   OutputDelta,
@@ -175,6 +177,7 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
         prompt: input.stream,
         options: {
           cwd: opts.cwd,
+          model: opts.modelId,
           pathToClaudeCodeExecutable: deps?.claudeCodeExecutablePath,
           canUseTool: handleCanUseTool,
           skills: [],
@@ -241,6 +244,20 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
       }
     },
 
+    async listModels(): Promise<CliModel[]> {
+      if (!currentQuery) throw new Error('ClaudeSdkAdapter: session is not ready')
+      return (await currentQuery.supportedModels()).map(toCliModel)
+    },
+
+    async setModel(modelId: string): Promise<string> {
+      if (!currentQuery) throw new Error('ClaudeSdkAdapter: session is not ready')
+      const models = await currentQuery.supportedModels()
+      const selected = models.find(model => model.value === modelId || model.resolvedModel === modelId)
+      if (!selected) throw new Error(`ClaudeSdkAdapter: model is not available: ${modelId}`)
+      await currentQuery.setModel(selected.value)
+      return selected.value
+    },
+
     onOutput(handler) {
       outputHandlers.push(handler)
       return unsubscribeHandler(outputHandlers, handler)
@@ -255,5 +272,13 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
     },
 
     getState: () => state,
+  }
+}
+
+function toCliModel(model: ModelInfo): CliModel {
+  return {
+    id: model.value,
+    name: model.displayName,
+    ...(model.description ? { description: model.description } : {}),
   }
 }

@@ -35,7 +35,7 @@ function createFakeOpenCode() {
   const queue = createEventQueue()
   const prompts: string[] = []
   const contexts: string[] = []
-  const promptOptions: Array<{ agent?: string; system?: string }> = []
+  const promptOptions: Array<{ agent?: string; system?: string; model?: { providerID: string; modelID: string } }> = []
   const permissions: Array<{ permissionID: string; response: string }> = []
   const aborts: string[] = []
   const closed: boolean[] = []
@@ -45,10 +45,15 @@ function createFakeOpenCode() {
     session: {
       create: () => Promise.resolve({ data: { id: 's1' }, error: undefined }),
       promptAsync: (opts: {
-        body?: { agent?: string; system?: string; parts: Array<{ type: 'text'; text: string }> }
+        body?: {
+          agent?: string
+          system?: string
+          model?: { providerID: string; modelID: string }
+          parts: Array<{ type: 'text'; text: string }>
+        }
       }) => {
         prompts.push(opts.body?.parts[0]?.text ?? '')
-        promptOptions.push({ agent: opts.body?.agent, system: opts.body?.system })
+        promptOptions.push({ agent: opts.body?.agent, system: opts.body?.system, model: opts.body?.model })
         return Promise.resolve({ data: undefined, error: undefined })
       },
       prompt: (opts: { body?: { noReply?: boolean; parts: Array<{ type: 'text'; text: string }> } }) => {
@@ -62,6 +67,36 @@ function createFakeOpenCode() {
     },
     event: {
       subscribe: () => Promise.resolve({ stream: queue.stream }),
+    },
+    provider: {
+      list: () =>
+        Promise.resolve({
+          data: {
+            connected: ['deepseek'],
+            default: { deepseek: 'deepseek-v4' },
+            all: [
+              {
+                id: 'deepseek',
+                name: 'DeepSeek',
+                env: [],
+                models: {
+                  'deepseek-v4': {
+                    id: 'deepseek-v4',
+                    name: 'DeepSeek V4',
+                    release_date: '2026-01-01',
+                    attachment: false,
+                    reasoning: true,
+                    temperature: true,
+                    tool_call: true,
+                    limit: { context: 128000, output: 8192 },
+                    options: {},
+                  },
+                },
+              },
+            ],
+          },
+          error: undefined,
+        }),
     },
     postSessionIdPermissionsPermissionId: (opts: {
       path: { id: string; permissionID: string }
@@ -171,6 +206,26 @@ describe('OpenCodeSdkAdapter', () => {
       { kind: 'text', text: 'hi', final: false },
       { kind: 'text', text: '', final: true },
     ])
+  })
+
+  test('列出已连接 provider 的模型并把持久化选择用于后续 prompt', async () => {
+    const fake = createFakeOpenCode()
+    const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
+
+    await adapter.start(SPAWN)
+    expect(await adapter.listModels()).toEqual([
+      {
+        id: 'deepseek/deepseek-v4',
+        name: 'DeepSeek · DeepSeek V4',
+        description: '128000 context · 8192 max output',
+      },
+    ])
+    expect(await adapter.setModel('deepseek/deepseek-v4')).toBe('deepseek/deepseek-v4')
+    adapter.sendUserInput('hello')
+    await tick()
+    expect(fake.promptOptions[0]?.model).toEqual({ providerID: 'deepseek', modelID: 'deepseek-v4' })
+    await expect(adapter.setModel('missing/model')).rejects.toThrow('model is not available')
+    await adapter.stop()
   })
 
   test('user text parts are never emitted as assistant output across consecutive prompts', async () => {

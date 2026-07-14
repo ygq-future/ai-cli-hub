@@ -30,6 +30,13 @@ export interface AutoApprovePreference {
   seconds: number
 }
 
+/** CLI Adapter 对外暴露的可选模型。 */
+export interface CliModel {
+  id: string
+  name: string
+  description?: string
+}
+
 /** 分支品牌类型，防止不同 ID 串用。 */
 export type ConversationId = string & { readonly __brand: 'ConversationId' }
 export type MessageId = string & { readonly __brand: 'MessageId' }

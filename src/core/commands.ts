@@ -11,6 +11,7 @@ import {
   MAX_AUTO_APPROVE_SECONDS,
   MIN_AUTO_APPROVE_SECONDS,
   type AutoApprovePreference,
+  type CliModel,
   type CliType,
   type ConversationId,
   type MemoryType,
@@ -34,6 +35,9 @@ export interface CommandRouterDeps {
   setUserTarget?: (platform: Platform, userId: string, target: { cli: CliType; cwd: string }) => Promise<void>
   getAutoApprove?: (platform: Platform, userId: string) => Promise<AutoApprovePreference>
   setAutoApprove?: (platform: Platform, userId: string, preference: AutoApprovePreference) => Promise<void>
+  getSelectedModel?: (platform: Platform, userId: string, cli: CliType) => Promise<string | null>
+  listModels?: (conversationId: ConversationId) => Promise<CliModel[]>
+  selectModel?: (conversationId: ConversationId, modelId: string) => Promise<string>
   resolveCwd?: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
@@ -164,6 +168,60 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           }
           await sessionManager.close(conv.id as ConversationId, 'user')
           reply(payload, `## ✅ 会话已关闭\n\n- **ID**: \`${conv.id}\``)
+          return true
+        }
+
+        case 'model': {
+          if (!deps.listModels || !deps.selectModel || !deps.getSelectedModel) {
+            reply(payload, commandError('模型管理不可用', '服务尚未配置模型管理实现。'))
+            return true
+          }
+          const conv = await currentConversation(payload)
+          if (!conv) {
+            reply(
+              payload,
+              commandError('无法管理模型', '当前 CLI 没有未关闭会话。请先发送消息或使用 `/switch <cli>`。'),
+            )
+            return true
+          }
+          if (parsed.args.length > 1) {
+            reply(payload, commandError('模型参数无效', 'model_id 不能包含空格。', '/model [model_id]'))
+            return true
+          }
+          const shouldMarkReady = conv.status === 'idle'
+          try {
+            if (shouldMarkReady) await sessionManager.transition(conv.id as ConversationId, 'START')
+            const models = await deps.listModels(conv.id as ConversationId)
+            if (shouldMarkReady) await sessionManager.transition(conv.id as ConversationId, 'ADAPTER_READY')
+            const requestedModelId = parsed.args[0]
+            if (requestedModelId) {
+              const selectedModelId = await deps.selectModel(conv.id as ConversationId, requestedModelId)
+              reply(
+                payload,
+                [
+                  '## ✅ 模型已切换',
+                  '',
+                  `- **CLI**: \`${conv.cli}\``,
+                  `- **Model**: \`${selectedModelId}\``,
+                  '',
+                  '> 此偏好已持久化，并从下一轮对话起生效。',
+                ].join('\n'),
+              )
+              return true
+            }
+
+            const selectedModelId = await deps.getSelectedModel(payload.platform, payload.userId, conv.cli as CliType)
+            reply(payload, formatModels(conv.cli as CliType, selectedModelId, models))
+          } catch (err) {
+            reply(
+              payload,
+              commandError(
+                '模型操作失败',
+                err instanceof Error ? err.message : String(err),
+                parsed.args[0] ? '/model' : undefined,
+              ),
+            )
+          }
           return true
         }
 
@@ -419,6 +477,30 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
       }
     },
   }
+}
+
+function formatModels(cli: CliType, selectedModelId: string | null, models: CliModel[]): string {
+  if (models.length === 0) {
+    return [
+      '## 🤖 可用模型',
+      '',
+      `- **CLI**: \`${cli}\``,
+      `- **当前偏好**: ${selectedModelId ? `\`${selectedModelId}\`` : '_CLI 默认_'}`,
+      '',
+      '_当前账号没有返回可用模型。_',
+    ].join('\n')
+  }
+  return [
+    '## 🤖 可用模型',
+    '',
+    `- **CLI**: \`${cli}\``,
+    `- **当前偏好**: ${selectedModelId ? `\`${selectedModelId}\`` : '_CLI 默认_'}`,
+    `- **数量**: ${models.length}`,
+    '',
+    ...models.map(model => `- \`${model.id}\` — ${model.name}`),
+    '',
+    '> 使用 `/model <model_id>` 切换。',
+  ].join('\n')
 }
 
 function parseCommand(text: string): { name: string; args: string[] } | null {

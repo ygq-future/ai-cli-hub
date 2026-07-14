@@ -187,13 +187,15 @@ interface CLIAdapter {
   onApprovalRequest(cb: (req: ApprovalRequest) => void): Unsubscribe;
   resolveApproval(approvalId: string, decision: 'approve' | 'reject'): void;
   onExit(cb: (info: { code: number | null; reason: ExitReason }) => void): Unsubscribe;
+  listModels(): Promise<CliModel[]>;
+  setModel(modelId: string): Promise<string>;
   getState(): AdapterState;
 }
 ```
 
 Adapter 分**两个家族**，同实现 `CLIAdapter`、对 Core 完全同形：
 
-- **SDK 家族（首选，Claude/opencode 走这条）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄，并通过 `pathToClaudeCodeExecutable` 复用系统安装的 Claude CLI；根 `package.json` 用同名本地 stub override SDK 的全部平台 optional dependencies，使首次 `bun install` 就不会下载内置 Claude。`OpenCodeSdkAdapter` 通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并订阅事件。输出来自结构化消息/事件；**审批来自 SDK 结构化回调或 permission 事件**。**无需 scraping、无 `Runtime`、无 `ApprovalDetector`**。TUI 菜单只是渲染，程序接口里走 SDK。OpenCode 的 `message.part.updated` 同时包含 user/assistant part，Adapter 必须用 `message.updated.info.role` 与 `part.messageID` 关联，只转发 assistant part；raw debug 只保留 retry/session error、permission、tool 等可行动事件，不记录 plugin/catalog/heartbeat/delta/message 等启动或高频噪声。
+- **SDK 家族（首选，Claude/opencode 走这条）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄，并通过 `pathToClaudeCodeExecutable` 复用系统安装的 Claude CLI；模型目录/切换调用 `supportedModels()` / `setModel()`。根 `package.json` 用同名本地 stub override SDK 的全部平台 optional dependencies，使首次 `bun install` 就不会下载内置 Claude。`OpenCodeSdkAdapter` 通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并订阅事件；模型目录来自已连接 provider，选择以 `provider/model` 写入后续 `promptAsync.body.model`。输出来自结构化消息/事件；**审批来自 SDK 结构化回调或 permission 事件**。**无需 scraping、无 `Runtime`、无 `ApprovalDetector`**。TUI 菜单只是渲染，程序接口里走 SDK。OpenCode 的 `message.part.updated` 同时包含 user/assistant part，Adapter 必须用 `message.updated.info.role` 与 `part.messageID` 关联，只转发 assistant part；raw debug 只保留 retry/session error、permission、tool 等可行动事件，不记录 plugin/catalog/heartbeat/delta/message 等启动或高频噪声。
 
 Config 加载 `settings.json` 后把 HTTP(S)/NO_PROXY 写回 `process.env`，供 Bun fetch 和 OpenCode SDK 拉起的子进程继承；这不会将环境变量重新变成业务配置源。
 
@@ -348,8 +350,9 @@ flowchart TD
 ```
 
 - **默认复用**：会话 scope = `(platform,userId,cli)`；普通消息只复用当前选中 CLI 的可复用会话（`idle/starting/running`），其他 CLI 会话保持不变。
-- **用户目标持久化**：`user_preferences` 保存语言与默认 CLI，`user_cli_cwds` 保存每 CLI cwd，均以 `(platform,userId)` 隔离。首次访问使用 `claude` 和 `~/ai-workspace/.claude`，并创建目录；普通消息在没有 open 会话时从该持久化目标创建会话。
+- **用户目标持久化**：`user_preferences` 保存语言与默认 CLI，`user_cli_preferences` 保存每 CLI cwd 与 model ID，均以 `(platform,userId)` 隔离。首次访问使用 `claude` 和 `~/ai-workspace/.claude`，并创建目录；普通消息在没有 open 会话时从该持久化目标创建会话。
 - **`/switch <cli> [path]`**：恢复目标 CLI 的未关闭会话；不存在时以持久化 cwd 或显式 path 创建。若已有会话与 path 冲突则拒绝。
+- **`/model [model_id]`**：只作用于当前 CLI 的未关闭会话；idle 时先启动 Adapter。无参数读取 Adapter 的实时模型目录，带参数时先由 Adapter 验证并切换，再持久化该 CLI 的 model ID。
 - **`/close`**：显式结束，触发归档并生成 episodic 摘要（见 §7）。
 - **自动归档**：超过 `SESSION_ARCHIVE_DAYS` 无活动的 `idle` 会话自动转 `closed` 并生成摘要。
 - **cwd 归属**：`cwd` 记录会话工作目录并按 CLI 持久化；更换目录时先 `/close` 当前 CLI 会话，再执行 `/switch <cli> <path>`。

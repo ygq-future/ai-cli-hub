@@ -24,6 +24,8 @@ function createFakeAdapter(opts?: { onStop?: () => Promise<void>; contextInjecti
     callOrder: [] as string[],
     interrupt: 0,
     stop: 0,
+    listModels: 0,
+    setModel: [] as string[],
   }
   const adapter: CLIAdapter = {
     cliType: 'claude',
@@ -44,6 +46,14 @@ function createFakeAdapter(opts?: { onStop?: () => Promise<void>; contextInjecti
     resolveApproval(id, d) {
       calls.resolveApproval.push([id, d])
       calls.callOrder.push(`resolve:${d}`)
+    },
+    async listModels() {
+      calls.listModels++
+      return [{ id: 'claude-test', name: 'Claude Test' }]
+    },
+    async setModel(modelId) {
+      calls.setModel.push(modelId)
+      return modelId
     },
     onOutput(h) {
       outputHandlers.push(h)
@@ -110,6 +120,30 @@ function createFakeRepos(cwd = '/work', initialStatus: 'idle' | 'running' = 'idl
 }
 
 describe('SessionOrchestrator', () => {
+  test('模型操作懒启动 adapter，并把持久化模型传给 start', async () => {
+    const bus = createEventBus()
+    const repos = createFakeRepos()
+    const aggregator = createMessageAggregator(bus, { debounceMs: 0, minEditIntervalMs: 0, maxChunkChars: 4096 })
+    const fake = createFakeAdapter()
+    const orchestrator = createSessionOrchestrator({
+      bus,
+      repos: repos.repos,
+      aggregator,
+      adapterFactory: () => fake.adapter,
+      getModel: async () => 'claude-saved',
+      idleTimeoutMs: 0,
+    })
+
+    expect(await orchestrator.listModels(CID)).toEqual([{ id: 'claude-test', name: 'Claude Test' }])
+    expect(fake.calls.start[0]?.modelId).toBe('claude-saved')
+    expect(await orchestrator.setModel(CID, 'claude-test')).toBe('claude-test')
+    expect(fake.calls.listModels).toBe(1)
+    expect(fake.calls.setModel).toEqual(['claude-test'])
+
+    await orchestrator.destroy()
+    aggregator.destroy()
+  })
+
   test('onMessage 懒启动 adapter（按 cwd）并喂入用户输入', async () => {
     const fake = createFakeAdapter()
     const bus = createEventBus()

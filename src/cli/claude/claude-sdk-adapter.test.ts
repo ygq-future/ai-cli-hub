@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { CanUseTool, Options, Query, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { CanUseTool, ModelInfo, Options, Query, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { createClaudeSdkAdapter } from './claude-sdk-adapter'
 import type { OutputDelta, SpawnOptions } from '..'
 
@@ -24,7 +24,11 @@ function fakeQuery(
 }
 
 /** 不结束的假 Query：挂起直到 interrupt。 */
-function fakeQueryOpen(captureCanUse?: (fn: CanUseTool) => void, captureOptions?: (options: Options) => void) {
+function fakeQueryOpen(
+  captureCanUse?: (fn: CanUseTool) => void,
+  captureOptions?: (options: Options) => void,
+  controls?: { models?: ModelInfo[]; selected?: Array<string | undefined> },
+) {
   return ((params: { options?: Options }) => {
     if (params.options) captureOptions?.(params.options)
     if (params.options?.canUseTool) captureCanUse?.(params.options.canUseTool)
@@ -36,6 +40,10 @@ function fakeQueryOpen(captureCanUse?: (fn: CanUseTool) => void, captureOptions?
     }
     const q = gen() as unknown as Query
     q.interrupt = async () => stop()
+    q.supportedModels = async () => controls?.models ?? []
+    q.setModel = async model => {
+      controls?.selected?.push(model)
+    }
     return q
   }) as unknown as Parameters<typeof createClaudeSdkAdapter>[0] extends { queryFn?: infer F } ? F : never
 }
@@ -180,6 +188,26 @@ describe('ClaudeSdkAdapter (real message flow)', () => {
     expect(a.getState()).toBe('ready')
     await a.stop()
     expect(a.getState()).toBe('stopped')
+  })
+
+  test('列出可用模型并动态切换，start 传入持久化模型', async () => {
+    let options: Options | undefined
+    const selected: Array<string | undefined> = []
+    const models = [
+      { value: 'sonnet', resolvedModel: 'claude-sonnet-test', displayName: 'Sonnet', description: 'Balanced' },
+    ] as ModelInfo[]
+    const a = createClaudeSdkAdapter({
+      queryFn: fakeQueryOpen(undefined, captured => (options = captured), { models, selected }),
+    })
+
+    await a.start({ ...SPAWN, modelId: 'sonnet' })
+
+    expect(options?.model).toBe('sonnet')
+    expect(await a.listModels()).toEqual([{ id: 'sonnet', name: 'Sonnet', description: 'Balanced' }])
+    expect(await a.setModel('claude-sonnet-test')).toBe('sonnet')
+    expect(selected).toEqual(['sonnet'])
+    await expect(a.setModel('missing')).rejects.toThrow('model is not available')
+    await a.stop()
   })
 
   test('systemLanguageHint 与操作结果护栏追加到 Claude Code 默认 systemPrompt', async () => {

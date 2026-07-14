@@ -10,6 +10,7 @@ import type {
   AdapterState,
   ApprovalAction,
   ApprovalRequest,
+  CliModel,
   CLIAdapter,
   ExitInfo,
   OutputDelta,
@@ -65,6 +66,7 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
   let sessionId: string | null = null
   let cwd = ''
   let systemPrompt = ''
+  let modelId: string | null = null
   let abortController: AbortController | null = null
   let eventTask: Promise<void> | null = null
   let turnHasInput = false
@@ -243,6 +245,23 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
     if (result.error) throw new Error(formatError(result.error))
   }
 
+  async function listAvailableModels(): Promise<CliModel[]> {
+    const result = await currentClient().provider.list({ query: { directory: cwd } })
+    if (result.error) throw new Error(formatError(result.error))
+    if (!result.data) throw new Error('OpenCodeSdkAdapter: provider list returned no data')
+    const connected = new Set(result.data.connected)
+    return result.data.all
+      .filter(provider => connected.has(provider.id))
+      .flatMap(provider =>
+        Object.values(provider.models).map(model => ({
+          id: `${provider.id}/${model.id}`,
+          name: `${provider.name} · ${model.name}`,
+          description: `${model.limit.context} context · ${model.limit.output} max output`,
+        })),
+      )
+      .sort((left, right) => left.id.localeCompare(right.id))
+  }
+
   async function listenForEvents(client: OpencodeClient, signal: AbortSignal) {
     try {
       const events = await client.event.subscribe({ query: { directory: cwd }, signal })
@@ -278,6 +297,7 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
       abortController = new AbortController()
 
       systemPrompt = buildSystemPromptAppend(opts.systemLanguageHint)
+      modelId = opts.modelId ?? null
       const instance = await createOpencodeFn({
         signal: abortController.signal,
         config: buildOpenCodeConfig(systemPrompt),
@@ -334,7 +354,12 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
         .promptAsync({
           path: { id: sid },
           query: { directory: cwd },
-          body: { agent: 'ai_cli_hub', system: systemPrompt, parts: [{ type: 'text', text }] },
+          body: {
+            agent: 'ai_cli_hub',
+            system: systemPrompt,
+            ...(modelId ? { model: parseOpenCodeModelId(modelId) } : {}),
+            parts: [{ type: 'text', text }],
+          },
         })
         .then(result => {
           if (result.error) throw new Error(formatError(result.error))
@@ -354,6 +379,18 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
       })
     },
 
+    async listModels(): Promise<CliModel[]> {
+      return listAvailableModels()
+    },
+
+    async setModel(nextModelId: string): Promise<string> {
+      const models = await listAvailableModels()
+      const selected = models.find(model => model.id === nextModelId)
+      if (!selected) throw new Error(`OpenCodeSdkAdapter: model is not available: ${nextModelId}`)
+      modelId = selected.id
+      return selected.id
+    },
+
     onOutput(handler) {
       outputHandlers.push(handler)
       return unsubscribeHandler(outputHandlers, handler)
@@ -369,6 +406,14 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
 
     getState: () => state,
   }
+}
+
+function parseOpenCodeModelId(modelId: string): { providerID: string; modelID: string } {
+  const separator = modelId.indexOf('/')
+  if (separator <= 0 || separator === modelId.length - 1) {
+    throw new Error(`OpenCodeSdkAdapter: invalid model ID: ${modelId}; expected provider/model`)
+  }
+  return { providerID: modelId.slice(0, separator), modelID: modelId.slice(separator + 1) }
 }
 
 function buildOpenCodeConfig(systemPrompt: string): Config {

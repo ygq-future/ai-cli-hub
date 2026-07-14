@@ -24,7 +24,7 @@ export type {
   Memory,
   NewMemory,
   UserPreference,
-  UserCliCwd,
+  UserCliPreference,
   CliType,
   SessionStatus,
   ConversationId,

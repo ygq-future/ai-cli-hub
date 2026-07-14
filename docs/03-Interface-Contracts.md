@@ -162,6 +162,8 @@ export interface CLIAdapter {
   onApprovalRequest(handler: (req: ApprovalRequest) => void): Unsubscribe;
   resolveApproval(approvalId: string, decision: ApprovalAction): void;  // 'approve' | 'reject'
   onExit(handler: (info: ExitInfo) => void): Unsubscribe;
+  listModels(): Promise<CliModel[]>;
+  setModel(modelId: string): Promise<string>;
 
   getState(): AdapterState;
 }
@@ -193,6 +195,7 @@ export interface SpawnOptions {
   rows?: number;     // 仅 PTY 家族使用；SDK 家族忽略
   env?: Record<string, string>;
   systemLanguageHint?: string;
+  modelId?: string;
 }
 
 export type AdapterState = 'stopped' | 'starting' | 'ready' | 'busy' | 'waitingApproval';
@@ -320,12 +323,13 @@ export interface UserPreferenceRepository {
   setLanguage(platform: Platform, userId: string, language: UserLanguage): Promise<void>;
   setDefaultCli(platform: Platform, userId: string, cli: CliType): Promise<void>;
   setAutoApprove(platform: Platform, userId: string, enabled: boolean, seconds: number): Promise<void>;
-  findCwd(platform: Platform, userId: string, cli: CliType): Promise<UserCliCwd | null>;
+  findCliPreference(platform: Platform, userId: string, cli: CliType): Promise<UserCliPreference | null>;
   upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>;
+  setModel(platform: Platform, userId: string, cli: CliType, modelId: string): Promise<void>;
 }
 ```
 
-`UserPreferenceRepository` 是用户级持久化目标的唯一 SQL 出口：按 `(platform,userId)` 保存 `/lang`、默认 CLI 与自动审批开关，并按 `(platform,userId,cli)` 保存 cwd；不使用无类型的通用 KV 表。
+`UserPreferenceRepository` 是用户级持久化目标的唯一 SQL 出口：按 `(platform,userId)` 保存 `/lang`、默认 CLI 与自动审批开关，并按 `(platform,userId,cli)` 保存 cwd 与 model ID；不使用无类型的通用 KV 表。
 
 > `New*` 为插入用类型（无 id/时间戳），`Conversation`/`Message`/... 为读取用完整类型，均由 Drizzle `$inferInsert` / `$inferSelect` 推导，见 04。
 

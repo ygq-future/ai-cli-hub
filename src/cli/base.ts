@@ -8,7 +8,9 @@
  * 依赖矩阵：cli/ 允许依赖 event/ config/ shared/ + 对应 SDK，禁止依赖 transport/ storage/。
  * docs/03-Interface-Contracts.md §3.1
  */
-import type { CliType, ConversationId, Unsubscribe } from '../shared'
+import type { CliModel, CliType, ConversationId, Unsubscribe } from '../shared'
+
+export type { CliModel } from '../shared'
 
 export interface CLIAdapter {
   readonly cliType: CliType
@@ -28,6 +30,11 @@ export interface CLIAdapter {
   onApprovalRequest(handler: (req: ApprovalRequest) => void): Unsubscribe
   resolveApproval(approvalId: string, decision: ApprovalAction): void
   onExit(handler: (info: ExitInfo) => void): Unsubscribe
+
+  /** 当前 CLI/账号实际可用的模型目录。 */
+  listModels(): Promise<CliModel[]>
+  /** 切换后续轮次使用的模型，返回规范化后的持久化 model ID。 */
+  setModel(modelId: string): Promise<string>
 
   getState(): AdapterState
 }
@@ -65,6 +72,7 @@ export interface SpawnOptions {
   rows?: number // 仅 PTY 家族用
   env?: Record<string, string>
   systemLanguageHint?: string
+  modelId?: string
 }
 
 export type AdapterState = 'stopped' | 'starting' | 'ready' | 'busy' | 'waitingApproval'

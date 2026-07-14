@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 import { getTableConfig } from 'drizzle-orm/pg-core'
-import { conversations, messages, auditLogs, memories, userCliCwds, userPreferences } from './schema'
+import { conversations, messages, auditLogs, memories, userCliPreferences, userPreferences } from './schema'
 
 describe('schema — 表结构与契约', () => {
   test('conversations：列 + 复合索引', () => {
@@ -59,7 +59,7 @@ describe('schema — 表结构与契约', () => {
     expect(embedding.mapToDriverValue([0.1, 0.2, 0.3])).toBe('[0.1,0.2,0.3]')
   })
 
-  test('用户偏好：按 platform + userId 隔离语言、默认 CLI 和每 CLI CWD', () => {
+  test('用户偏好：按 platform + userId 隔离语言、默认 CLI 和每 CLI 偏好', () => {
     const preferences = getTableConfig(userPreferences)
     expect(preferences.columns.map(column => column.name)).toEqual(
       expect.arrayContaining([
@@ -73,10 +73,10 @@ describe('schema — 表结构与契约', () => {
     )
     expect(preferences.primaryKeys).toHaveLength(1)
 
-    const cwdTargets = getTableConfig(userCliCwds)
-    expect(cwdTargets.columns.map(column => column.name)).toEqual(
-      expect.arrayContaining(['platform', 'user_id', 'cli', 'cwd']),
+    const cliPreferences = getTableConfig(userCliPreferences)
+    expect(cliPreferences.columns.map(column => column.name)).toEqual(
+      expect.arrayContaining(['platform', 'user_id', 'cli', 'cwd', 'model_id']),
     )
-    expect(cwdTargets.primaryKeys).toHaveLength(1)
+    expect(cliPreferences.primaryKeys).toHaveLength(1)
   })
 })

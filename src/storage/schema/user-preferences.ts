@@ -17,18 +17,19 @@ export const userPreferences = pgTable(
   table => [primaryKey({ columns: [table.platform, table.userId], name: 'user_preferences_pkey' })],
 )
 
-/** 同一用户可分别保存每个 CLI 的工作目录。 */
-export const userCliCwds = pgTable(
-  'user_cli_cwds',
+/** 同一用户可分别保存每个 CLI 的工作目录与模型偏好。 */
+export const userCliPreferences = pgTable(
+  'user_cli_preferences',
   {
     platform: platformEnum('platform').notNull(),
     userId: text('user_id').notNull(),
     cli: cliEnum('cli').notNull(),
     cwd: text('cwd').notNull(),
+    modelId: text('model_id'),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
   },
-  table => [primaryKey({ columns: [table.platform, table.userId, table.cli], name: 'user_cli_cwds_pkey' })],
+  table => [primaryKey({ columns: [table.platform, table.userId, table.cli], name: 'user_cli_preferences_pkey' })],
 )
 
 export type UserPreference = typeof userPreferences.$inferSelect
-export type UserCliCwd = typeof userCliCwds.$inferSelect
+export type UserCliPreference = typeof userCliPreferences.$inferSelect

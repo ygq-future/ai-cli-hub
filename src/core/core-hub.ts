@@ -7,7 +7,15 @@
 import type { AppConfig } from '../config'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
-import type { AutoApprovePreference, CliType, MessageRef, Platform, UserLanguage } from '../shared'
+import type {
+  AutoApprovePreference,
+  CliModel,
+  CliType,
+  ConversationId,
+  MessageRef,
+  Platform,
+  UserLanguage,
+} from '../shared'
 import { createAuth, type Auth } from './auth'
 import { createCommandRouter, type CommandRouter } from './commands'
 import { createSessionManager, type SessionManager } from './session-manager'
@@ -32,6 +40,9 @@ export interface CoreHubOptions {
   setUserTarget?: (platform: Platform, userId: string, target: { cli: CliType; cwd: string }) => Promise<void>
   getAutoApprove?: (platform: Platform, userId: string) => Promise<AutoApprovePreference>
   setAutoApprove?: (platform: Platform, userId: string, preference: AutoApprovePreference) => Promise<void>
+  getSelectedModel?: (platform: Platform, userId: string, cli: CliType) => Promise<string | null>
+  listModels?: (conversationId: ConversationId) => Promise<CliModel[]>
+  selectModel?: (conversationId: ConversationId, modelId: string) => Promise<string>
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
   getUpdatePreview?: () => string
@@ -67,6 +78,9 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
       setUserTarget: opts.setUserTarget,
       getAutoApprove: opts.getAutoApprove,
       setAutoApprove: opts.setAutoApprove,
+      getSelectedModel: opts.getSelectedModel,
+      listModels: opts.listModels,
+      selectModel: opts.selectModel,
       resolveCwd: opts.resolveCwd,
       refreshEnvironmentSnapshot: opts.refreshEnvironmentSnapshot,
       getHealthReport: opts.getHealthReport,

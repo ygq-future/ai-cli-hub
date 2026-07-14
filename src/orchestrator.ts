@@ -16,6 +16,7 @@
 import {
   DEFAULT_AUTO_APPROVE_SECONDS,
   type AutoApprovePreference,
+  type CliModel,
   type CliType,
   type ConversationId,
   type Platform,
@@ -30,6 +31,8 @@ import { createClaudeSdkAdapter, formatOutputDelta, type ApprovalRequest, type C
 export interface SessionOrchestrator {
   /** 注入 CoreHub 的输入处理接缝。 */
   handler: MessageHandler
+  listModels(conversationId: ConversationId): Promise<CliModel[]>
+  setModel(conversationId: ConversationId, modelId: string): Promise<string>
   /** 停止所有 adapter 与订阅（优雅关闭）。 */
   destroy(): Promise<void>
 }
@@ -42,6 +45,7 @@ export interface SessionOrchestratorDeps {
   adapterFactory?: (cli: CliType) => CLIAdapter
   getUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage> | UserLanguage
   getAutoApprove?: (platform: Platform, userId: string) => Promise<AutoApprovePreference>
+  getModel?: (platform: Platform, userId: string, cli: CliType) => Promise<string | null>
   /** 测试注入计时长度；展示仍使用持久化秒数。 */
   autoApproveDelayMs?: number
   getSystemMemoryHint?: () => Promise<string> | string
@@ -340,6 +344,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
         conversationId: cid,
         cwd: conv.cwd,
         systemLanguageHint: systemHint,
+        modelId: (await deps.getModel?.(conv.platform, conv.userId, conv.cli as CliType)) ?? undefined,
       })
       resetIdleTimer(cid, entry)
       diag('adapterStarted', {
@@ -622,6 +627,18 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
 
   return {
     handler,
+    async listModels(conversationId) {
+      const result = await ensureAdapter(conversationId)
+      if (!result) throw new Error(`会话 ${conversationId} 的 CLI adapter 启动失败`)
+      resetIdleTimer(conversationId, result.entry)
+      return result.entry.adapter.listModels()
+    },
+    async setModel(conversationId, modelId) {
+      const result = await ensureAdapter(conversationId)
+      if (!result) throw new Error(`会话 ${conversationId} 的 CLI adapter 启动失败`)
+      resetIdleTimer(conversationId, result.entry)
+      return result.entry.adapter.setModel(modelId)
+    },
     async destroy() {
       for (const u of globalUnsubs) u()
       globalUnsubs.length = 0

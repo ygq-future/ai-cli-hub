@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-13 · 阶段：**V3 JSON setting 迁移进行中**
+> 最后更新：2026-07-14 · 阶段：**V3 日常优化维护**
 
 ---
 
@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V3 JSON setting 迁移（进行中）** |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/自动审批。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 13 分类），`loadConfig` 不再读 process.env。** |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_id]` 可实时列出并切换 Claude/OpenCode 模型。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 13 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
 | 下一步 | V3：真机验证 Linux `/update confirm` 的 JSON setting 同步与数据库迁移链路；日常优化与维护 |
@@ -30,7 +30,7 @@
 | M4 | Claude Adapter / PTY 扩展点 | ✅ 完成 | CLIAdapter 语义接缝 + ClaudeSdkAdapter（SDK 家族，`query()` + `canUseTool`）。当前 Claude/OpenCode 均走 SDK；未装配的 NodePtyRuntime 与 `node-pty` 已按 D67 移除，`runtime/`、ApprovalDetector 与依赖均在接入首个无 SDK CLI 时再补（M4b）。 |
 | M5 | 消息聚合器 | ✅ 完成 | MessageAggregator(core/aggregator, push/flush/destroy; 累计文本 Buffer + Debounce[debounceMs] + Throttle[minEditIntervalMs trailing 补发] + 超长拆分[maxChunkChars,优先换行处切], 发 MessageGenerated) + formatOutputDelta(cli/format-output, OutputDelta→展示串, tool_use 合成工具行) + main.ts bindAdapterOutput 接线(onOutput→format→push; final→flush, M6 每会话调用)。**content 语义定为累计全文(D12)**；新增 20 单测(13 aggregator + 7 format-output)；126 单测全绿, depcruise 61 模块 0 违规。AggregatorConfig 暂用默认常量(DEFAULT_AGGREGATOR_CONFIG 400/1000/4096), 未 env 化 |
 | M6 | Telegram Transport | ✅ 完成 | 首个端到端。真机验证通过(见会话日志). **M6b 为质量闭环, 不单独列里程碑** |
-| M6b | 会话管理命令 & 生产级加固 | ✅ 完成 | `/switch` `/close` `/status` `/sessions` `/lang`；支持在 CLI 会话间切换并恢复上下文，cwd 统一由 `/switch <cli> [path]` 管理 |
+| M6b | 会话管理命令 & 生产级加固 | ✅ 完成 | `/switch` `/model` `/close` `/status` `/sessions` `/lang`；支持在 CLI 会话间切换并恢复上下文，cwd 由 `/switch <cli> [path]` 管理，模型由 `/model [model_id]` 查看/切换 |
 | M7 | Audit 落地 | ✅ 完成 | 手动/自动 Approval 审计 + `/audit [conversationId]` 查看 |
 | M8 | 全局记忆基础 | ✅ | 环境画像记忆、adapter start 全局注入、`/remember`、`/memory`、`/env`、`/forget`、记忆变更后下一条消息实时加载已落地 |
 | M9 | 媒体/文件入站 + Light OCR 接入 | ✅ 完成 | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、DOCX 按需解析；PDF 按需交给本地 OCR 服务转图识别，Excel 交给外部文件处理能力；QQ 媒体能力已同步接入；Vision 暂缓 |
@@ -122,6 +122,7 @@
 | D68 | **Claude Agent SDK 复用系统 CLI，并在解析阶段阻止内置二进制下载**：`session.claudeExecutablePath` 可指定绝对路径，留空时用 `Bun.which('claude')`；Composition Root fail-fast 解析后传给 SDK `pathToClaudeCodeExecutable`。根 `package.json` 为 SDK 声明的全部 `@anthropic-ai/claude-agent-sdk-<platform>` optional dependency 配置同名本地 file stub override，使普通 `bun install` 零下载内置 Claude；契约测试会在 SDK 新增平台包或版本变化时失败。不用全局 `--omit optional`，避免误删其它依赖的 optional package。 | 2026-07-12 |
 | D69 | **PDF 统一交给本地 OCR 服务，Hub 删除进程内 PDF 渲染栈**：PDF 仍按非图片附件懒加载；用户明确要求读取时，由本地 OCR 服务用轻量 PDF 转图组件生成临时图片并识别。Hub 删除未装配的 `pdf-parse` 代码与直接依赖，从依赖树同步移除 `pdfjs-dist`、`@napi-rs/canvas` 及平台 Canvas 包。DOCX 的 `mammoth` 按需解析保留。 | 2026-07-13 |
 | D70 | **删除存在已知高危漏洞且未装配的 `xlsx@0.18.5`**：npm registry 的 `xlsx` 停在同时受 CVE-2023-30533 与 CVE-2024-22363 影响的 0.18.5；安全版本需改从 SheetJS CDN 获取。当前 Excel extractor 未被 Composition Root 装配，故不引入 CDN tarball或替代库，直接删除解析代码与依赖；Excel 文件继续懒加载，明确处理时交给外部文件能力。 | 2026-07-13 |
+| D71 | **模型管理统一进入 `CLIAdapter`，偏好按用户+CLI 持久化**：`CLIAdapter` 新增 `listModels()` / `setModel()` 与 `SpawnOptions.modelId`。Claude 使用 streaming `Query.supportedModels()` / `setModel()`；OpenCode 从 `provider.list()` 仅列已连接 provider，规范 ID 为 `provider/model`，并在后续 `promptAsync.body.model` 生效。`/model` 只操作当前未关闭会话，idle 时懒启动，无会话不隐式创建；`/model <id>` 验证成功后持久化。迁移 `0009_user_cli_preferences` 无损重命名 `user_cli_cwds` → `user_cli_preferences` 并新增 nullable `model_id`。 | 2026-07-14 |
 
 ---
 
@@ -152,6 +153,7 @@
 
 | 日期 | 内容 |
 |---|---|
+| 2026-07-14 | **Claude/OpenCode 模型列举、切换与偏好持久化完成**：核对已安装 SDK 类型，确认 Claude 原生支持 `supportedModels()` / `setModel()`，OpenCode 支持 provider 模型目录与 per-prompt `{providerID,modelID}`。扩展统一 `CLIAdapter` 模型契约与 orchestrator 懒启动；新增 `/model [model_id]`，无参激活当前 idle 会话并列实时模型，带参验证、切换并保存后续默认模型，无当前会话时拒绝且不隐式创建。`user_cli_cwds` 经迁移 `0009` 无损重命名为 `user_cli_preferences`，保留 cwd 并新增 `model_id`。同步 PRD/架构/接口契约/数据模型/实施计划/命令 UX/共享帮助。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 全部通过；完整依赖环境 `bun test` 380 pass / 7 skip / 0 fail / 1249 expect。 |
 | 2026-07-13 | **存在高危漏洞的 xlsx 依赖移除**：核对 NVD 与 SheetJS 官方公告，确认 `xlsx@0.18.5` 受 CVE-2023-30533（修复于 0.19.3）和 CVE-2024-22363（修复于 0.20.2）影响，而 npm registry 仍停在 0.18.5；代码溯源确认 Excel extractor 未被 Composition Root 装配。按最小依赖原则删除 `xlsx` 解析代码、直接依赖及 `codepage` 等传递依赖，不改用 SheetJS CDN tarball；Excel 附件继续懒加载并交给外部文件处理能力。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；目标测试 4 pass / 0 fail；完整依赖环境 `bun test` 375 pass / 7 skip / 0 fail。 |
 | 2026-07-13 | **PDF 依赖栈移除**：依赖溯源确认项目直接依赖 `pdf-parse`，它带入 `pdfjs-dist` 与 `@napi-rs/canvas`/平台二进制；默认 `FileTextExtractor` 又未被 Composition Root 装配。删除进程内 PDF 解析实现与直接依赖，PDF 保持懒加载并在用户明确要求时交给本地 OCR 服务转临时图片识别；DOCX 按需解析保留。锁文件已无三个包，当前 Windows 旧 `node_modules` 残留也已清理。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；媒体目标测试 16 pass / 0 fail；完整依赖环境 `bun test` 375 pass / 7 skip / 0 fail。 |
 | 2026-07-12 | **Claude SDK 系统 CLI 复用与首次安装零下载完成**：新增系统 Claude 路径自动发现/显式配置，`ClaudeSdkAdapter` 通过 `pathToClaudeCodeExecutable` 复用外部安装。根据用户进一步明确的“新拉项目首次安装就不要下载”要求，将安装后裁剪升级为 Bun 顶层 overrides + 8 个同名本地空包，在依赖解析阶段替代全部 SDK 平台 optional dependency；删除 `deps:prune` 及 `/update` 裁剪步骤，新增依赖策略契约测试；当时保留的 PDF Canvas 后由 D69 删除。当前 Windows 系统 Claude 为 2.1.207；真实 `bun install` 只安装 8 个本地 stub（36ms），forced frozen dry-run 中全部 Claude 平台包均解析到 `vendor/`。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 通过；完整依赖环境 `bun test` 375 pass / 7 skip / 0 fail。 |

@@ -167,6 +167,7 @@ async function main() {
     },
     getUserLanguage,
     getAutoApprove: userPreferences.getAutoApprove,
+    getModel: userPreferences.getModel,
     getSystemMemoryHint: memory.recallGlobalContext,
     getRelevantMemoryHint: memory.recallRelevantContext,
     agentDescription: config.AGENT_DESCRIPTION,
@@ -190,6 +191,15 @@ async function main() {
     setUserTarget: userPreferences.setTarget,
     getAutoApprove: userPreferences.getAutoApprove,
     setAutoApprove: userPreferences.setAutoApprove,
+    getSelectedModel: userPreferences.getModel,
+    listModels: orch.listModels,
+    selectModel: async (conversationId, modelId) => {
+      const conv = await repos.conversations.findById(conversationId)
+      if (!conv) throw new Error(`会话 ${conversationId} 不存在`)
+      const selectedModelId = await orch.setModel(conversationId, modelId)
+      await userPreferences.setModel(conv.platform, conv.userId, conv.cli, selectedModelId)
+      return selectedModelId
+    },
     resolveCwd,
     refreshEnvironmentSnapshot: memory.refreshEnvironmentSnapshot,
     getHealthReport: health.getReport,

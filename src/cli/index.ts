@@ -2,6 +2,7 @@
 // 契约见 docs/03-Interface-Contracts.md §3.1，家族划分见决策 D11。
 export type {
   CLIAdapter,
+  CliModel,
   OutputDelta,
   ApprovalRequest,
   ApprovalAction,

@@ -64,6 +64,13 @@
       "when": 1783834800000,
       "tag": "0008_conversation_cli_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784016000000,
+      "tag": "0009_user_cli_preferences",
+      "breakpoints": true
     }
   ]
 }
