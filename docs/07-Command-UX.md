@@ -39,8 +39,8 @@ flowchart TD
 | `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；不做非 LLM 自动会话摘录 |
 | `/status` | — | 当前会话详情 | 有当前会话时展示完整 conversationId、status、平台、cli/cwd、语言、模型名称/ID 与已存活时间；无会话时展示持久化目标 |
 | `/sessions` | — | 列出该用户近期会话 | 历史查看，不表示 resume |
-| `/clear` | — | 清空当前会话 | 删除当前 conversation 的 messages、文件映射和受控临时文件；不关闭 conversation，不修改 CLI/模型/用户偏好；文件编号从 1 重新开始 |
-| `/reset` | — | 重置当前会话与用户/CLI 偏好 | 在 `/clear` 基础上删除语言、默认 CLI、各 CLI cwd/model 与自动审批偏好；长期 memories 保留 |
+| `/clear` | — | 清空当前会话 | 删除当前 conversation 的 messages、文件映射、受控临时文件并停止当前 CLI adapter；不关闭 conversation，不修改 CLI/模型/用户偏好；下一条消息以干净上下文重新启动 CLI，文件编号从 1 重新开始 |
+| `/reset` | — | 重置当前会话与用户/CLI 偏好 | 在 `/clear` 基础上删除语言、默认 CLI、各 CLI cwd/model 与自动审批偏好；长期 memories 保留；下一条消息使用默认配置启动干净 CLI |
 | `/audit` | `[conversationId]` | 查看审批审计 | 无参数查看当前会话；带完整或短会话 ID 查看指定会话最近审批记录 |
 | `/file` | `<limit> [keyword]` | 查询当前会话文件 | 不传 keyword 时列出最近 limit 条；传入后按文件名模糊匹配；limit 默认 10、最大 50 |
 | `/autoapprove` | `[on\|off] [seconds]` | 查看或持久化自动审批 | 默认关闭、5 秒；秒数为 1–300 整数，省略则重置为 5 秒 |

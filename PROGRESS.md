@@ -130,6 +130,7 @@
 | D76 | **PDF 改为 Hub 内轻量按需转图并复用 OCR（修正 D69）**：不恢复 `pdf-parse`；`@readN` 时用 `pdf-to-img` 最多渲染 `media.pdfMaxPages` 页、scale 由 `media.pdfRenderScale` 控制，逐页调用现有 `OcrProvider`，最后删除临时 PNG。Excel 继续不解析。 | 2026-07-14 |
 | D77 | **长期记忆彻底脱离 conversation/message 外键**：`memories` 删除 `conversation_id` 与 `source_message_id`；`semantic`/`preference` 在 namespace 内全量查询和注入，`episodic` 只做跨会话向量召回。短期消息/会话清理不影响长期记忆。 | 2026-07-14 |
 | D78 | **文件平台标识只保留一个可空 `file_id`**：不持久化有时效的下载 URL；Telegram 将稳定的 `file_unique_id` 写入该列，QQ 无等价稳定标识时写 NULL。Telegram long polling 由 Transport 监督，异常退出后按 2–60 秒指数退避重新 launch，401 鉴权错误除外。 | 2026-07-14 |
+| D79 | **`/clear`/`/reset` 通过停止 Adapter 清除 CLI 上下文**：不分别调用 Claude `/clear` 或 OpenCode `/new` 等平台私有命令；持久内容清理完成后发 `ConversationContextReset`，orchestrator 立即摘除并停止当前会话 adapter。conversation 不关闭，下一条消息按原配置（`/reset` 为默认配置）懒启动干净 CLI。 | 2026-07-14 |
 
 ---
 
@@ -159,6 +160,7 @@
 | 2026-07-14 | **文件处理优化全面复核整改完成**：补齐 `/help` 中 `/clear`、`/reset`、`/file`、`@readN`、`@fileN`；实现 `/reset` 删除用户/CLI 偏好，`/clear` 改为等待 DB 映射与受控磁盘文件删除完成；文件编号增加 Postgres advisory transaction lock，MessageRouter 改为顺序登记同批附件。Telegram 相册按 `media_group_id` 聚合后一次循环 OCR；PDF 通过 `pdf-to-img` 按需逐页转 PNG 并复用 OCR，支持页数/scale 上限和临时页清理；图片 `@readN`、DOCX、UTF-8/UTF-16 未知文本可读，Excel 明确不解析。清理 Memory 类型的旧兼容字段及测试，schema 契约确认无 conversation/message 列。修复 Drizzle journal 漏登记 0011/0012，并新增“每个 SQL 必须存在 journal entry”的回归测试。最终验收：format/format:check/typecheck/lint 全绿，完整测试 403 pass / 7 skip / 0 fail；`bun run db:migrate` 成功，实际数据库确认 `conversation_files` 存在，`memories.conversation_id/source_message_id` 均不存在。提交拆分为 `44679b9`、`ee85320`、`93452cb`。 |
 | 2026-07-14 | **文件标识与 Telegram 断线自恢复整改**：新增 `0013_conversation_file_identifier`，删除 `file_unique_id` 列并将 `file_id` 改为 nullable；迁移历史 Telegram 行时保留稳定 unique ID，QQ/其他平台清除临时 URL。入站映射同步改为 Telegram unique ID、QQ NULL。Telegram polling 新增生命周期监督，socket 等异常退出会记录错误并按 2–60 秒指数退避自动重新 launch，主动 stop 可取消等待，401 鉴权错误停止重试。同步接口、数据模型和命令 UX，并增加 schema、平台标识与断线重连回归测试。自动验收：format/format:check/typecheck/lint 全绿，完整测试 404 pass / 7 skip / 0 fail。 |
 | 2026-07-14 | **0013 迁移顺序修复**：VPS 有现存 QQ 文件行时，原迁移先写 `file_id=NULL`、后解除 NOT NULL，触发 PostgreSQL 23502 并整段回滚。现调整为先 `DROP NOT NULL`、再迁移平台标识、最后删除旧列，并增加 SQL 顺序回归测试。失败的 VPS 迁移未写入 Drizzle journal，更新代码后可直接重新执行 `bun db:migrate`。 |
+| 2026-07-14 | **`/clear`/`/reset` CLI 上下文清理补齐**：确认此前只删除 DB messages/files，运行中的 Claude/OpenCode adapter 仍保留 SDK 上下文。现统一在清理完成后发 `ConversationContextReset`，orchestrator 停止并摘除当前 adapter；conversation 保持未关闭，下一条消息重新启动干净 CLI。该通知与兼容文件清理事件分离，避免已同步删除文件后重复异步删除误伤新上传附件；聚合器同步丢弃未定稿旧输出。共享中英文帮助、命令回复、接口契约、命令 UX 与实施计划同步。自动验收：format/format:check/typecheck/lint 全绿，完整测试 407 pass / 7 skip / 0 fail。 |
 | 2026-07-14 | **文件处理优化，第 1–3 阶段完成（后续已由全面复核整改补齐）**：审计确认 QQ 单条消息已支持多附件逐个 OCR；当时 Telegram 相册仍逐张独立入站。新增 `conversation_files` 表及 `0011_conversation_files.sql`、`ConversationFileRepository`、`ConversationCleared`、`/clear` 和媒体生命周期订阅器。 |
 
 > 每个工作会话追加一行：日期 · 做了什么 · 产出/决策。

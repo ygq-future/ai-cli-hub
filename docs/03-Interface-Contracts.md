@@ -62,7 +62,8 @@ export interface EventMap {
   SessionCreated:   { conversationId: ConversationId; platform: Platform; userId: string; cli: CliType; cwd: string };
   SessionMapped:    { conversationId: ConversationId; platform: Platform; userId: string };
   SessionClosed:    { conversationId: ConversationId; reason: 'user' | 'archiveTimeout' };
-  ConversationCleared: { conversationId: ConversationId };
+  ConversationCleared: { conversationId: ConversationId }; // 兼容路径：请求文件生命周期模块清理文件
+  ConversationContextReset: { conversationId: ConversationId }; // 持久内容清除后停止当前 adapter
 
   // —— 消息 ——
   MessageReceived:  { userId: string; platform: Platform; cli: CliType; cwd: string; text: string; ref: MessageRef; attachments?: InboundAttachment[] };
@@ -259,6 +260,8 @@ export interface MessageAggregator {
   flush(conversationId: ConversationId): void;
   // 优雅关闭前冲刷所有会话草稿
   flushAll(): void;
+  // /clear、/reset 时丢弃指定会话未定稿输出，防止旧回复延迟发送
+  discard(conversationId: ConversationId): void;
   // 清理定时器和内存状态；调用前应先 flushAll()
   destroy(): void;
 }

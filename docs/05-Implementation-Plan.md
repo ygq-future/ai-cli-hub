@@ -108,7 +108,7 @@ flowchart LR
 
 - **M9-A emoji 文本归一化**：识别 Unicode emoji，补充 short name/keywords 作为文本上下文；不走 OCR。
 - **M9-B Telegram sticker/custom emoji metadata**：解析 sticker/custom emoji 的 `emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`；第一版不做画面理解。
-- **M9-C 文件/附件入站 + 按需解析能力**：附件下载到受控目录并写入 `conversation_files`，编号在 conversation 内从 1 递增。非图片上传时只回复编号，不把 metadata/path/正文发给 AI；`@readN` 按需读取（PDF 用 `pdf-to-img` 临时逐页转图后 OCR、`.docx` 用 `mammoth`、未知文本做编码/二进制判断），`@fileN` 只注入路径；Excel 不解析。`/file <limit> [keyword]` 查询映射，`/clear`/`/reset`/会话关闭删除映射及受控临时文件并重置编号。
+- **M9-C 文件/附件入站 + 按需解析能力**：附件下载到受控目录并写入 `conversation_files`，编号在 conversation 内从 1 递增。非图片上传时只回复编号，不把 metadata/path/正文发给 AI；`@readN` 按需读取（PDF 用 `pdf-to-img` 临时逐页转图后 OCR、`.docx` 用 `mammoth`、未知文本做编码/二进制判断），`@fileN` 只注入路径；Excel 不解析。`/file <limit> [keyword]` 查询映射，`/clear`/`/reset`/会话关闭删除映射及受控临时文件并重置编号；`/clear`/`/reset` 同时停止当前 CLI adapter，下一条消息以干净上下文重新启动。
 - **M9-C 图片 OCR**：图片/photo 可在上传时调用 `OcrProvider` 抽象；配置 `OCR_API_BASE_URL` 后通过 Light OCR HTTP API 的 `POST /ocr/file` 识别，留空时返回明确未配置状态。PDF 即使可能是扫描件，也属于非图片文件，上传时不自动 OCR。
 - **M9-D Vision 暂不实现**：static sticker/thumbnail 图片理解、animated/video sticker 抽帧与 Vision 识别均移到项目 V1 完成后的优化迭代，不归入 M9。
 - **验收**：普通 emoji/sticker metadata 正常；Telegram 相册与 QQ 多附件均能循环 OCR；非图片上传只返回编号且不进入 AI；`@readN`/`@fileN`、`/file`、清理与编号重置符合契约；PDF 页数/scale 有配置上限且临时页会删除。
