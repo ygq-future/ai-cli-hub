@@ -624,7 +624,6 @@ function formatStatus(
     `- **${isEnglish ? 'Language' : '语言'}**: \`${language}\``,
     `- **CWD**: \`${conv.cwd}\``,
     ...formatModelPreference(selectedModel, language),
-    '',
     `- **${isEnglish ? 'Alive' : '已存活'}**: ${formatDuration(Date.now() - conv.createdAt)}`,
   ].join('\n')
 }

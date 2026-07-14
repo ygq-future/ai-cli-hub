@@ -1116,6 +1116,8 @@ describe('CommandRouter', () => {
     expect(content).toContain(`**会话 ID**: \`${cid}\``)
     expect(content).toContain('**模型名称**: Claude Sonnet 4.5')
     expect(content).toContain('**Model ID**: `claude-sonnet-4-5`')
+    expect(content).toContain('**Model ID**: `claude-sonnet-4-5`\n- **已存活**:')
+    expect(content).not.toContain('**Model ID**: `claude-sonnet-4-5`\n\n- **已存活**:')
     expect(content).not.toContain('### 当前目标')
     expect(content).toContain('**已存活**:')
   })
