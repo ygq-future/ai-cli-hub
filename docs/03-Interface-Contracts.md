@@ -330,7 +330,7 @@ export interface UserPreferenceRepository {
   findCliPreference(platform: Platform, userId: string, cli: CliType): Promise<UserCliPreference | null>;
   upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>;
   setModel(platform: Platform, userId: string, cli: CliType, modelId: string): Promise<void>;
-  reset(platform: Platform, userId: string): Promise<void>;
+  reset(platform: Platform, userId: string, defaults: ReadonlyArray<{ cli: CliType; cwd: string }>): Promise<void>;
 }
 
 export interface ConversationFileRepository {
@@ -345,7 +345,7 @@ export interface ConversationFileRepository {
 `file_unique_id`；QQ 当前没有等价稳定标识，因此写入 `NULL`。平台下载 URL 只在入站下载期间使用，
 不写入数据库；Telegram 用于本次下载的短期 `file_id` 同样不持久化。
 
-`UserPreferenceRepository` 是用户级持久化目标的唯一 SQL 出口：按 `(platform,userId)` 保存 `/lang`、默认 CLI 与自动审批开关，并按 `(platform,userId,cli)` 保存 cwd、model ID 与 model name；不使用无类型的通用 KV 表。
+`UserPreferenceRepository` 是用户级持久化目标的唯一 SQL 出口：按 `(platform,userId)` 保存 `/lang`、默认 CLI 与自动审批开关，并按 `(platform,userId,cli)` 保存 cwd、model ID 与 model name；不使用无类型的通用 KV 表。`/reset` 通过 upsert/update 恢复默认值而非删除记录，并同步更新该用户所有未关闭 conversation 的 cwd。
 
 > `New*` 为插入用类型（无 id/时间戳），`Conversation`/`Message`/... 为读取用完整类型，均由 Drizzle `$inferInsert` / `$inferSelect` 推导，见 04。
 
