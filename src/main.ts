@@ -28,7 +28,12 @@ import {
 } from './cli'
 import { createApprovalAudit } from './audit'
 import { createMemoryModule } from './memory'
-import { createLightOcrProvider, createMediaPreprocessor } from './media'
+import {
+  createConversationFileLifecycle,
+  createFileContentReader,
+  createLightOcrProvider,
+  createMediaPreprocessor,
+} from './media'
 import {
   createHealthReporter,
   createRestartNoticeStore,
@@ -135,6 +140,12 @@ async function main() {
     maxTextChars: config.MEDIA_MAX_TEXT_CHARS,
     ocrProvider,
   })
+  const fileContentReader = createFileContentReader({ maxTextChars: config.MEDIA_MAX_TEXT_CHARS })
+  const conversationFileLifecycle = createConversationFileLifecycle({
+    bus,
+    repos,
+    mediaDirectory: config.MEDIA_DOWNLOAD_DIR,
+  })
   const transports: Transport[] = []
   if (config.TELEGRAM_BOT_TOKEN) {
     transports.push(
@@ -192,6 +203,7 @@ async function main() {
     repos,
     config,
     handler: orch.handler,
+    fileContentReader,
     getUserLanguage,
     getUserTarget: userPreferences.getTarget,
     getCwdForCli: userPreferences.getCwd,
@@ -231,6 +243,7 @@ async function main() {
           await orch.destroy()
           await openCodeServerPool.close()
           memory.destroy()
+          conversationFileLifecycle.destroy()
           userPreferences.destroy()
           approvalAudit.destroy()
           aggregator.destroy()

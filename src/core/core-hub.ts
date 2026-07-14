@@ -13,6 +13,7 @@ import type {
   CliModelPreference,
   CliType,
   ConversationId,
+  FileContentReader,
   MessageRef,
   Platform,
   UserLanguage,
@@ -34,6 +35,7 @@ export interface CoreHubOptions {
   repos: Repositories
   config: AppConfig
   handler?: MessageHandler
+  fileContentReader?: FileContentReader
   commandRouter?: CommandRouter
   getUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage> | UserLanguage
   getUserTarget?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
@@ -100,6 +102,7 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
     opts.handler,
     opts.getUserLanguage,
     config.MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT,
+    opts.fileContentReader,
   )
 
   return {

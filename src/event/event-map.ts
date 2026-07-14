@@ -6,6 +6,7 @@ import type {
   CliType,
   ConversationId,
   CopyAction,
+  InboundAttachment,
   MemoryType,
   MessageRef,
   Platform,
@@ -24,6 +25,8 @@ export interface EventMap {
   }
   SessionMapped: { conversationId: ConversationId; platform: Platform; userId: string }
   SessionClosed: { conversationId: ConversationId; reason: 'user' | 'archiveTimeout' }
+  /** `/clear` 清空消息与当前会话文件，但保留 conversation 本身及其运行态。 */
+  ConversationCleared: { conversationId: ConversationId }
 
   // —— 消息 ——
   /**
@@ -38,6 +41,7 @@ export interface EventMap {
     cwd: string
     text: string
     ref: MessageRef
+    attachments?: InboundAttachment[]
   }
   /** final=false 为流式增量。 */
   MessageGenerated: { conversationId: ConversationId; content: string; final: boolean }
@@ -77,7 +81,6 @@ export interface EventMap {
 
   // —— 记忆 ——
   MemoryUpdated: {
-    conversationId: ConversationId | null
     namespace: string
     memoryType: MemoryType
     memoryId: string
@@ -117,6 +120,7 @@ const EVENT_TYPE_REGISTRY: Record<EventType, true> = {
   SessionCreated: true,
   SessionMapped: true,
   SessionClosed: true,
+  ConversationCleared: true,
   MessageReceived: true,
   MessageGenerated: true,
   CommandReply: true,

@@ -329,13 +329,11 @@ describe('memory module', () => {
     } as Memory)
 
     bus.emit('MemoryUpdated', {
-      conversationId: null,
       namespace: 'global',
       memoryType: 'preference',
       memoryId: 'm-global',
     })
     bus.emit('MemoryUpdated', {
-      conversationId: 'conv-1' as ConversationId,
       namespace: 'global',
       memoryType: 'episodic',
       memoryId: 'm-embed',

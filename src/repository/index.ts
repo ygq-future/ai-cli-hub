@@ -3,6 +3,7 @@
 import type { Db } from '../storage'
 import { createConversationRepository } from './conversation-repository'
 import { createMessageRepository } from './message-repository'
+import { createConversationFileRepository } from './conversation-file-repository'
 import { createAuditRepository } from './audit-repository'
 import { createMemoryRepository } from './memory-repository'
 import { createUserPreferenceRepository } from './user-preference-repository'
@@ -11,6 +12,7 @@ import type { Repositories } from './types'
 export type {
   ConversationRepository,
   MessageRepository,
+  ConversationFileRepository,
   AuditRepository,
   MemoryRepository,
   UserPreferenceRepository,
@@ -19,6 +21,8 @@ export type {
   NewConversation,
   Message,
   NewMessage,
+  ConversationFile,
+  NewConversationFile,
   AuditLog,
   NewAuditLog,
   Memory,
@@ -36,6 +40,7 @@ export function createRepositories(db: Db): Repositories {
   return {
     conversations: createConversationRepository(db),
     messages: createMessageRepository(db),
+    conversationFiles: createConversationFileRepository(db),
     audit: createAuditRepository(db),
     memories: createMemoryRepository(db),
     userPreferences: createUserPreferenceRepository(db),

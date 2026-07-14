@@ -97,3 +97,20 @@ export type FileTextResult =
 export interface FileTextExtractor {
   extract(input: FileTextInput): Promise<FileTextResult>
 }
+
+export interface StoredFileReference {
+  sequence: number
+  kind: InboundAttachmentKind
+  fileName: string | null
+  mimeType: string | null
+  localPath: string
+}
+
+export type FileContentResult =
+  | { status: 'ok'; text: string; warnings?: string[] }
+  | { status: 'unsupported'; reason: string }
+  | { status: 'failed'; reason: string }
+
+export interface FileContentReader {
+  read(file: StoredFileReference): Promise<FileContentResult>
+}

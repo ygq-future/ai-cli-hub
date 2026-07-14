@@ -1,4 +1,8 @@
 export { createDefaultFileTextExtractor } from './file-text-extractor'
+export { createFileContentReader } from './file-content-reader'
+export type { FileContentReaderOptions } from './file-content-reader'
+export { createConversationFileLifecycle } from './conversation-file-lifecycle'
+export type { ConversationFileLifecycleOptions } from './conversation-file-lifecycle'
 export { normalizeEmojis } from './emoji'
 export { createLightOcrProvider, UNCONFIGURED_OCR_PROVIDER } from './ocr'
 export type { LightOcrProviderOptions } from './ocr'

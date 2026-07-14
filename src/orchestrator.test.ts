@@ -771,7 +771,6 @@ describe('SessionOrchestrator', () => {
 
     memoryHint = '[长期记忆 · 供参考]\n- 事实：新记忆\n---'
     bus.emit('MemoryUpdated', {
-      conversationId: null,
       namespace: 'global',
       memoryType: 'semantic',
       memoryId: 'm1',
@@ -893,7 +892,6 @@ describe('SessionOrchestrator', () => {
 
     await orch.handler.onMessage('one', CID)
     bus.emit('MemoryUpdated', {
-      conversationId: null,
       namespace: 'global',
       memoryType: 'semantic',
       memoryId: 'env.os',

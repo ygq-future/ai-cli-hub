@@ -245,7 +245,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
     const response = await client.sendC2CMessage(context.chatId, content, context.messageId, keyboard)
     return { platform: 'qq', chatId: context.chatId, nativeId: response.id }
   }
-  async function emitIncoming(context: QQInboundContext, text: string) {
+  async function emitIncoming(context: QQInboundContext, text: string, attachments?: InboundAttachment[]) {
     const command = parseCommandName(text)
     if (command === 'start')
       return void sendToContext(context, getStartText(await resolvedUserLanguage(context.userId))).catch(err =>
@@ -273,6 +273,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       cwd: targetCwd(context.userId),
       text,
       ref: { platform: 'qq', chatId: context.chatId, nativeId: context.messageId },
+      attachments,
     })
   }
   async function onC2CMessage(data: Record<string, unknown>) {
@@ -340,7 +341,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
         config.MEDIA_PARSE_TIMEOUT_MS,
         'QQ media preprocessing',
       )
-      await emitIncoming(context, result.text)
+      await emitIncoming(context, result.text, attachments)
     } catch (err) {
       reportError('qq:media', err)
       void sendToContext(context, `附件处理失败：${err instanceof Error ? err.message : String(err)}`).catch(() => {})

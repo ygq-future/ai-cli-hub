@@ -6,6 +6,8 @@ export * as schema from './schema'
 export type {
   Conversation,
   NewConversation,
+  ConversationFile,
+  NewConversationFile,
   Message,
   NewMessage,
   AuditLog,

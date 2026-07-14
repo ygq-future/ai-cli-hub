@@ -37,7 +37,7 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
   afterAll(async () => {
     // 清理本测试插入的数据（audit 无级联，先删；其余随 conversation 级联/置空）。
     await db.delete(auditLogs).where(inArray(auditLogs.conversationId, [cid]))
-    await db.delete(memories).where(inArray(memories.conversationId, [cid]))
+    await db.delete(memories).where(eq(memories.namespace, testNamespace))
     await db.delete(conversations).where(inArray(conversations.id, [cid, startingCid, closingCid]))
     await closeDb(db)
   })
@@ -133,16 +133,14 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
   })
 
   test('MemoryRepository：insert → listGlobal → searchByKeyword → searchByVector → touch/delete/upsert', async () => {
-    // global（conversationId 为 NULL）
+    // global namespace memory
     const mem = await repos.memories.insert({
       id: crypto.randomUUID(),
       namespace: testNamespace,
-      conversationId: null,
       type: 'preference',
       content: 'prefers dark mode and terse replies',
       createdAt: now,
     })
-    expect(mem.conversationId).toBeNull()
 
     const global = await repos.memories.listGlobal(testNamespace)
     expect(global.some(m => m.id === mem.id)).toBe(true)
@@ -156,13 +154,11 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     expect(touched?.lastAccessedAt).not.toBeNull()
 
     const upserted = await repos.memories.upsertByTag(testNamespace, 'env:test', {
-      conversationId: null,
       type: 'semantic',
       content: 'environment snapshot v1',
       importance: 0.9,
     })
     const updated = await repos.memories.upsertByTag(testNamespace, 'env:test', {
-      conversationId: null,
       type: 'semantic',
       content: 'environment snapshot v2',
       importance: 0.9,

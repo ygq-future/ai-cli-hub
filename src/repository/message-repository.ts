@@ -19,5 +19,9 @@ export function createMessageRepository(db: Db): MessageRepository {
       const q = db.select().from(messages).where(eq(messages.conversationId, id)).orderBy(asc(messages.createdAt))
       return limit === undefined ? q : q.limit(limit)
     },
+
+    async deleteByConversation(id: ConversationId): Promise<void> {
+      await db.delete(messages).where(eq(messages.conversationId, id))
+    },
   }
 }

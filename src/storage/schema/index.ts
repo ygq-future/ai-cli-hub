@@ -4,6 +4,7 @@
  */
 export * from './enums'
 export * from './conversations'
+export * from './conversation-files'
 export * from './messages'
 export * from './audit-logs'
 export * from './memories'

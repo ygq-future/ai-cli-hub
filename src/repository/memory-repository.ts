@@ -2,7 +2,7 @@
  * MemoryRepository —— Drizzle 实现（docs/03 §5 / docs/04 §6）。
  * V1：关系 + FTS 关键词召回；V1.5：pgvector 近邻召回。
  */
-import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, sql } from 'drizzle-orm'
 import type { Db } from '../storage'
 import { memories } from '../storage/schema'
 import type { MemoryRepository, Memory, NewMemory } from './types'
@@ -33,11 +33,9 @@ export function createMemoryRepository(db: Db): MemoryRepository {
         .onConflictDoUpdate({
           target: [memories.namespace, memories.tag],
           set: {
-            conversationId: m.conversationId,
             type: m.type,
             content: m.content,
             embedding: m.embedding,
-            sourceMessageId: m.sourceMessageId,
             importance: m.importance,
           },
         })
@@ -47,11 +45,7 @@ export function createMemoryRepository(db: Db): MemoryRepository {
     },
 
     listGlobal(namespace: string): Promise<Memory[]> {
-      // 全局事实 = conversationId 为 NULL；启动时全量注入。
-      return db
-        .select()
-        .from(memories)
-        .where(and(eq(memories.namespace, namespace), isNull(memories.conversationId)))
+      return db.select().from(memories).where(eq(memories.namespace, namespace))
     },
 
     async findById(id: string): Promise<Memory | null> {

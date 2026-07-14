@@ -15,7 +15,7 @@
 | 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID 且无重复目标字段。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 13 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
-| 下一步 | V3：真机验证 Linux `/update confirm` 的 JSON setting 同步与数据库迁移链路；日常优化与维护 |
+| 下一步 | 文件处理优化（进行中）：完成附件引用/按需读取、多图聚合与 memories 去会话关联；随后真机验证 Linux `/update confirm` 的 JSON setting 同步与数据库迁移链路。 |
 
 ---
 
@@ -151,6 +151,8 @@
 ---
 
 ## 5. 会话日志（Changelog）
+
+| 2026-07-14 | **文件处理优化，第 1–3 阶段完成**：审计确认 QQ 单条消息已支持多附件逐个 OCR；Telegram 相册仍逐张独立入站，待后续按 `media_group_id` 聚合。新增 `conversation_files` 表及 `0011_conversation_files.sql`：按 `conversation_id + sequence` 唯一映射文件编号、保存受控本地路径和附件元数据；新增 `ConversationFileRepository` 与 messages 按会话删除。新增 `ConversationCleared` 事件、`/clear`（仅删除当前会话消息与暂存文件、不关闭会话/不改 CLI 偏好）和媒体生命周期订阅器；`SessionClosed` 同样清理映射与受控媒体目录内临时文件。自动验收：`bun run format`、`bun run typecheck`、核心会话/命令测试 36 pass。已确认现有 DOCX 测试在当前 Windows 沙箱被 Bun 读取 mammoth hardlink 的 EPERM 限制阻断，非本次改动引入；后续按需读取使用 mock 覆盖新增流程测试。 |
 
 > 每个工作会话追加一行：日期 · 做了什么 · 产出/决策。
 

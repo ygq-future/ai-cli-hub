@@ -56,6 +56,8 @@ const ID_PREFIX_SEARCH_LIMIT = 50
 const SHORT_ID_CHARS = 8
 const MEMORY_PREVIEW_CHARS = 160
 const AUDIT_COMMAND_PREVIEW_CHARS = 300
+const DEFAULT_FILE_LIST_LIMIT = 10
+const MAX_FILE_LIST_LIMIT = 50
 
 export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
   const { bus, repos, sessionManager } = deps
@@ -173,6 +175,21 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           }
           await sessionManager.close(conv.id as ConversationId, 'user')
           reply(payload, `## ✅ 会话已关闭\n\n- **ID**: \`${conv.id}\``)
+          return true
+        }
+
+        case 'clear': {
+          const conv = await currentConversation(payload)
+          if (!conv) {
+            reply(payload, commandError('无法清空会话', '当前没有可清空的活跃会话。'))
+            return true
+          }
+          await repos.messages.deleteByConversation(conv.id as ConversationId)
+          bus.emit('ConversationCleared', { conversationId: conv.id as ConversationId })
+          reply(
+            payload,
+            `## 🧹 会话已清空\n\n- **ID**: \`${conv.id}\`\n- 对话消息和暂存文件已清理\n- CLI、工作目录、模型与偏好保持不变`,
+          )
           return true
         }
 
@@ -345,6 +362,25 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           return true
         }
 
+        case 'file': {
+          const conv = await currentConversation(payload)
+          if (!conv) {
+            reply(payload, commandError('暂无会话文件', '当前没有可查询的活跃会话。'))
+            return true
+          }
+          const parsedLimit = Number(parsed.args[0])
+          const hasLimit = Number.isInteger(parsedLimit) && parsedLimit > 0
+          const limit = Math.min(hasLimit ? parsedLimit : DEFAULT_FILE_LIST_LIMIT, MAX_FILE_LIST_LIMIT)
+          const keyword =
+            parsed.args
+              .slice(hasLimit ? 1 : 0)
+              .join(' ')
+              .trim() || undefined
+          const files = await repos.conversationFiles.listByConversation(conv.id as ConversationId, limit, keyword)
+          reply(payload, formatConversationFiles(files, keyword))
+          return true
+        }
+
         case 'remember': {
           const raw = parsed.args.join(' ').trim()
           if (!raw) {
@@ -359,11 +395,9 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           const memory = await repos.memories.insert({
             id: crypto.randomUUID(),
             namespace: DEFAULT_MEMORY_NAMESPACE,
-            conversationId: null,
             type: classified.type,
             content: classified.content,
             embedding: null,
-            sourceMessageId: null,
             importance: classified.type === 'preference' ? 0.85 : 0.75,
             accessCount: 0,
             lastAccessedAt: null,
@@ -371,7 +405,6 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             createdAt: Date.now(),
           })
           bus.emit('MemoryUpdated', {
-            conversationId: null,
             namespace: DEFAULT_MEMORY_NAMESPACE,
             memoryType: memory.type,
             memoryId: memory.id,
@@ -469,7 +502,6 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           }
           await repos.memories.delete(resolved.memory.id)
           bus.emit('MemoryUpdated', {
-            conversationId: null,
             namespace: DEFAULT_MEMORY_NAMESPACE,
             memoryType: resolved.memory.type,
             memoryId: resolved.memory.id,
@@ -662,9 +694,32 @@ function formatAuditAction(action: AuditLog['action']): string {
   return action === 'approve' ? '✅ approved' : '❌ rejected'
 }
 
+function formatConversationFiles(
+  files: Array<{ sequence: number; fileName: string | null; mimeType: string | null; fileSize: number | null }>,
+  keyword?: string,
+): string {
+  if (files.length === 0) {
+    return keyword
+      ? `## 📎 会话文件\n\n_没有名称匹配 \`${keyword}\` 的暂存文件。_`
+      : '## 📎 会话文件\n\n_当前会话没有暂存文件。_'
+  }
+  return [
+    '## 📎 会话文件',
+    '',
+    ...files.map(file =>
+      [
+        `- **${file.sequence}**：${file.fileName ?? '未命名文件'}`,
+        `  - 类型：\`${file.mimeType ?? 'unknown'}\``,
+        `  - 大小：${file.fileSize ?? 0} bytes`,
+        `  - 使用：\`@read${file.sequence}\` 读取；\`@file${file.sequence}\` 引用路径`,
+      ].join('\n'),
+    ),
+  ].join('\n')
+}
+
 function formatMemories(memories: Memory[]): string {
   const globalMemories = memories
-    .filter(m => m.namespace === DEFAULT_MEMORY_NAMESPACE && m.conversationId === null)
+    .filter(m => m.namespace === DEFAULT_MEMORY_NAMESPACE && m.type !== 'episodic')
     .sort((a, b) => b.createdAt - a.createdAt)
   if (globalMemories.length === 0) return '## 🧠 长期记忆\n\n_暂无长期记忆。_'
 
@@ -682,7 +737,7 @@ function formatMemories(memories: Memory[]): string {
 
 function formatEnvironmentMemories(memories: Memory[]): string {
   const envMemories = memories
-    .filter(m => m.namespace === DEFAULT_MEMORY_NAMESPACE && m.conversationId === null && m.tag?.startsWith('env.'))
+    .filter(m => m.namespace === DEFAULT_MEMORY_NAMESPACE && m.tag?.startsWith('env.'))
     .sort((a, b) => (a.tag ?? '').localeCompare(b.tag ?? ''))
   if (envMemories.length === 0) return '## 🖥️ 环境快照\n\n_暂无环境快照。_'
 
@@ -703,9 +758,7 @@ async function resolveMemory(
 ): Promise<{ ok: true; memory: Memory } | { ok: false; message: string }> {
   const exact = await repos.memories.findById(target)
   if (exact) {
-    return exact.namespace === DEFAULT_MEMORY_NAMESPACE && exact.conversationId === null
-      ? { ok: true, memory: exact }
-      : memoryNotFound(target)
+    return exact.namespace === DEFAULT_MEMORY_NAMESPACE ? { ok: true, memory: exact } : memoryNotFound(target)
   }
 
   const memories = await repos.memories.listGlobal(DEFAULT_MEMORY_NAMESPACE)

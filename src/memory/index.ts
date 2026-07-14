@@ -87,7 +87,7 @@ export async function createMemoryModule(deps: MemoryModuleDeps): Promise<Memory
     async recallRelevantContext(query: string) {
       const embedding = await embeddingProvider.embed(query)
       const memories = await deps.repos.memories.searchByVector(namespace, embedding, deps.config.MEMORY_RECALL_TOP_K)
-      const relevantMemories = memories.filter(m => m.conversationId !== null)
+      const relevantMemories = memories.filter(m => m.type === 'episodic')
       await Promise.all(relevantMemories.map(m => deps.repos.memories.touch(m.id)))
       debugMessageFlow(deps, 'memory.relevantRecall', {
         namespace,
@@ -112,7 +112,7 @@ export async function createMemoryModule(deps: MemoryModuleDeps): Promise<Memory
 async function embedMemoryById(deps: MemoryModuleDeps, embeddingProvider: EmbeddingProvider, memoryId: string) {
   try {
     const memory = await deps.repos.memories.findById(memoryId)
-    if (!memory || memory.conversationId === null) return
+    if (!memory || memory.type !== 'episodic') return
     const embedding = await embeddingProvider.embed(memory.content)
     await deps.repos.memories.setEmbedding(memory.id, embedding)
   } catch (err) {
@@ -156,15 +156,12 @@ async function createRequestedSummaryMemory(
       summaryChars: summary.length,
     })
 
-    const lastMessage = [...recentMessages].reverse().find(m => m.content.trim())
     const memory = await deps.repos.memories.insert({
       id: crypto.randomUUID(),
       namespace,
-      conversationId,
       type: 'episodic',
       content: summary,
       embedding: null,
-      sourceMessageId: lastMessage?.id ?? null,
       importance: 0.75,
       accessCount: 0,
       lastAccessedAt: null,
@@ -172,7 +169,6 @@ async function createRequestedSummaryMemory(
       createdAt: Date.now(),
     })
     deps.bus.emit('MemoryUpdated', {
-      conversationId,
       namespace,
       memoryType: memory.type,
       memoryId: memory.id,
@@ -195,17 +191,14 @@ export async function upsertEnvironmentSnapshot(deps: MemoryModuleDeps, namespac
   })
   for (const fact of facts) {
     const memory = await deps.repos.memories.upsertByTag(namespace, fact.tag, {
-      conversationId: null,
       type: 'semantic',
       content: fact.content,
       embedding: null,
-      sourceMessageId: null,
       importance: fact.importance ?? 0.8,
       accessCount: 0,
       lastAccessedAt: null,
     })
     deps.bus.emit('MemoryUpdated', {
-      conversationId: null,
       namespace,
       memoryType: memory.type,
       memoryId: memory.id,
@@ -225,7 +218,6 @@ function formatMemoryDebugItem(memory: Memory, index: number) {
     namespace: memory.namespace,
     type: memory.type,
     tag: memory.tag,
-    conversationId: memory.conversationId,
     importance: memory.importance,
     accessCount: memory.accessCount,
     content: memory.content,
@@ -326,7 +318,7 @@ export async function collectEnvironmentFacts(config: AppConfig): Promise<Enviro
 
 export function formatGlobalMemoryContext(memories: Memory[]): string {
   const globalMemories = memories
-    .filter(m => m.conversationId === null)
+    .filter(m => m.type === 'semantic' || m.type === 'preference')
     .sort((a, b) => memorySortKey(a).localeCompare(memorySortKey(b)))
 
   if (globalMemories.length === 0) return ''

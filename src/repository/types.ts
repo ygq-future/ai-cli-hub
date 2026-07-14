@@ -5,7 +5,7 @@
  * 实体类型（Conversation/Message/...）源自 storage/ 的 $inferSelect/$inferInsert（docs/04），
  * 在此再导出，令 core/ 经 repository/ 获取领域类型而无需直连 storage/（遵依赖矩阵）。
  */
-import type { CliType, Platform, SessionStatus, ConversationId, MessageId } from '../shared'
+import type { CliType, Platform, SessionStatus, ConversationId, MessageId, InboundAttachmentKind } from '../shared'
 import type {
   Conversation,
   NewConversation,
@@ -13,10 +13,12 @@ import type {
   NewMessage,
   AuditLog,
   NewAuditLog,
-  Memory,
-  NewMemory,
+  Memory as StoredMemory,
+  NewMemory as StoredNewMemory,
   UserPreference,
   UserCliPreference,
+  ConversationFile,
+  NewConversationFile,
 } from '../storage'
 
 export type {
@@ -26,11 +28,17 @@ export type {
   NewMessage,
   AuditLog,
   NewAuditLog,
-  Memory,
-  NewMemory,
   UserPreference,
   UserCliPreference,
+  ConversationFile,
+  NewConversationFile,
 }
+/**
+ * 迁移兼容形状：运行期/数据库已不再保存这两个字段；仅让旧测试夹具在本次 schema
+ * 迁移期间能够逐步收口，业务实现不得读取或写入它们。
+ */
+export type Memory = StoredMemory & { conversationId?: string | null; sourceMessageId?: string | null }
+export type NewMemory = StoredNewMemory & { conversationId?: string | null; sourceMessageId?: string | null }
 export type { CliType, Platform, SessionStatus, ConversationId, MessageId }
 
 export interface ConversationRepository {
@@ -49,6 +57,18 @@ export interface ConversationRepository {
 export interface MessageRepository {
   append(m: NewMessage): Promise<Message>
   listByConversation(id: ConversationId, limit?: number): Promise<Message[]>
+  deleteByConversation(id: ConversationId): Promise<void>
+}
+
+export interface ConversationFileRepository {
+  /** 在同一会话内原子分配下一个用户可见编号。 */
+  createNext(
+    input: Omit<NewConversationFile, 'id' | 'sequence' | 'createdAt'> & { kind: InboundAttachmentKind },
+  ): Promise<ConversationFile>
+  findBySequence(conversationId: ConversationId, sequence: number): Promise<ConversationFile | null>
+  listByConversation(conversationId: ConversationId, limit: number, keyword?: string): Promise<ConversationFile[]>
+  /** 返回待清理的磁盘路径，供业务层删除实体文件。 */
+  deleteByConversation(conversationId: ConversationId): Promise<ConversationFile[]>
 }
 
 export interface AuditRepository {
@@ -65,7 +85,7 @@ export interface MemoryRepository {
     tag: string,
     m: Omit<NewMemory, 'id' | 'namespace' | 'tag' | 'createdAt'>,
   ): Promise<Memory>
-  /** 实例级全局记忆：conversationId 为 NULL，启动时全量注入，不受 MEMORY_RECALL_TOP_K 限制。 */
+  /** 实例级全局记忆池；调用方按 type 决定全量注入或向量召回。 */
   listGlobal(namespace: string): Promise<Memory[]>
   findById(id: string): Promise<Memory | null>
   /** V1：关系 + FTS 关键词召回 Top-K；用于后续跨会话召回补充。 */
@@ -98,6 +118,7 @@ export interface UserPreferenceRepository {
 export interface Repositories {
   conversations: ConversationRepository
   messages: MessageRepository
+  conversationFiles: ConversationFileRepository
   audit: AuditRepository
   memories: MemoryRepository
   userPreferences: UserPreferenceRepository
