@@ -100,7 +100,7 @@ flowchart LR
 
 - **M8-A 环境快照记忆（优先）**：启动时 upsert 当前运行环境事实。快照按 OS 自适应探测，Linux/VPS 侧记录 OS/hostname/cwd、Bun/Node/Git、Shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、默认工作目录、媒体目录可操作状态与资源限制；不记录容器列表、端口、磁盘占用等高频变化状态，Agent 需要时自行执行 `docker ps`/`ss`/`df` 查询。Windows 侧才记录 PowerShell。环境命令失败不阻塞启动。
 - **M8-B 全局记忆注入**：Adapter start 时全量注入实例级全局记忆（环境事实 + `/remember` + 偏好）；conversation 历史 messages 不做完整回放，但 adapter 重启后的下一条 user message 携带最近 `RECENT_CONTEXT_LIMIT` 条轻量上下文。
-- **M8-C `/remember <text>`**：显式写入实例级全局持久记忆（默认 `namespace='global'`、`conversation_id=NULL`）；不做隐式猜测抽取。
+- **M8-C `/remember <text>`**：显式写入实例级 `semantic`/`preference` 记忆；memory 不关联 conversation/message。
 - **M8-D `/memory` / `/env` / `/forget <id>`**：查看长期记忆、刷新并查看环境快照、删除实例级全局记忆；命令权限仍由 Transport 白名单控制。
 - **验收**：新会话首轮上下文自动带上当前系统/目录/shell 等环境事实；用户写入“所有软件都放在 softs 文件夹”后，新会话也带上该事实；服务重启后两类记忆仍存在。
 
@@ -108,10 +108,10 @@ flowchart LR
 
 - **M9-A emoji 文本归一化**：识别 Unicode emoji，补充 short name/keywords 作为文本上下文；不走 OCR。
 - **M9-B Telegram sticker/custom emoji metadata**：解析 sticker/custom emoji 的 `emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`；第一版不做画面理解。
-- **M9-C 文件/附件入站 + 按需解析能力**：Telegram 可下载附件入站（`photo/document/audio/voice/video/video_note/animation`；任意普通文件走 `document`，未知来源可归为 `other`），下载到受控目录、记录 metadata/local_path、大小/类型/超时限制。除图片外，PDF/Word/Excel/text/audio/video 等文件上传时全部采用懒加载：只让 AI 知道“这里有一个文件”和本地路径，不自动读取、解析、总结、OCR、转写、转换或移动，也不把文件正文塞入本轮上下文。用户明确要求处理文件时，再按 `local_path` 使用按需能力：PDF 统一交给本地 OCR 服务转为临时图片后识别，Excel 交给外部文件处理能力，主进程不安装对应解析依赖；`.docx` 用 `mammoth`，旧 `.doc` 仍不支持直接解析并提示转 `.docx`/PDF/text。
+- **M9-C 文件/附件入站 + 按需解析能力**：附件下载到受控目录并写入 `conversation_files`，编号在 conversation 内从 1 递增。非图片上传时只回复编号，不把 metadata/path/正文发给 AI；`@readN` 按需读取（PDF 用 `pdf-to-img` 临时逐页转图后 OCR、`.docx` 用 `mammoth`、未知文本做编码/二进制判断），`@fileN` 只注入路径；Excel 不解析。`/file <limit> [keyword]` 查询映射，`/clear`/`/reset`/会话关闭删除映射及受控临时文件并重置编号。
 - **M9-C 图片 OCR**：图片/photo 可在上传时调用 `OcrProvider` 抽象；配置 `OCR_API_BASE_URL` 后通过 Light OCR HTTP API 的 `POST /ocr/file` 识别，留空时返回明确未配置状态。PDF 即使可能是扫描件，也属于非图片文件，上传时不自动 OCR。
 - **M9-D Vision 暂不实现**：static sticker/thumbnail 图片理解、animated/video sticker 抽帧与 Vision 识别均移到项目 V1 完成后的优化迭代，不归入 M9。
-- **验收**：普通 emoji 能被归一化进上下文；sticker 能展示 associated emoji 和 metadata；用户发图片/文件/音视频会进入受控下载；非图片文件只进入 metadata/local_path 懒加载上下文，不出现 `extracted_text`，不会自动消耗正文 token；配置 `OCR_API_BASE_URL` 后图片走 Light OCR，未配置时有明确占位状态；不会自动执行、读取、解析、转换或移动非图片附件。
+- **验收**：普通 emoji/sticker metadata 正常；Telegram 相册与 QQ 多附件均能循环 OCR；非图片上传只返回编号且不进入 AI；`@readN`/`@fileN`、`/file`、清理与编号重置符合契约；PDF 页数/scale 有配置上限且临时页会删除。
 
 ### M10 — 加固与交付
 

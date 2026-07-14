@@ -15,7 +15,7 @@
 | 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID 且无重复目标字段。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 13 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
-| 下一步 | 文件处理优化（进行中）：完成附件引用/按需读取、多图聚合与 memories 去会话关联；随后真机验证 Linux `/update confirm` 的 JSON setting 同步与数据库迁移链路。 |
+| 下一步 | 文件处理优化进入最终验收：全量 format/typecheck/lint/test、复核迁移实际应用并分组提交；随后真机验证 Telegram 相册与 PDF OCR。 |
 
 ---
 
@@ -33,7 +33,7 @@
 | M6b | 会话管理命令 & 生产级加固 | ✅ 完成 | `/switch` `/model` `/close` `/status` `/sessions` `/lang`；支持在 CLI 会话间切换并恢复上下文，cwd 由 `/switch <cli> [path]` 管理，模型由 `/model [model_name\|model_id]` 查看/切换 |
 | M7 | Audit 落地 | ✅ 完成 | 手动/自动 Approval 审计 + `/audit [conversationId]` 查看 |
 | M8 | 全局记忆基础 | ✅ | 环境画像记忆、adapter start 全局注入、`/remember`、`/memory`、`/env`、`/forget`、记忆变更后下一条消息实时加载已落地 |
-| M9 | 媒体/文件入站 + Light OCR 接入 | ✅ 完成 | emoji 归一化、sticker metadata、Telegram 可下载文件保存、非图片文件懒加载、图片 Light OCR、DOCX 按需解析；PDF 按需交给本地 OCR 服务转图识别，Excel 交给外部文件处理能力；QQ 媒体能力已同步接入；Vision 暂缓 |
+| M9 | 媒体/文件入站 + Light OCR 接入 | ✅ 完成 | 图片即时 OCR；Telegram `media_group_id` 相册聚合及 QQ 多附件循环处理；非图片按 conversation 编号暂存，支持 `/file`、`@readN`、`@fileN`；DOCX/未知文本按需读取，PDF 用 `pdf-to-img` 临时逐页转图复用 OCR，Excel 不解析；`/clear`/`/reset`/关闭会话清理映射和磁盘文件 |
 | M10 | 加固与交付 | ✅ 完成 | 启动状态对账、优雅关闭、adapter 故障隔离、审批幂等、PM2/systemd 部署示例完成；用户已在 VPS 宿主机 + PM2 部署跑通 |
 | V1.5 | 记忆增强（pgvector） | ✅ 完成 | 默认 BAAI/bge-m3/1024 维/Top-K 10；embedding provider、HNSW 迁移、向量召回注入、自然语言记忆 LLM 摘要已落地 |
 | V2-R1 | 优化和 Bug 修复 | ✅ 首批完成 | 常量配置化、记忆摘要窗口语义收口、移除 `SessionClosed` 非 LLM 自动摘录、Claude SDK 审批 approve 保留原始 tool input、PTY approval 目录说明、async/import 清理、SDK raw JSON 与消息链路 debug 拆分、短问候跳过语义召回、Agent SDK host 指令泄漏清洗 |
@@ -55,7 +55,7 @@
 | D3 | 嵌入**只走 API**（默认 `BAAI/bge-m3`，1024 维，经 OpenAI-compatible `EMBEDDING_API_BASE_URL`），**不在 VPS 跑本地模型**；异步批量 | 2026-07-03 |
 | D4 | 会话边界 = `(user_id, cli, cwd)` 复用 + `/new` 开新 + `/close`/超期归档 | 2026-07-03 |
 | D5 | **运行时回收 ≠ 会话关闭**：CLI/adapter 空闲超时仅关闭已启动运行时并让会话保持 `idle`。`closed` 由 `/close`、`/new`、`/cwd <path>` 或归档触发（D29/D30 对原始表述做了收口修正）。 | 2026-07-03 |
-| D6 | 原记忆分层方案已由 **D36** 修正：长期记忆不再按 Transport 用户身份隔离，而归属实例级 `namespace`；`conversation_id` 只标注会话来源。 | 2026-07-03 |
+| D6 | 原记忆分层方案先由 **D36** 修正，后由 **D77** 最终收口：长期记忆归属实例级 `namespace`，且不再保存 conversation/message 关联。 | 2026-07-03 |
 | D7 | 文档集定为 CLAUDE.md + 01–07 + .env.example（不单列安全/ADR/贡献指南） | 2026-07-03 |
 | D8 | Postgres 驱动用 **drizzle-orm/bun-sql**（Bun 内置 SQL），零额外驱动依赖，遵「用 bun」。迁移应用走 **bun-sql migrator**（`scripts/migrate.ts`← `db:migrate`），因 `drizzle-kit migrate` 需外部 pg/postgres 驱动；`db:generate` 仍用 drizzle-kit（离线，无需驱动） | 2026-07-04 |
 | D9 | 迁移沿用 drizzle-kit **0 基序号**（首个迁移 = `0000_init`，非 `0001`）——强改为 0001 会与后续自动生成的序号撞号；后续迁移继续按 drizzle-kit 序号递增。 | 2026-07-04 |
@@ -85,7 +85,7 @@
 | D33 | **环境快照记忆是 M8 第一子任务**：VPS 运维 AI 必须先知道当前运行环境；M8 拆为 M8-A 环境快照 upsert、M8-B adapter start 注入、M8-C `/remember`、M8-D `/memory`/`/forget`。环境快照包括 OS、shell、cwd、default cwd、hostname、Bun 版本、Node/PowerShell/Bash 信息、可用 CLI 与平台路径风格。 | 2026-07-06 |
 | D34 | **M9 媒体理解分层**：Unicode emoji 是文本语义归一化，不走 OCR；Telegram sticker/custom emoji 先解析 metadata（`emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id`），不靠 OCR；OCR 原设计覆盖图片/PDF/截图文字，后由 D44 收口为上传时仅图片即时 OCR；动态 sticker 视觉语义属于 Vision/抽帧增强，作为 M9-D 可选能力。 | 2026-07-06 |
 | D35 | **M7 审计范围收口为 Human Approval 审计 + 可查看**：`audit/` 订阅 `ApprovalRequested` 缓存请求详情，订阅 `ApprovalApproved/Rejected` 写 `audit_logs`；`/audit [conversationId]` 查看当前或指定会话最近审批记录。M7 不做完整操作日志，不改变 conversation status；审批 `detail` 以可读文本折入现有 `audit_logs.command` 字段，暂不新增迁移。 | 2026-07-06 |
-| D36 | **长期记忆归属实例级 `namespace`，不按 Transport `user_id` 隔离**：`user_id` 只用于鉴权、会话路由和审批操作者；Telegram/QQ/WebSocket 上的同一个个人 VPS AI Hub 共享同一套环境事实、全局偏好和跨会话回放。`memories.namespace='global'` 为默认共享池；`conversation_id=NULL` 表示全局事实/偏好/环境，填值表示某会话产出的情节摘要但仍可在同 namespace 内召回。M8 全局事实全量注入；`MEMORY_RECALL_TOP_K` 只限制后续关键词/向量检索召回。 | 2026-07-06 |
+| D36 | **长期记忆归属实例级 `namespace`，不按 Transport `user_id` 隔离**：同一实例跨 Telegram/QQ/WebSocket 共享记忆；conversation 关联部分已由 D77 删除。 | 2026-07-06 |
 | D37 | **记忆变更后实时生效但不丢最近语境**：`/remember`、`/forget` 后停止当前用户已启动 adapter，conversation 不关闭；下一条普通消息重新 start adapter，system hint 注入最新全局记忆与 `AGENT_DESCRIPTION`，user message 前缀携带当前 conversation 最近 `RECENT_CONTEXT_LIMIT` 条历史消息（不含当前消息本身），单条超长历史按 `RECENT_CONTEXT_MESSAGE_MAX_CHARS` 保留尾部，不做完整 messages replay。 | 2026-07-06 |
 | D38 | **会话当前态以“用户最新可复用会话”为准并带新建兜底**：普通消息、`/status`、`/close`、`/cwd` 优先回查该用户最新 `idle/starting/running` 会话，恢复 `cli/cwd` 后复用，解决 Transport 重启或内存目标丢失后看不到最新 idle 的问题；每次新建 conversation 前必须关闭该用户所有非 `closed` 历史会话（含卡在 `closing` 的记录），保证同一用户至多一条未关闭会话。 | 2026-07-07 |
 | D39 | **M9 收口为媒体入站基础 + OCR 抽象，Vision 暂缓**：OCR 方案尚未定稿，M9 先定义 `OcrProvider` 抽象；原设想包含图片/PDF 路径调用，后由 D44 收口为上传时仅图片即时 OCR。PDF/Office 具体文本提取 adapter 后续接入，并仅在用户明确要求时按需调用。M9-D Vision（图片语义理解、static sticker/thumbnail Vision、animated/video sticker 抽帧）明确移到项目 V1 完成后的优化迭代。 | 2026-07-07 |
@@ -120,12 +120,15 @@
 | D66 | **setting 脚本用 tsx(Node) 跑，避开 Bun readline 兼容问题**：clack core 依赖 `node:readline.emitKeypressEvents` 解析按键，Bun 实现不完整——多字节按键序列（方向键/ESC）偶发解析失败，状态机卡住，单字节回车能触发新事件解锁（真机表现为"卡死，按回车恢复"）。修复：`bun setting` 底层改为 `tsx scripts/setting.ts`（Node + esbuild 转译，readline 稳定），`setting.ts` 的 `Bun.write` 换成 `writeFileSync` 去掉 Bun 运行时依赖。依赖新增 `tsx@4.23.0`（放 dependencies，VPS 运行需要）。用户仍跑 `bun setting`，底层 tsx 透明。`setting-migrate` 等非交互脚本保持 bun 跑（无 readline 问题）。 | 2026-07-11 |
 | D67 | **未装配的 PTY 实现与 node-pty 依赖按需化**：当前 Claude/OpenCode 都是 SDK 家族，Composition Root 和任何 Adapter 均未使用 `NodePtyRuntime`；为避免每个平台约 60 MB 的原生依赖成本，删除现有占位实现、测试与直接依赖。D11 的 PTY 家族架构扩展点保留，接入首个无 SDK CLI 时再连同 `runtime/`、ApprovalDetector 和 node-pty 一起实现。 | 2026-07-12 |
 | D68 | **Claude Agent SDK 复用系统 CLI，并在解析阶段阻止内置二进制下载**：`session.claudeExecutablePath` 可指定绝对路径，留空时用 `Bun.which('claude')`；Composition Root fail-fast 解析后传给 SDK `pathToClaudeCodeExecutable`。根 `package.json` 为 SDK 声明的全部 `@anthropic-ai/claude-agent-sdk-<platform>` optional dependency 配置同名本地 file stub override，使普通 `bun install` 零下载内置 Claude；契约测试会在 SDK 新增平台包或版本变化时失败。不用全局 `--omit optional`，避免误删其它依赖的 optional package。 | 2026-07-12 |
-| D69 | **PDF 统一交给本地 OCR 服务，Hub 删除进程内 PDF 渲染栈**：PDF 仍按非图片附件懒加载；用户明确要求读取时，由本地 OCR 服务用轻量 PDF 转图组件生成临时图片并识别。Hub 删除未装配的 `pdf-parse` 代码与直接依赖，从依赖树同步移除 `pdfjs-dist`、`@napi-rs/canvas` 及平台 Canvas 包。DOCX 的 `mammoth` 按需解析保留。 | 2026-07-13 |
+| D69 | **已由 D76 修正**：仍不恢复 `pdf-parse`，但 Hub 在 `@readN` 时使用轻量 `pdf-to-img` 临时转图并复用现有 OCR。 | 2026-07-13 |
 | D70 | **删除存在已知高危漏洞且未装配的 `xlsx@0.18.5`**：npm registry 的 `xlsx` 停在同时受 CVE-2023-30533 与 CVE-2024-22363 影响的 0.18.5；安全版本需改从 SheetJS CDN 获取。当前 Excel extractor 未被 Composition Root 装配，故不引入 CDN tarball或替代库，直接删除解析代码与依赖；Excel 文件继续懒加载，明确处理时交给外部文件能力。 | 2026-07-13 |
 | D71 | **模型管理统一进入 `CLIAdapter`，偏好按用户+CLI 持久化**：`CLIAdapter` 新增 `listModels()` / `setModel()` 与 `SpawnOptions.modelId`。Claude 使用 streaming `Query.supportedModels()` / `setModel()`；OpenCode 从 `provider.list()` 仅列已连接 provider，规范 ID 为 `provider/model`，并在后续 `promptAsync.body.model` 生效。`/model` 只操作当前未关闭会话，idle 时懒启动，无会话不隐式创建；`/model <id>` 验证成功后持久化。迁移 `0009_user_cli_preferences` 无损重命名 `user_cli_cwds` → `user_cli_preferences` 并新增 nullable `model_id`。 | 2026-07-14 |
 | D72 | **模型选择以实时目录的规范 ID+名称为持久化真相**：`/model` 无参只展示模型名称；Telegram 用 Bot API `copy_text` 按钮复制规范 model ID，并按每条最多 100 个按钮分页，QQ 将规范 ID 放入 Markdown fenced code block，使用客户端原生复制入口。带参优先精确匹配 ID，再大小写无关匹配唯一完整名称，重名时要求使用 ID。迁移 `0010_user_cli_model_name` 新增 nullable `model_name`，切换成功后原子保存名称与 ID；旧行缺名称时以 ID 作为兼容显示且仍按原 ID 启动。`/status` 在有/无活跃会话时均显示模型名称与 ID，空偏好明确显示 CLI 默认。 | 2026-07-14 |
 | D73 | **OpenCode 服务进程按应用共享、会话按 adapter 隔离**：`@opencode-ai/sdk` 默认以固定端口拉起 `opencode serve`，因此不能让每个 adapter 自行启动。Composition Root 创建引用计数 server pool，adapter 获取共享 client 后创建独立 SDK session 并以 session ID 过滤 SSE；最后一个 lease 释放或应用关闭时才停止 serve。各平台的同一用户或不同用户均可并发运行 OpenCode，会话输出与生命周期仍独立。 | 2026-07-14 |
 | D74 | **只读 Shell 判定允许无副作用的诊断组合，但不放宽写入边界**：AST 策略将 `2>/dev/null`（仅 stderr 指向 `/dev/null`）视为无持久写入；`docker inspect` 与 `docker volume ls/inspect` 可使用已递归验证的只读命令替换参数；`find` 仅在无 `-delete/-exec/-fprint` 等副作用 action 时放行。具名文件重定向、`find -delete/-exec`、资源删除和未知命令继续要求审批。 | 2026-07-14 |
+| D75 | **非图片附件采用 conversation 内编号和显式引用**：上传只落盘并写 `conversation_files`，不告知 AI；`@readN` 读取并注入正文，`@fileN` 只注入路径，`/file <limit> [keyword]` 查询。`/clear` 只清 messages/files 不关闭会话；`/reset` 额外重置用户与 CLI 偏好但保留 memories；清空/关闭后编号从 1 重计。 | 2026-07-14 |
+| D76 | **PDF 改为 Hub 内轻量按需转图并复用 OCR（修正 D69）**：不恢复 `pdf-parse`；`@readN` 时用 `pdf-to-img` 最多渲染 `media.pdfMaxPages` 页、scale 由 `media.pdfRenderScale` 控制，逐页调用现有 `OcrProvider`，最后删除临时 PNG。Excel 继续不解析。 | 2026-07-14 |
+| D77 | **长期记忆彻底脱离 conversation/message 外键**：`memories` 删除 `conversation_id` 与 `source_message_id`；`semantic`/`preference` 在 namespace 内全量查询和注入，`episodic` 只做跨会话向量召回。短期消息/会话清理不影响长期记忆。 | 2026-07-14 |
 
 ---
 
@@ -152,7 +155,8 @@
 
 ## 5. 会话日志（Changelog）
 
-| 2026-07-14 | **文件处理优化，第 1–3 阶段完成**：审计确认 QQ 单条消息已支持多附件逐个 OCR；Telegram 相册仍逐张独立入站，待后续按 `media_group_id` 聚合。新增 `conversation_files` 表及 `0011_conversation_files.sql`：按 `conversation_id + sequence` 唯一映射文件编号、保存受控本地路径和附件元数据；新增 `ConversationFileRepository` 与 messages 按会话删除。新增 `ConversationCleared` 事件、`/clear`（仅删除当前会话消息与暂存文件、不关闭会话/不改 CLI 偏好）和媒体生命周期订阅器；`SessionClosed` 同样清理映射与受控媒体目录内临时文件。自动验收：`bun run format`、`bun run typecheck`、核心会话/命令测试 36 pass。已确认现有 DOCX 测试在当前 Windows 沙箱被 Bun 读取 mammoth hardlink 的 EPERM 限制阻断，非本次改动引入；后续按需读取使用 mock 覆盖新增流程测试。 |
+| 2026-07-14 | **文件处理优化全面复核整改**：补齐 `/help` 中 `/clear`、`/reset`、`/file`、`@readN`、`@fileN`；实现 `/reset` 删除用户/CLI 偏好，`/clear` 改为等待 DB 映射与受控磁盘文件删除完成；文件编号增加 Postgres advisory transaction lock，MessageRouter 改为顺序登记同批附件。Telegram 相册按 `media_group_id` 聚合后一次循环 OCR；PDF 通过 `pdf-to-img` 按需逐页转 PNG 并复用 OCR，支持页数/scale 上限和临时页清理；图片 `@readN`、DOCX、UTF-8/UTF-16 未知文本可读，Excel 明确不解析。清理 Memory 类型的旧兼容字段及测试，schema 契约确认无 conversation/message 列。修复 Drizzle journal 漏登记 0011/0012，并新增“每个 SQL 必须存在 journal entry”的回归测试，避免 `db:migrate` 再次静默跳过。 |
+| 2026-07-14 | **文件处理优化，第 1–3 阶段完成（后续已由全面复核整改补齐）**：审计确认 QQ 单条消息已支持多附件逐个 OCR；当时 Telegram 相册仍逐张独立入站。新增 `conversation_files` 表及 `0011_conversation_files.sql`、`ConversationFileRepository`、`ConversationCleared`、`/clear` 和媒体生命周期订阅器。 |
 
 > 每个工作会话追加一行：日期 · 做了什么 · 产出/决策。
 

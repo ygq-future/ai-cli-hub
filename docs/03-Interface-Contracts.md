@@ -62,14 +62,16 @@ export interface EventMap {
   SessionCreated:   { conversationId: ConversationId; platform: Platform; userId: string; cli: CliType; cwd: string };
   SessionMapped:    { conversationId: ConversationId; platform: Platform; userId: string };
   SessionClosed:    { conversationId: ConversationId; reason: 'user' | 'archiveTimeout' };
+  ConversationCleared: { conversationId: ConversationId };
 
   // —— 消息 ——
-  MessageReceived:  { userId: string; platform: Platform; cli: CliType; cwd: string; text: string; ref: MessageRef };
-  // M9: emoji/sticker/file/photo 在 Transport 层预处理后仍折入 text；Core 不感知平台媒体结构。
+  MessageReceived:  { userId: string; platform: Platform; cli: CliType; cwd: string; text: string; ref: MessageRef; attachments?: InboundAttachment[] };
+  // 图片 OCR 文本折入 text；附件结构交给 Core 建立 conversation 内编号，非图片不会自动进入 AI。
   MessageGenerated: { conversationId: ConversationId; content: string; final: boolean }; // final=false 为流式增量
   CommandReply:     { ref: MessageRef; content: string; copyActions?: CopyAction[] };
   UserLanguageChanged: { userId: string; platform: Platform; language: 'zh' | 'en' };
   UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }; // /switch 更新当前选中 CLI/cwd
+  UserPreferencesReset: { userId: string; platform: Platform }; // /reset 后停止该用户 adapter
 
   // —— 审批（Human-in-the-loop）——
   ApprovalRequested: { conversationId: ConversationId; approvalId: string; command: string; detail: string; autoApproveAt?: number; autoApproveSeconds?: number };
@@ -82,7 +84,6 @@ export interface EventMap {
 
   // —— 记忆 ——
   MemoryUpdated: {
-    conversationId: ConversationId | null;
     namespace: string;              // 默认 'global'：当前实例级共享记忆池
     memoryType: MemoryType;
     memoryId: string;
@@ -306,7 +307,7 @@ export interface MemoryRepository {
   insert(m: NewMemory): Promise<Memory>;
   // M8：环境快照等稳定 tag 记忆幂等写入；同 namespace+tag 存在则更新 content/type/importance。
   upsertByTag(namespace: string, tag: string, m: Omit<NewMemory, 'id' | 'namespace' | 'tag' | 'createdAt'>): Promise<Memory>;
-  // 实例级全局记忆：conversationId 为 NULL，启动时全量注入，不受 MEMORY_RECALL_TOP_K 限制。
+  // 返回 namespace 全部记忆；调用方全量注入 semantic/preference，仅向量召回 episodic。
   listGlobal(namespace: string): Promise<Memory[]>;
   findById(id: string): Promise<Memory | null>;
   // V1：关系 + FTS 检索；用于后续跨会话召回补充，受 topK 限制。
@@ -326,6 +327,14 @@ export interface UserPreferenceRepository {
   findCliPreference(platform: Platform, userId: string, cli: CliType): Promise<UserCliPreference | null>;
   upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>;
   setModel(platform: Platform, userId: string, cli: CliType, modelId: string): Promise<void>;
+  reset(platform: Platform, userId: string): Promise<void>;
+}
+
+export interface ConversationFileRepository {
+  createNext(input: NewConversationFile): Promise<ConversationFile>;
+  findBySequence(conversationId: ConversationId, sequence: number): Promise<ConversationFile | null>;
+  listByConversation(conversationId: ConversationId, limit: number, keyword?: string): Promise<ConversationFile[]>;
+  deleteByConversation(conversationId: ConversationId): Promise<ConversationFile[]>;
 }
 ```
 

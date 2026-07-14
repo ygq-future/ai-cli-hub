@@ -39,9 +39,12 @@ flowchart TD
 | `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；不做非 LLM 自动会话摘录 |
 | `/status` | — | 当前会话详情 | 有当前会话时展示完整 conversationId、status、平台、cli/cwd、语言、模型名称/ID 与已存活时间；无会话时展示持久化目标 |
 | `/sessions` | — | 列出该用户近期会话 | 历史查看，不表示 resume |
+| `/clear` | — | 清空当前会话 | 删除当前 conversation 的 messages、文件映射和受控临时文件；不关闭 conversation，不修改 CLI/模型/用户偏好；文件编号从 1 重新开始 |
+| `/reset` | — | 重置当前会话与用户/CLI 偏好 | 在 `/clear` 基础上删除语言、默认 CLI、各 CLI cwd/model 与自动审批偏好；长期 memories 保留 |
 | `/audit` | `[conversationId]` | 查看审批审计 | 无参数查看当前会话；带完整或短会话 ID 查看指定会话最近审批记录 |
+| `/file` | `<limit> [keyword]` | 查询当前会话文件 | 不传 keyword 时列出最近 limit 条；传入后按文件名模糊匹配；limit 默认 10、最大 50 |
 | `/autoapprove` | `[on\|off] [seconds]` | 查看或持久化自动审批 | 默认关闭、5 秒；秒数为 1–300 整数，省略则重置为 5 秒 |
-| `/remember` | `<text>` | 写入实例级全局长期记忆 | 默认写入 `namespace='global'`、`conversation_id=NULL`；`preference:` / `偏好:` 前缀写入偏好；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
+| `/remember` | `<text>` | 写入实例级全局长期记忆 | 默认写入 `semantic`；`preference:` / `偏好:` 前缀写入 `preference`；memory 不关联 conversation/message |
 | `/memory` | — | 查看实例级全局长期记忆 | Markdown 列表；每条仅展示短 ID、namespace 与 content |
 | `/env` | — | 刷新并查看环境快照 | 重新探测 OS/运行时/PM2/Docker/DB/端口/默认目录/媒体目录；按稳定 `env.*` tag 幂等 upsert |
 | `/health` | — | 服务健康检查 | 即时检查 DB ping、默认工作目录、媒体目录、关键 CLI 可用性与进程 uptime；以 Markdown 状态卡片回复；不创建 conversation、不进入 CLI |
@@ -125,14 +128,14 @@ Markdown 卡片 + 内联按钮：
 | Unicode emoji | 从文本中识别 emoji，补充 short name/keywords 到上下文 | 否 |
 | Telegram sticker/custom emoji | 解析 `emoji`、`set_name`、`custom_emoji_id`、`is_animated`、`is_video`、`file_id` 等 metadata | 否 |
 | 图片/photo | 下载到受控目录，记录 metadata；调用 `OcrProvider`，配置 `OCR_API_BASE_URL` 后走 Light OCR `POST /ocr/file` | 是 |
-| PDF/扫描 PDF | 下载并记录 metadata/local_path；上传时不提取文本、不 OCR；用户明确要求处理时，由本地 OCR 服务把 PDF 转为临时图片后统一识别 | 按需 |
-| Word/Excel 文件 | 下载并记录 metadata/local_path；上传时不提取文本；用户明确要求处理时，`.docx` 可用 `mammoth`，Excel 交给外部文件处理能力；旧 `.doc` 不支持并提示转换 | 否 |
+| PDF/扫描 PDF | 上传时只暂存；`@readN` 时由轻量 `pdf-to-img` 最多渲染 `media.pdfMaxPages` 页为临时 PNG，再逐页调用现有 OCR，完成后立即删页图 | 按需 |
+| Word/Excel 文件 | 上传时只暂存；`.docx` 在 `@readN` 时用 `mammoth`，旧 `.doc` 不支持；Excel 不解析，需用 `@fileN` 交给 AI 的外部文件能力 | Word 按需 |
 | 文本文件 | 下载并记录 metadata/local_path；上传时不读取正文、不作为本轮上下文 | 否 |
 | 其它普通文件 | 作为 `document` 或 `other` 保存到受控目录，记录 metadata/local_path；不做自动处理 | 否 |
 | 音频/语音/video/animation | 下载到受控目录，记录 metadata；暂不做转写或内容理解 | 否 |
 | 动态/video sticker | 第一版只记录 metadata；Vision/抽帧暂不实现 | 否，属于后续 Vision |
 
-> 上传文件不等于处理文件。除图片可立即 OCR 外，非图片文件只保存并登记路径，正文不会自动进入 prompt；当用户说“读取/总结/转换/移动刚才那个文件”时，才按 `local_path` 执行对应操作。OCR 当前提供 Light OCR HTTP provider：`POST /ocr/file`，multipart 字段 `file`，返回 `{ text, lines }`；PDF 转临时图片由本地 OCR 服务负责，主进程不安装 `pdf-parse`、`pdfjs-dist` 或 Canvas。动态 sticker 的画面含义属于 Vision/抽帧增强，已明确延后到 V1 后优化。
+> 上传文件不等于处理文件。图片（含 Telegram 同一 `media_group_id` 相册中的多图）会循环 OCR；其他文件只暂存并返回会话内编号，不进入 AI prompt。后续用 `@readN` 显式读取并注入正文，或用 `@fileN` 只把本地路径交给 AI。`/clear`、`/reset`、`SessionClosed` 都会删除该会话映射与受控临时文件并重置编号。动态 sticker 的画面含义仍属于后续 Vision。
 
 ---
 
@@ -176,4 +179,4 @@ bun setting
 
 `setting:migrate` 只在 `settings.json` 与 `settings.json.example` 之间对齐结构：保留现有值、补新 key、删旧 key。它不读取 `.env`。`/update confirm` 也会在数据库迁移前自动执行该命令。
 
-`session.claudeExecutablePath` 可填写系统 Claude CLI 的绝对路径；留空时从 `PATH` 自动查找。根 `package.json` 为 Agent SDK 声明的每个平台 CLI 包配置同名本地 stub override，因此普通 `bun install` 只安装 SDK JS 控制层，不下载原生 Claude CLI。PDF 渲染统一交给外部 OCR 服务，Hub 本身不安装 Canvas。
+`session.claudeExecutablePath` 可填写系统 Claude CLI 的绝对路径；留空时从 `PATH` 自动查找。根 `package.json` 为 Agent SDK 声明的每个平台 CLI 包配置同名本地 stub override，因此普通 `bun install` 只安装 SDK JS 控制层，不下载原生 Claude CLI。PDF 仅在 `@readN` 时通过 `pdf-to-img` 临时渲染，默认最多 20 页、scale=2。
