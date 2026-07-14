@@ -85,7 +85,7 @@ Markdown 卡片 + 内联按钮：
 
 - 卡片携带 `approvalId`（按钮 callback data 内），供回调定位。
 - 审批是运行时状态：conversation 持久状态保持 `running`，pending approval 只存在于 adapter/orchestrator 内存和后续 audit 记录中。
-- Claude/OpenCode 共用同一套保守只读 shell 策略：POSIX/cmd/PowerShell 的单条查询（如 `ls`、`rg`、`git status`、`dir`、`Get-ChildItem`、`Get-Content`、`Test-Path`）直接执行；重定向、管道、串联、命令替换、写命令及不确定命令仍进入审批。OpenCode 对安全 `bash` permission 直接回复 `once`，不生成审批卡。
+- Claude/OpenCode 共用同一套保守只读 shell 策略：POSIX/cmd/PowerShell 的单条查询（如 `ls`、`rg`、`git status`、`dir`、`Get-ChildItem`、`Get-Content`、`Test-Path`、`docker inspect`、`docker volume ls`）直接执行；只有把 stderr 丢到 `/dev/null` 的 `2>/dev/null` 不算写入，具名文件重定向仍审批。管道、串联和命令替换会递归检查每个叶子；`find -delete/-exec`、文件写入、未知命令及不确定命令仍进入审批。OpenCode 对安全 `bash` permission 直接回复 `once`，不生成审批卡。
 - `/autoapprove on [seconds]` 时卡片仅保留“拒绝本轮”：orchestrator 按该用户持久化的 1–300 秒倒计时；Telegram 每秒编辑同一消息显示剩余时间，QQ 静态显示配置秒数；到期统一发 `ApprovalApproved{automatic:true}`，并另发自动批准结果通知。省略秒数会写回默认 5 秒。
 - 倒计时期间点击拒绝会取消定时器，并沿用 `interrupt + reject + stop adapter` 中断当前整轮；持久化开关不变，下一轮仍继续自动审批。
 

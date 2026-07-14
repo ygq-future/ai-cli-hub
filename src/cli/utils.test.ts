@@ -33,6 +33,9 @@ describe('isReadOnlyShellCommand', () => {
     'docker exec -u root npm sh -c "cat /etc/os-release && nginx -v"',
     'bash -c "git status --short && ls -la"',
     'cat < README.md',
+    "docker inspect webdav --format '{{json .Mounts}}' 2>/dev/null || docker inspect $(docker ps -a --filter name=webdav --format '{{.ID}}' 2>/dev/null | head -1) --format '{{json .Mounts}}' 2>/dev/null || echo \"NOT_FOUND\"",
+    'docker volume ls | grep -i webdav; echo "---"; find /home/ubuntu -maxdepth 4 -iname "webdav" -type d 2>/dev/null; echo "---"; docker ps -a --filter name=webdav --format "{{.Names}} {{.Status}}"',
+    'du -sh /home/ubuntu/softs/webdav/data/ 2>/dev/null && ls -la /home/ubuntu/softs/webdav/data/',
   ])('allows read-only query: %s', command => {
     expect(isReadOnlyShellCommand(command)).toBe(true)
   })
@@ -62,6 +65,9 @@ describe('isReadOnlyShellCommand', () => {
     'docker exec npm rm -rf /data',
     'docker exec npm sh -c "cat /etc/os-release; rm -rf /data"',
     'docker run --rm alpine cat /etc/os-release',
+    'docker volume rm webdav-data',
+    'find /tmp -delete',
+    'find /tmp -exec rm -rf {} +',
     "docker inspect npm | python3 -c \"open('x', 'w').write('y')\"",
   ])('requires approval for mutating or composed command: %s', command => {
     expect(isReadOnlyShellCommand(command)).toBe(false)

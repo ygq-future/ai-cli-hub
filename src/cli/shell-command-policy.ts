@@ -45,6 +45,8 @@ const MUTATING_SHELL_COMMANDS = new Set([
 
 const DOCKER_EXEC_VALUE_OPTIONS = new Set(['-e', '--env', '-u', '--user', '-w', '--workdir', '--detach-keys'])
 const SAFE_FD_REDIRECT_TARGET = /^\d+$|^-$|^\/dev\/(?:null|stdout|stderr)$/
+const READ_ONLY_DOCKER_RESOURCE_COMMANDS = new Set(['ls', 'inspect'])
+const UNSAFE_FIND_ACTIONS = new Set(['-delete', '-exec', '-execdir', '-fprint', '-fprintf', '-fls', '-ok', '-okdir'])
 
 export function classifyShellCommand(source: string): CommandEffect {
   const trimmed = source.trim()
@@ -107,6 +109,7 @@ function classifyCommand(command: Command): CommandEffect {
   if (executable === 'cmd') return classifyCmdInvocation(command.suffix)
   if (executable === 'bash' || executable === 'sh') return classifyShellInvocation(command.suffix)
   if (executable === 'docker') return classifyDockerInvocation(command.suffix)
+  if (executable === 'find') return classifyFindInvocation(command.suffix)
   if (executable === 'git') return hasDynamicArgs ? 'unknown' : classifyGitInvocation(args)
   if (executable === 'hostname') return hasDynamicArgs ? 'unknown' : classifyHostnameInvocation(args)
   if (executable === 'ipconfig') return hasDynamicArgs ? 'unknown' : classifyIpconfigInvocation(args)
@@ -122,6 +125,7 @@ function classifyRedirects(redirects: Redirect[]): CommandEffect {
     redirects.map(redirect => {
       const expansionEffect = redirect.target ? classifyWordExpansions(redirect.target) : 'read-only'
       if (expansionEffect !== 'read-only') return expansionEffect
+      if (isStderrToDevNull(redirect)) return 'read-only'
       if (['>', '>>', '<>', '>|', '&>', '&>>'].includes(redirect.operator)) return 'mutating'
       if (redirect.operator === '>&') {
         return redirect.target && SAFE_FD_REDIRECT_TARGET.test(redirect.target.value) ? 'read-only' : 'mutating'
@@ -187,14 +191,18 @@ function classifyShellInvocation(words: Word[]): CommandEffect {
 }
 
 function classifyDockerInvocation(words: Word[]): CommandEffect {
-  if (words.some(isDynamicWord)) return 'unknown'
   const args = words.map(word => word.value)
   let index = 0
   while (index < args.length && args[index]!.startsWith('-')) index += 1
-  const subcommand = args[index]?.toLowerCase()
+  const subcommandWord = words[index]
+  if (!subcommandWord || isDynamicWord(subcommandWord)) return 'unknown'
+  const subcommand = subcommandWord.value.toLowerCase()
   if (!subcommand) return 'unknown'
   if (READ_ONLY_DOCKER_COMMANDS.has(subcommand)) return 'read-only'
+  if (subcommand === 'volume') return classifyDockerResourceInvocation(words.slice(index + 1))
   if (subcommand !== 'exec') return 'unknown'
+
+  if (words.slice(index + 1).some(isDynamicWord)) return 'unknown'
 
   index += 1
   while (index < args.length && args[index]!.startsWith('-')) {
@@ -207,6 +215,24 @@ function classifyDockerInvocation(words: Word[]): CommandEffect {
     return 'read-only'
   }
   return classifyShellCommand(innerWords.map(word => word.text).join(' '))
+}
+
+function classifyDockerResourceInvocation(words: Word[]): CommandEffect {
+  const subcommand = words[0]
+  if (!subcommand || isDynamicWord(subcommand)) return 'unknown'
+  return READ_ONLY_DOCKER_RESOURCE_COMMANDS.has(subcommand.value.toLowerCase()) ? 'read-only' : 'unknown'
+}
+
+function classifyFindInvocation(words: Word[]): CommandEffect {
+  const actions = words.map(word => word.value.toLowerCase())
+  if (actions.includes('-delete')) return 'mutating'
+  return actions.some(action => UNSAFE_FIND_ACTIONS.has(action)) ? 'unknown' : 'read-only'
+}
+
+function isStderrToDevNull(redirect: Redirect): boolean {
+  return (
+    redirect.fileDescriptor === 2 && redirect.target?.value === '/dev/null' && ['>', '>>'].includes(redirect.operator)
+  )
 }
 
 function classifyPythonInvocation(args: string[], hasDynamicArgs: boolean): CommandEffect {
