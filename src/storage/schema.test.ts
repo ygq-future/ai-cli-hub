@@ -3,8 +3,18 @@
  * 真·连库 CRUD 见 test/repository.integration.test.ts（需 TEST_DATABASE_URL）。
  */
 import { describe, expect, test } from 'bun:test'
+import { readdir, readFile } from 'node:fs/promises'
+import path from 'node:path'
 import { getTableConfig } from 'drizzle-orm/pg-core'
-import { conversations, messages, auditLogs, memories, userCliPreferences, userPreferences } from './schema'
+import {
+  conversations,
+  conversationFiles,
+  messages,
+  auditLogs,
+  memories,
+  userCliPreferences,
+  userPreferences,
+} from './schema'
 
 describe('schema — 表结构与契约', () => {
   test('conversations：列 + 复合索引', () => {
@@ -33,17 +43,19 @@ describe('schema — 表结构与契约', () => {
     expect(t.foreignKeys[0]!.onDelete).toBe('no action')
   })
 
-  test('memories：namespace + 向量列 vector(1024) + FTS gin 索引 + set null 外键', () => {
+  test('memories：不再关联会话/消息，保留 namespace + vector(1024) + FTS', () => {
     const t = getTableConfig(memories)
     expect(t.name).toBe('memories')
     const cols = t.columns.map(c => c.name)
-    expect(cols).toEqual(expect.arrayContaining(['id', 'namespace', 'conversation_id', 'type', 'content', 'tag']))
+    expect(cols).toEqual(expect.arrayContaining(['id', 'namespace', 'type', 'content', 'tag']))
+    expect(cols).not.toContain('conversation_id')
+    expect(cols).not.toContain('source_message_id')
 
     const embedding = t.columns.find(c => c.name === 'embedding')
     expect(embedding).toBeDefined()
     expect(embedding!.getSQLType()).toBe('vector(1024)')
 
-    expect(t.foreignKeys[0]!.onDelete).toBe('set null')
+    expect(t.foreignKeys).toHaveLength(0)
 
     const fts = t.indexes.find(i => i.config.name === 'idx_mem_fts')
     expect(fts).toBeDefined()
@@ -51,6 +63,27 @@ describe('schema — 表结构与契约', () => {
 
     const idx = t.indexes.map(i => i.config.name)
     expect(idx).toEqual(expect.arrayContaining(['idx_mem_namespace', 'uniq_mem_tag']))
+  })
+
+  test('conversation_files：会话内编号唯一且会话删除时级联清理映射', () => {
+    const table = getTableConfig(conversationFiles)
+    expect(table.columns.map(column => column.name)).toEqual(
+      expect.arrayContaining(['conversation_id', 'sequence', 'kind', 'local_path', 'created_at']),
+    )
+    expect(table.foreignKeys[0]?.onDelete).toBe('cascade')
+    expect(table.indexes.map(index => index.config.name)).toContain('uniq_conversation_file_sequence')
+  })
+
+  test('每个 SQL 迁移都登记在 Drizzle journal，避免 db:migrate 静默跳过', async () => {
+    const drizzleDirectory = path.resolve('drizzle')
+    const sqlTags = (await readdir(drizzleDirectory))
+      .filter(fileName => fileName.endsWith('.sql'))
+      .map(fileName => path.basename(fileName, '.sql'))
+      .sort()
+    const journal = JSON.parse(await readFile(path.join(drizzleDirectory, 'meta', '_journal.json'), 'utf8')) as {
+      entries: Array<{ tag: string }>
+    }
+    expect(journal.entries.map(entry => entry.tag).sort()).toEqual(sqlTags)
   })
 
   test('pgvector 序列化：number[] → 文本字面量 [a,b,c]', () => {

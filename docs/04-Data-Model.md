@@ -76,7 +76,6 @@ export type NewConversation = typeof conversations.$inferInsert;
 // storage/schema/messages.ts
 import { pgTable, text, bigint, index } from 'drizzle-orm/pg-core';
 import { roleEnum } from './enums';
-import { conversations } from './conversations';
 
 export const messages = pgTable('messages', {
   id:             text('id').primaryKey(),
@@ -140,12 +139,9 @@ const vector = customType<{ data: number[]; driverData: string }>({
 export const memories = pgTable('memories', {
   id:              text('id').primaryKey(),
   namespace:       text('namespace').notNull().default('global'), // 实例级记忆命名空间；默认全局共享
-  conversationId:  text('conversation_id')                  // 可空：NULL=全局事实/偏好/环境
-                     .references(() => conversations.id, { onDelete: 'set null' }),
   type:            memoryTypeEnum('type').notNull(),
   content:         text('content').notNull(),
   embedding:       vector('embedding'),                     // V1 可 NULL，V1.5 填充
-  sourceMessageId: text('source_message_id'),
   importance:      real('importance').notNull().default(0.5),
   accessCount:     integer('access_count').notNull().default(0),
   lastAccessedAt:  bigint('last_accessed_at', { mode: 'number' }),
@@ -154,7 +150,6 @@ export const memories = pgTable('memories', {
 }, (t) => ({
   byNamespace: index('idx_mem_namespace').on(t.namespace, t.type),
   byTag: uniqueIndex('uniq_mem_tag').on(t.namespace, t.tag),
-  byConv: index('idx_mem_conv').on(t.conversationId),
   // V1：全文检索预留；V1.5 结合语义召回
   fts: index('idx_mem_fts').using('gin', sql`to_tsvector('simple', ${t.content})`),
   // V1.5：向量近邻索引（启用时追加迁移）
@@ -166,7 +161,7 @@ export type NewMemory = typeof memories.$inferInsert;
 ```
 
 > `namespace = 'global'` 是当前个人 VPS / AI Hub 实例的默认共享记忆池。Transport 的 `user_id` 只用于鉴权、会话隔离和审批操作者，不用于记忆隔离；Telegram/QQ/WebSocket 上的同一个实例共享同一套环境事实、全局偏好与跨会话回放。
-> `conversationId` = NULL → 实例级全局事实/偏好/环境；填值 → 某会话产出的情节摘要，但仍归属同一 `namespace`，后续可参与跨会话召回。
+> `memories` 不保存 `conversation_id` 或 `source_message_id`：消息和会话可随时清理，长期记忆不能依赖短期记录。`semantic`/`preference` 按 namespace 全量查询，`episodic` 按向量跨会话召回。
 > 遗忘三件套 `importance / accessCount / lastAccessedAt` 支撑衰减清理，见 [06-记忆设计](./06-Memory-Design.md)。
 
 ---
@@ -198,6 +193,7 @@ user_cli_preferences: (platform, user_id, cli) → cwd, model_id nullable, model
 | user_cli_preferences | primary `(platform, user_id, cli)` | 读取/写入每 CLI 工作目录与模型偏好 |
 | messages | `(conversation_id, created_at)` | 历史查看、审计与后续摘要；当前不做完整上下文回放 |
 | audit_logs | `(conversation_id, created_at)` | 审计查询 |
+| conversation_files | unique `(conversation_id, sequence)` | 会话内文件编号；会话关闭或清空时删除映射和临时文件 |
 | memories | `(namespace, type)` | 实例级全局记忆取回 |
 | memories | unique `(namespace, tag)` | 环境快照等幂等 upsert；普通手工记忆可使用唯一 tag 或 NULL tag |
 | memories | GIN FTS on `content` | V1 关键词召回 |

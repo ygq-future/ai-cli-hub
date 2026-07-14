@@ -36,7 +36,14 @@ const CONFIG = loadConfig({
     recentContextMessageMaxChars: 1200,
   },
   aggregator: { debounceMs: 400, minEditIntervalMs: 1000, maxChunkChars: 4096 },
-  media: { downloadDir: '.data/media', maxFileBytes: 10_485_760, maxTextChars: 20_000, parseTimeoutMs: 30_000 },
+  media: {
+    downloadDir: '.data/media',
+    maxFileBytes: 10_485_760,
+    maxTextChars: 20_000,
+    parseTimeoutMs: 30_000,
+    pdfMaxPages: 20,
+    pdfRenderScale: 2,
+  },
   ocr: { apiBaseUrl: '', apiTimeoutMs: 30_000 },
   envProbe: { timeoutMs: 1500 },
   ops: {
@@ -78,7 +85,7 @@ function createMemoryRepos() {
         return row
       },
       async listGlobal(namespace: string) {
-        return memories.filter(row => row.namespace === namespace && row.conversationId === null)
+        return memories.filter(row => row.namespace === namespace)
       },
       async findById(id: string) {
         return memories.find(row => row.id === id) ?? null
@@ -145,17 +152,15 @@ describe('memory module', () => {
     }
   })
 
-  test('recallGlobalContext 格式化全局记忆并排除会话级记忆', async () => {
+  test('recallGlobalContext 全量注入 semantic/preference 并排除 episodic', async () => {
     const bus = createEventBus()
     const { repos } = createMemoryRepos()
     await repos.memories.insert({
       id: 'm1',
       namespace: 'global',
-      conversationId: null,
       type: 'semantic',
       content: '所有软件都放在 softs 文件夹',
       embedding: null,
-      sourceMessageId: null,
       importance: 0.75,
       accessCount: 0,
       lastAccessedAt: null,
@@ -165,11 +170,9 @@ describe('memory module', () => {
     await repos.memories.insert({
       id: 'm2',
       namespace: 'global',
-      conversationId: 'conv-1',
       type: 'episodic',
       content: '不应全量注入的会话摘要',
       embedding: null,
-      sourceMessageId: null,
       importance: 0.5,
       accessCount: 0,
       lastAccessedAt: null,
@@ -219,11 +222,13 @@ describe('memory module', () => {
       config: CONFIG,
       embeddingProvider: { embed: async () => Array(1024).fill(0.4) },
     })
+    const initialMemoryCount = memories.length
 
     bus.emit('SessionClosed', { conversationId: 'conv-summary' as ConversationId, reason: 'user' })
     await new Promise(resolve => setTimeout(resolve, 0))
 
-    expect(memories.some(m => m.conversationId === 'conv-summary')).toBe(false)
+    expect(memories).toHaveLength(initialMemoryCount)
+    expect(memories.some(memory => memory.type === 'episodic')).toBe(false)
     module.destroy()
   })
 
@@ -278,13 +283,12 @@ describe('memory module', () => {
     expect(seenBatches[0]!.map(m => m.content)).toEqual(Array.from({ length: 10 }, (_, idx) => `db-message-${idx + 3}`))
     expect(seenBatches[0]!.some(m => m.content.includes('SDK raw'))).toBe(false)
     const memory = memories.find(m => m.content.includes('PowerShell 脚本目录'))
-    expect(memory?.conversationId).toBe('conv-remember')
     expect(memory?.type).toBe('episodic')
     expect(memory?.embedding).toHaveLength(1024)
     module.destroy()
   })
 
-  test('MemoryUpdated 后异步回填会话派生记忆 embedding，跳过 global 记忆', async () => {
+  test('MemoryUpdated 后只为 episodic 记忆异步回填 embedding', async () => {
     const bus = createEventBus()
     const { repos, memories } = createMemoryRepos()
     let embedCalls = 0
@@ -302,11 +306,9 @@ describe('memory module', () => {
     await repos.memories.insert({
       id: 'm-global',
       namespace: 'global',
-      conversationId: null,
       type: 'preference',
       content: '喜欢最短可行方案',
       embedding: null,
-      sourceMessageId: null,
       importance: 0.8,
       accessCount: 0,
       lastAccessedAt: null,
@@ -316,11 +318,9 @@ describe('memory module', () => {
     await repos.memories.insert({
       id: 'm-embed',
       namespace: 'global',
-      conversationId: 'conv-1',
       type: 'episodic',
       content: '某次会话中确认 PM2 服务名是 ai-cli-hub',
       embedding: null,
-      sourceMessageId: null,
       importance: 0.8,
       accessCount: 0,
       lastAccessedAt: null,
@@ -356,7 +356,6 @@ describe('memory module', () => {
       type: 'episodic',
       content: '上次排查过 PM2 restart 后环境画像刷新。',
       embedding: Array(1024).fill(0.2),
-      sourceMessageId: null,
       importance: 0.8,
       accessCount: 0,
       lastAccessedAt: null,
@@ -366,11 +365,9 @@ describe('memory module', () => {
     const globalMemory = {
       id: 'm-global',
       namespace: 'global',
-      conversationId: null,
       type: 'preference',
       content: '全局偏好已经由 system hint 全量注入，不应再语义召回。',
       embedding: Array(1024).fill(0.2),
-      sourceMessageId: null,
       importance: 0.8,
       accessCount: 0,
       lastAccessedAt: null,
@@ -414,7 +411,6 @@ describe('memory module', () => {
         type: 'episodic',
         content: '第一条相关记忆',
         embedding: Array(1024).fill(0.1),
-        sourceMessageId: null,
         importance: 0.8,
         accessCount: 0,
         lastAccessedAt: null,
@@ -424,11 +420,9 @@ describe('memory module', () => {
       {
         id: 'm2-global',
         namespace: 'global',
-        conversationId: null,
         type: 'semantic',
         content: '全局事实不进入相关召回注入',
         embedding: Array(1024).fill(0.1),
-        sourceMessageId: null,
         importance: 0.8,
         accessCount: 0,
         lastAccessedAt: null,

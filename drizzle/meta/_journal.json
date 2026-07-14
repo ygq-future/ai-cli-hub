@@ -78,6 +78,20 @@
       "when": 1784019600000,
       "tag": "0010_user_cli_model_name",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784113200000,
+      "tag": "0011_conversation_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784113260000,
+      "tag": "0012_memories_global_only",
+      "breakpoints": true
     }
   ]
 }

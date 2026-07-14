@@ -10,19 +10,19 @@
 
 1. **异步、不阻塞**：记忆的写入（抽取/摘要/嵌入）全部在对话回复之后后台进行，失败重试，绝不拖慢用户收发。
 2. **归属解耦**：Transport 的 `user_id` 只用于鉴权、会话隔离和审批操作者；长期记忆属于当前个人 VPS / AI Hub 实例的共享 `namespace`，不按 Telegram/QQ/WebSocket 用户 ID 切分。V1 先做实例级显式记忆与环境事实；conversation messages 当前不做完整回放，只在 adapter 重启后的下一条 user message 中补最近 `RECENT_CONTEXT_LIMIT` 条轻量上下文。
-3. **可解释、可遗忘**：每条记忆可溯源（`source_message_id`），并带重要度/访问统计，支持衰减清理，避免无限膨胀。
+3. **独立于短期记录**：不保存 `conversation_id` / `source_message_id`；消息清理不影响长期记忆。每条记忆保留重要度/访问统计，供后续衰减清理。
 4. **嵌入走 API**：不在 VPS 跑本地模型；批量调用降低成本与延迟影响。
 
 ---
 
 ## 2. 实例级记忆模型
 
-| 层 | 锚点 | `conversation_id` | 内容 | 注入/召回 |
-|---|---|---|---|---|
-| **Global / instance-level** | `namespace='global'` | NULL | 环境事实、全局偏好、手工 `/remember` 事实 | V1 启动时全量注入 |
-| **Conversation-derived** | `namespace='global'` + `conversation_id` | 填值 | 某次会话产出的情节摘要、项目/任务局部事实 | 后续按关键词/向量 Top-K 召回 |
+| 类型 | 锚点 | 内容 | 注入/召回 |
+|---|---|---|---|
+| `semantic` / `preference` | `namespace='global'` | 环境事实、全局偏好、手工 `/remember` 事实 | Adapter 启动时全量注入 |
+| `episodic` | `namespace='global'` | 用户主动要求保存的对话摘要 | 仅按向量 Top-K 跨会话召回 |
 
-**V1 注入** = `conversation_id IS NULL` 的实例级全局记忆 + environment 记忆，拼为 system hint 注入 adapter start，且这部分**全量注入，不受 `MEMORY_RECALL_TOP_K` 限制**。adapter 因 `/remember`、`/forget`、`/lang` 或 idle timeout 重启后，下一条 user message 会携带当前 conversation 最近 `RECENT_CONTEXT_LIMIT` 条历史消息；单条超长历史按 `RECENT_CONTEXT_MESSAGE_MAX_CHARS` 保留尾部，避免丢失最新结论。这不是完整 messages replay。
+**全局注入** = namespace 内全部 `semantic` / `preference`（含 environment），拼为 system hint 注入 adapter start，且**不受 `MEMORY_RECALL_TOP_K` 限制**。`episodic` 不全量注入，只参与向量召回。adapter 重启后，下一条 user message 仍会携带当前 conversation 最近 `RECENT_CONTEXT_LIMIT` 条轻量上下文。
 
 > 因为这是个人 VPS 上的 AI Hub，同一个操作者可能来自 Telegram、QQ 或 WebSocket；这些渠道的 `user_id` 不应制造多套记忆。若未来需要多套人格/工作区，可扩展 `namespace`（如 `personal` / `work` / `client-a`），而不是复用平台用户 ID。
 
@@ -43,7 +43,7 @@
 V1 不做隐式抽取，避免误判用户随口表述。写入入口按优先级推进：
 
 - **M8-A 环境快照**：系统启动时 upsert 环境记忆。快照是按 OS 自适应的 VPS 运维画像：Linux 记录 OS/hostname/cwd、Bun/Node/Git、Shell、Claude/Codex/Gemini CLI、PM2、Docker/Compose、Postgres 工具、默认工作目录、媒体目录可操作状态与清理提示；不写入容器列表、端口、磁盘占用等易漂移状态，Agent 需要时自行执行实时命令查询。Windows 仅在实际存在时记录 PowerShell。
-- **M8-C 命令式记忆**：`/remember <text>` 直接写入实例级全局持久记忆（默认 `namespace='global'`、`conversation_id=NULL`）。
+- **M8-C 命令式记忆**：`/remember <text>` 直接写入 `namespace='global'` 的 `semantic`；带 `preference:` / `偏好:` 前缀则写入 `preference`。
 - **M8-D 环境刷新**：`/env` 手动刷新 `env.*` 稳定 tag 并展示当前环境快照，用于部署后补齐 PM2/Docker/媒体目录等运行态事实。
 - **V1.5 自然语言记忆触发**：普通对话中用户表达“记住/记一下/记录/remember this”等意图时，Core 保存该用户消息后发 `MemorySummaryRequested`，不再交给 Claude SDK 处理，避免 SDK 自己写宿主 memory 文件。Memory 模块按 `MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 读取当前 conversation 最近的 user/assistant 消息，调用 LLM summary API 生成一条 conversation-derived episodic 记忆；摘要输出语言跟随当前用户 `/lang`，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述，避免“你/我/我们/助手”等依赖当前对话身份的人称。
 - 会话关闭不再自动生成记忆：`SessionClosed` 只负责会话/adapter 生命周期清理，不从最近消息做确定性摘录。长期会话记忆只在用户主动说“记住/记录/remember this”时触发 LLM 摘要，避免非 LLM 摘录把杂乱或不准确的信息写入长期记忆。
@@ -78,7 +78,7 @@ flowchart TD
 - 通过 `EMBEDDING_API_BASE_URL` 调用 OpenAI-compatible embeddings API，批量提交 `content` 到 `EMBEDDING_MODEL`，写回 `embedding`。
 - 失败进重试队列，指数退避；**永不阻塞**主链路。
 - 维度对齐 `vector(1024)`（默认 `BAAI/bge-m3`）。
-- `/remember` 写入的是 `conversation_id IS NULL` 的实例级 global 记忆，已在 adapter start 时全量注入，不参与 embedding 回填与 Top-K 召回；embedding 召回只服务后续 conversation-derived 摘要/情节记忆。
+- `/remember` 写入的 `semantic` / `preference` 在 adapter start 时全量注入，不参与 embedding 回填；embedding 只服务 `episodic`。
 
 ---
 
@@ -88,14 +88,13 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    IN[Adapter start] --> G[取实例级全局记忆<br/>conversation_id IS NULL]
+    IN[Adapter start] --> G[取全部 semantic / preference]
     IN --> R{召回增强}
     G --> KEEP[全局事实全量保留<br/>环境/偏好/remember]
     R -->|V1 可选| FTS[FTS 关键词检索<br/>by namespace]
     R -->|V1.5| VEC[嵌入 query → pgvector KNN]
     FTS --> CAP[截断至 MEMORY_RECALL_TOP_K]
-    VEC --> RANK[相似度 × importance 重排]
-    RANK --> CAP
+    VEC --> CAP
     KEEP --> INJ[拼为上下文前缀<br/>注入 adapter start]
     CAP --> INJ
     INJ --> TOUCH[命中记忆 touch:<br/>access_count++ / last_accessed_at]
@@ -138,6 +137,8 @@ flowchart LR
 ## 6. 遗忘与衰减
 
 记忆库必须有界，否则召回质量随规模下降。
+
+当前 `importance` 是写入端的固定初始权重，不是模型实时评分：手工 `preference=0.85`、手工 `semantic=0.75`、用户主动生成的 `episodic=0.75`、环境事实默认 `0.8`（个别 probe 可显式覆盖）。目前全量注入和 pgvector KNN 不按该字段重排；它主要为后续遗忘/衰减策略预留，避免把“设计公式”误认为已上线行为。
 
 - **评分**：`score = importance × decay(last_accessed_at) + freq(access_count)`
   - `decay` 随时间指数衰减；越久未访问权重越低。
