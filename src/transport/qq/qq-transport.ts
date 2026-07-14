@@ -398,7 +398,10 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       if (p.ref.platform !== 'qq') return
       const context = userContext.get(p.ref.chatId)
       if (!context) return
-      void sendToContext(context, p.content).catch(err => reportError('qq:CommandReply', err))
+      const content = p.copyActions?.length
+        ? [p.content, '', ...p.copyActions.map(action => `- ${action.label}`)].join('\n')
+        : p.content
+      void sendToContext(context, content).catch(err => reportError('qq:CommandReply', err))
     }),
   )
   unsubs.push(

@@ -350,9 +350,9 @@ flowchart TD
 ```
 
 - **默认复用**：会话 scope = `(platform,userId,cli)`；普通消息只复用当前选中 CLI 的可复用会话（`idle/starting/running`），其他 CLI 会话保持不变。
-- **用户目标持久化**：`user_preferences` 保存语言与默认 CLI，`user_cli_preferences` 保存每 CLI cwd 与 model ID，均以 `(platform,userId)` 隔离。首次访问使用 `claude` 和 `~/ai-workspace/.claude`，并创建目录；普通消息在没有 open 会话时从该持久化目标创建会话。
+- **用户目标持久化**：`user_preferences` 保存语言与默认 CLI，`user_cli_preferences` 保存每 CLI cwd、model ID 与 model name，均以 `(platform,userId)` 隔离。首次访问使用 `claude` 和 `~/ai-workspace/.claude`，并创建目录；普通消息在没有 open 会话时从该持久化目标创建会话。
 - **`/switch <cli> [path]`**：恢复目标 CLI 的未关闭会话；不存在时以持久化 cwd 或显式 path 创建。若已有会话与 path 冲突则拒绝。
-- **`/model [model_id]`**：只作用于当前 CLI 的未关闭会话；idle 时先启动 Adapter。无参数读取 Adapter 的实时模型目录，带参数时先由 Adapter 验证并切换，再持久化该 CLI 的 model ID。
+- **`/model [model_name|model_id]`**：只作用于当前 CLI 的未关闭会话；idle 时先启动 Adapter。无参数读取 Adapter 的实时模型目录并输出紧凑名称选择；Telegram 用 `copy_text` 按钮复制规范 model ID，QQ 回退为名称清单。带参数时按规范 ID 或唯一名称匹配并切换，再持久化 model ID 与 model name。
 - **`/close`**：显式结束，触发归档并生成 episodic 摘要（见 §7）。
 - **自动归档**：超过 `SESSION_ARCHIVE_DAYS` 无活动的 `idle` 会话自动转 `closed` 并生成摘要。
 - **cwd 归属**：`cwd` 记录会话工作目录并按 CLI 持久化；更换目录时先 `/close` 当前 CLI 会话，再执行 `/switch <cli> <path>`。

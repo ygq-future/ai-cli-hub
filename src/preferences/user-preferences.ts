@@ -4,6 +4,7 @@ import type { Repositories } from '../repository'
 import {
   DEFAULT_AUTO_APPROVE_SECONDS,
   type AutoApprovePreference,
+  type CliModelPreference,
   type CliType,
   type Platform,
   type Unsubscribe,
@@ -22,9 +23,9 @@ export interface UserPreferences {
   setAutoApprove(platform: Platform, userId: string, preference: AutoApprovePreference): Promise<void>
   getTarget(platform: Platform, userId: string): Promise<UserTarget>
   getCwd(platform: Platform, userId: string, cli: CliType): Promise<string>
-  getModel(platform: Platform, userId: string, cli: CliType): Promise<string | null>
+  getModel(platform: Platform, userId: string, cli: CliType): Promise<CliModelPreference | null>
   setTarget(platform: Platform, userId: string, target: UserTarget): Promise<void>
-  setModel(platform: Platform, userId: string, cli: CliType, modelId: string): Promise<void>
+  setModel(platform: Platform, userId: string, cli: CliType, model: CliModelPreference): Promise<void>
   destroy(): void
 }
 
@@ -61,13 +62,16 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
     return cwd
   }
 
-  async function getModel(platform: Platform, userId: string, cli: CliType): Promise<string | null> {
-    return (await repos.userPreferences.findCliPreference(platform, userId, cli))?.modelId ?? null
+  async function getModel(platform: Platform, userId: string, cli: CliType): Promise<CliModelPreference | null> {
+    const preference = await repos.userPreferences.findCliPreference(platform, userId, cli)
+    return preference?.modelId
+      ? { modelId: preference.modelId, modelName: preference.modelName ?? preference.modelId }
+      : null
   }
 
-  async function setModel(platform: Platform, userId: string, cli: CliType, modelId: string): Promise<void> {
+  async function setModel(platform: Platform, userId: string, cli: CliType, model: CliModelPreference): Promise<void> {
     await getCwd(platform, userId, cli)
-    await repos.userPreferences.setModel(platform, userId, cli, modelId)
+    await repos.userPreferences.setModel(platform, userId, cli, model.modelId, model.modelName)
   }
 
   async function getTarget(platform: Platform, userId: string): Promise<UserTarget> {

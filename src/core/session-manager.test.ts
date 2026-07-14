@@ -727,7 +727,7 @@ describe('CommandRouter', () => {
       cwd: '/project',
       text: 'create',
     })
-    const selectedModels: string[] = []
+    const selectedModels: Array<{ modelId: string; modelName: string }> = []
     const commandRouter = createCommandRouter({
       bus: bus as unknown as EventBus,
       repos,
@@ -735,15 +735,19 @@ describe('CommandRouter', () => {
       getSelectedModel: async () => selectedModels.at(-1) ?? null,
       listModels: async modelCid => {
         expect(modelCid).toBe(cid)
-        return [{ id: 'sonnet', name: 'Sonnet' }]
+        return [
+          { id: 'sonnet', name: 'Claude Sonnet' },
+          { id: 'opus', name: 'Claude Opus' },
+        ]
       },
-      selectModel: async (modelCid, modelId) => {
+      selectModel: async (modelCid, model) => {
         expect(modelCid).toBe(cid)
-        selectedModels.push(modelId)
-        return modelId
+        const preference = { modelId: model.id, modelName: model.name }
+        selectedModels.push(preference)
+        return preference
       },
     })
-    const replies: Array<{ content: string }> = []
+    const replies: Array<{ content: string; copyActions?: Array<{ label: string; copyText: string }> }> = []
     bus.on('CommandReply', reply => replies.push(reply))
     const payload = {
       userId: 'u1',
@@ -755,12 +759,17 @@ describe('CommandRouter', () => {
 
     await commandRouter.tryHandle({ ...payload, text: '/model' })
     expect((await repos.conversations.findById(cid))?.status).toBe('running')
-    expect(replies[0]?.content).toContain('`sonnet` — Sonnet')
+    expect(replies[0]?.content).not.toContain('`sonnet`')
+    expect(replies[0]?.copyActions).toEqual([
+      { label: 'Claude Sonnet', copyText: 'sonnet' },
+      { label: 'Claude Opus', copyText: 'opus' },
+    ])
 
-    await commandRouter.tryHandle({ ...payload, text: '/model sonnet' })
-    expect(selectedModels).toEqual(['sonnet'])
+    await commandRouter.tryHandle({ ...payload, text: '/model claude sonnet' })
+    expect(selectedModels).toEqual([{ modelId: 'sonnet', modelName: 'Claude Sonnet' }])
     expect(replies[1]?.content).toContain('模型已切换')
     expect(replies[1]?.content).toContain('`sonnet`')
+    expect(replies[1]?.content).toContain('Claude Sonnet')
   })
 
   test('/model 没有当前 CLI 会话时不会隐式创建', async () => {
@@ -773,7 +782,7 @@ describe('CommandRouter', () => {
       sessionManager: sm,
       getSelectedModel: async () => null,
       listModels: async () => [],
-      selectModel: async (_cid, modelId) => modelId,
+      selectModel: async (_cid, model) => ({ modelId: model.id, modelName: model.name }),
     })
     const replies: Array<{ content: string }> = []
     bus.on('CommandReply', reply => replies.push(reply))
@@ -945,6 +954,7 @@ describe('CommandRouter', () => {
       bus: bus as unknown as EventBus,
       repos,
       sessionManager: sm,
+      getSelectedModel: async () => ({ modelId: 'claude-sonnet-4-5', modelName: 'Claude Sonnet 4.5' }),
     })
     const cid = await sm.findOrCreate({
       userId: 'u1',
@@ -968,6 +978,8 @@ describe('CommandRouter', () => {
     const content = (replies[0] as { content: string }).content
     expect(content).toContain('## 📊 当前会话')
     expect(content).toContain(`**会话 ID**: \`${cid}\``)
+    expect(content).toContain('**模型名称**: Claude Sonnet 4.5')
+    expect(content).toContain('**Model ID**: `claude-sonnet-4-5`')
   })
 
   test('/status 只展示当前选中 CLI 的会话', async () => {

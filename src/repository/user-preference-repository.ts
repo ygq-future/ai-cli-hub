@@ -66,10 +66,10 @@ export function createUserPreferenceRepository(db: Db): UserPreferenceRepository
         })
     },
 
-    async setModel(platform, userId, cli, modelId) {
+    async setModel(platform, userId, cli, modelId, modelName) {
       await db
         .update(userCliPreferences)
-        .set({ modelId, updatedAt: Date.now() })
+        .set({ modelId, modelName, updatedAt: Date.now() })
         .where(
           and(
             eq(userCliPreferences.platform, platform),

@@ -71,6 +71,13 @@
       "when": 1784016000000,
       "tag": "0009_user_cli_preferences",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784019600000,
+      "tag": "0010_user_cli_model_name",
+      "breakpoints": true
     }
   ]
 }

@@ -67,7 +67,7 @@ export interface EventMap {
   MessageReceived:  { userId: string; platform: Platform; cli: CliType; cwd: string; text: string; ref: MessageRef };
   // M9: emoji/sticker/file/photo 在 Transport 层预处理后仍折入 text；Core 不感知平台媒体结构。
   MessageGenerated: { conversationId: ConversationId; content: string; final: boolean }; // final=false 为流式增量
-  CommandReply:     { ref: MessageRef; content: string };
+  CommandReply:     { ref: MessageRef; content: string; copyActions?: CopyAction[] };
   UserLanguageChanged: { userId: string; platform: Platform; language: 'zh' | 'en' };
   UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }; // /switch 更新当前选中 CLI/cwd
 
@@ -329,7 +329,7 @@ export interface UserPreferenceRepository {
 }
 ```
 
-`UserPreferenceRepository` 是用户级持久化目标的唯一 SQL 出口：按 `(platform,userId)` 保存 `/lang`、默认 CLI 与自动审批开关，并按 `(platform,userId,cli)` 保存 cwd 与 model ID；不使用无类型的通用 KV 表。
+`UserPreferenceRepository` 是用户级持久化目标的唯一 SQL 出口：按 `(platform,userId)` 保存 `/lang`、默认 CLI 与自动审批开关，并按 `(platform,userId,cli)` 保存 cwd、model ID 与 model name；不使用无类型的通用 KV 表。
 
 > `New*` 为插入用类型（无 id/时间戳），`Conversation`/`Message`/... 为读取用完整类型，均由 Drizzle `$inferInsert` / `$inferSelect` 推导，见 04。
 

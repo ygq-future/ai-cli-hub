@@ -10,6 +10,7 @@ import type { Repositories } from '../repository'
 import type {
   AutoApprovePreference,
   CliModel,
+  CliModelPreference,
   CliType,
   ConversationId,
   MessageRef,
@@ -40,9 +41,9 @@ export interface CoreHubOptions {
   setUserTarget?: (platform: Platform, userId: string, target: { cli: CliType; cwd: string }) => Promise<void>
   getAutoApprove?: (platform: Platform, userId: string) => Promise<AutoApprovePreference>
   setAutoApprove?: (platform: Platform, userId: string, preference: AutoApprovePreference) => Promise<void>
-  getSelectedModel?: (platform: Platform, userId: string, cli: CliType) => Promise<string | null>
+  getSelectedModel?: (platform: Platform, userId: string, cli: CliType) => Promise<CliModelPreference | null>
   listModels?: (conversationId: ConversationId) => Promise<CliModel[]>
-  selectModel?: (conversationId: ConversationId, modelId: string) => Promise<string>
+  selectModel?: (conversationId: ConversationId, model: CliModel) => Promise<CliModelPreference>
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
   getUpdatePreview?: () => string

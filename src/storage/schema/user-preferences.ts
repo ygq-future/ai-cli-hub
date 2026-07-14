@@ -26,6 +26,7 @@ export const userCliPreferences = pgTable(
     cli: cliEnum('cli').notNull(),
     cwd: text('cwd').notNull(),
     modelId: text('model_id'),
+    modelName: text('model_name'),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
   },
   table => [primaryKey({ columns: [table.platform, table.userId, table.cli], name: 'user_cli_preferences_pkey' })],

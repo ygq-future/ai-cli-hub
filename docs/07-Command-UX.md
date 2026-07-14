@@ -35,7 +35,7 @@ flowchart TD
 | `/start` | — | 欢迎 + 当前会话状态 | 若无活跃会话则展示引导 |
 | `/help` | — | 命令帮助 | 返回本表精简版 |
 | `/switch` | `<cli> [path]` | 切换 CLI 会话 | 有未关闭会话则恢复；否则按显式或持久化 cwd 新建；不关闭其他 CLI 会话 |
-| `/model` | `[model_id]` | 查看或切换当前 CLI 模型 | 当前会话 idle 时先激活；无参数列实时可用模型，带参数验证后切换并持久化；无会话时拒绝 |
+| `/model` | `[model_name\|model_id]` | 查看或切换当前 CLI 模型 | 当前会话 idle 时先激活；无参数紧凑列出名称并提供复制按钮，带参数按名称/ID 匹配后切换并持久化；无会话时拒绝 |
 | `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；不做非 LLM 自动会话摘录 |
 | `/status` | — | 当前会话详情 | 展示完整 conversationId、status、cli/cwd、目标 cli/cwd、语言 |
 | `/sessions` | — | 列出该用户近期会话 | 历史查看，不表示 resume |
@@ -49,7 +49,7 @@ flowchart TD
 | `/restart` | `[confirm]` | 受控重启 | Windows 上直接拒绝；非 Windows 无参数以 Markdown 预检卡片展示计划；`/restart confirm` 不更新代码，只写入重启通知 marker 并延迟交给守护器重启；用于验证重启与主动通知链路 |
 | `/forget` | `<memoryId>` | 删除实例级全局长期记忆 | 支持唯一短前缀；前缀不唯一时拒绝删除；当前用户已启动 adapter 会失效，下一条消息加载最新记忆 |
 
-> 用户目标按 `(platform,userId)` 持久化：语言、当前选中 CLI、自动审批开关及倒计时、每个 CLI 的 cwd/model ID 彼此隔离。首次访问默认 `language=zh`、`default_cli=claude`、`auto_approve_enabled=false`、`auto_approve_seconds=5`，未配置目录时自动使用并创建 `~/ai-workspace/.<cli>`；模型为空表示沿用 CLI 默认。`/switch <cli> [path]` 更新当前选中 CLI；普通消息与 `/status` 读取该目标。当前已接入 `claude` 与 `opencode`。
+> 用户目标按 `(platform,userId)` 持久化：语言、当前选中 CLI、自动审批开关及倒计时、每个 CLI 的 cwd/model ID/model name 彼此隔离。首次访问默认 `language=zh`、`default_cli=claude`、`auto_approve_enabled=false`、`auto_approve_seconds=5`，未配置目录时自动使用并创建 `~/ai-workspace/.<cli>`；模型为空表示沿用 CLI 默认。`/switch <cli> [path]` 更新当前选中 CLI；普通消息与 `/status` 读取该目标，`/status` 同时展示模型名称与 ID。当前已接入 `claude` 与 `opencode`。
 > 普通文本里的“记住/记一下/记录/remember this”等自然语言记忆请求不是 `/remember`：它不会直接写入 global 记忆，也不会进入 Claude SDK；系统会按 `MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 读取当前 conversation 最近的 user/assistant 消息调用配置的记忆 LLM 摘要，摘要语言跟随持久化的 `/lang` 偏好，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述，写入 conversation-derived episodic 记忆并用于后续 embedding 召回。
 
 ---
@@ -60,7 +60,7 @@ flowchart TD
 |---|---|
 | 普通发消息 | 命中 `(platform,user,selectedCli)` 的未关闭会话则复用；否则按该 CLI 持久化 cwd 新建 |
 | `/switch <cli> [path]` | 恢复该 CLI 的未关闭会话；不存在时创建 `idle` 会话。显式 path 仅在新建时持久化；与已有会话 cwd 冲突时拒绝 |
-| `/model [model_id]` | 仅使用当前 CLI 未关闭会话；idle 会话激活为 running。无参数列模型；带参数切换后续轮次并保存偏好；不创建新会话 |
+| `/model [model_name\|model_id]` | 仅使用当前 CLI 未关闭会话；idle 会话激活为 running。无参数显示模型名称，Telegram 按钮复制规范 ID、QQ 回退名称列表；带参数按唯一名称或 ID 切换并保存名称+ID；不创建新会话 |
 | `/close` | 当前会话关闭；不自动写长期记忆，下条消息将开新会话 |
 | 长期无活动 | 超 `SESSION_ARCHIVE_DAYS` 自动归档（等同 `/close`，`reason:archiveTimeout`） |
 

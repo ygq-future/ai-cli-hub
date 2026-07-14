@@ -12,6 +12,7 @@ import {
   MIN_AUTO_APPROVE_SECONDS,
   type AutoApprovePreference,
   type CliModel,
+  type CliModelPreference,
   type CliType,
   type ConversationId,
   type MemoryType,
@@ -35,9 +36,9 @@ export interface CommandRouterDeps {
   setUserTarget?: (platform: Platform, userId: string, target: { cli: CliType; cwd: string }) => Promise<void>
   getAutoApprove?: (platform: Platform, userId: string) => Promise<AutoApprovePreference>
   setAutoApprove?: (platform: Platform, userId: string, preference: AutoApprovePreference) => Promise<void>
-  getSelectedModel?: (platform: Platform, userId: string, cli: CliType) => Promise<string | null>
+  getSelectedModel?: (platform: Platform, userId: string, cli: CliType) => Promise<CliModelPreference | null>
   listModels?: (conversationId: ConversationId) => Promise<CliModel[]>
-  selectModel?: (conversationId: ConversationId, modelId: string) => Promise<string>
+  selectModel?: (conversationId: ConversationId, model: CliModel) => Promise<CliModelPreference>
   resolveCwd?: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
@@ -68,8 +69,12 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
     })
   const resolveCwd = deps.resolveCwd ?? ((cwd: string) => ({ ok: true as const, cwd }))
 
-  function reply(payload: EventMap['MessageReceived'], content: string) {
-    bus.emit('CommandReply', { ref: payload.ref, content: ensureMarkdownCommandReply(content) })
+  function reply(
+    payload: EventMap['MessageReceived'],
+    content: string,
+    copyActions?: EventMap['CommandReply']['copyActions'],
+  ) {
+    bus.emit('CommandReply', { ref: payload.ref, content: ensureMarkdownCommandReply(content), copyActions })
   }
 
   async function currentConversation(payload: EventMap['MessageReceived']): Promise<Conversation | null> {
@@ -184,25 +189,23 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             )
             return true
           }
-          if (parsed.args.length > 1) {
-            reply(payload, commandError('模型参数无效', 'model_id 不能包含空格。', '/model [model_id]'))
-            return true
-          }
           const shouldMarkReady = conv.status === 'idle'
           try {
             if (shouldMarkReady) await sessionManager.transition(conv.id as ConversationId, 'START')
             const models = await deps.listModels(conv.id as ConversationId)
             if (shouldMarkReady) await sessionManager.transition(conv.id as ConversationId, 'ADAPTER_READY')
-            const requestedModelId = parsed.args[0]
-            if (requestedModelId) {
-              const selectedModelId = await deps.selectModel(conv.id as ConversationId, requestedModelId)
+            const requestedModel = parsed.args.join(' ').trim()
+            if (requestedModel) {
+              const matchedModel = resolveModel(requestedModel, models)
+              const selectedModel = await deps.selectModel(conv.id as ConversationId, matchedModel)
               reply(
                 payload,
                 [
                   '## ✅ 模型已切换',
                   '',
                   `- **CLI**: \`${conv.cli}\``,
-                  `- **Model**: \`${selectedModelId}\``,
+                  `- **模型名称**: ${selectedModel.modelName}`,
+                  `- **Model ID**: \`${selectedModel.modelId}\``,
                   '',
                   '> 此偏好已持久化，并从下一轮对话起生效。',
                 ].join('\n'),
@@ -210,8 +213,12 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
               return true
             }
 
-            const selectedModelId = await deps.getSelectedModel(payload.platform, payload.userId, conv.cli as CliType)
-            reply(payload, formatModels(conv.cli as CliType, selectedModelId, models))
+            const selectedModel = await deps.getSelectedModel(payload.platform, payload.userId, conv.cli as CliType)
+            reply(
+              payload,
+              formatModels(conv.cli as CliType, selectedModel, models),
+              models.map(model => ({ label: model.name, copyText: model.id })),
+            )
           } catch (err) {
             reply(
               payload,
@@ -233,6 +240,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
               : { cli: payload.cli, cwd: payload.cwd }
             const language = await getUserLanguage(payload.platform, payload.userId)
             const isEnglish = language === 'en'
+            const selectedModel = await deps.getSelectedModel?.(payload.platform, payload.userId, preferredTarget.cli)
             reply(
               payload,
               [
@@ -244,15 +252,15 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
                 '',
                 `- **${isEnglish ? 'Target CLI' : '目标 CLI'}**: \`${preferredTarget.cli}\``,
                 `- **${isEnglish ? 'Target CWD' : '目标 CWD'}**: \`${preferredTarget.cwd}\``,
+                ...formatModelPreference(selectedModel, language),
                 `- **${isEnglish ? 'Language' : '语言'}**: \`${language}\``,
               ].join('\n'),
             )
             return true
           }
-          reply(
-            payload,
-            formatStatus(conv, await getUserLanguage(payload.platform, payload.userId), conv.cli as CliType, conv.cwd),
-          )
+          const language = await getUserLanguage(payload.platform, payload.userId)
+          const selectedModel = await deps.getSelectedModel?.(payload.platform, payload.userId, conv.cli as CliType)
+          reply(payload, formatStatus(conv, language, conv.cli as CliType, conv.cwd, selectedModel))
           return true
         }
 
@@ -479,13 +487,13 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
   }
 }
 
-function formatModels(cli: CliType, selectedModelId: string | null, models: CliModel[]): string {
+function formatModels(cli: CliType, selectedModel: CliModelPreference | null, models: CliModel[]): string {
   if (models.length === 0) {
     return [
       '## 🤖 可用模型',
       '',
       `- **CLI**: \`${cli}\``,
-      `- **当前偏好**: ${selectedModelId ? `\`${selectedModelId}\`` : '_CLI 默认_'}`,
+      ...formatModelPreference(selectedModel, 'zh'),
       '',
       '_当前账号没有返回可用模型。_',
     ].join('\n')
@@ -494,13 +502,27 @@ function formatModels(cli: CliType, selectedModelId: string | null, models: CliM
     '## 🤖 可用模型',
     '',
     `- **CLI**: \`${cli}\``,
-    `- **当前偏好**: ${selectedModelId ? `\`${selectedModelId}\`` : '_CLI 默认_'}`,
+    ...formatModelPreference(selectedModel, 'zh'),
     `- **数量**: ${models.length}`,
     '',
-    ...models.map(model => `- \`${model.id}\` — ${model.name}`),
-    '',
-    '> 使用 `/model <model_id>` 切换。',
+    '> 点击下方模型名称可复制 Model ID；也可使用 `/model <model_name|model_id>` 切换。',
   ].join('\n')
+}
+
+function resolveModel(input: string, models: CliModel[]): CliModel {
+  const byId = models.find(model => model.id === input)
+  if (byId) return byId
+  const normalized = normalizeModelName(input)
+  const byName = models.filter(model => normalizeModelName(model.name) === normalized)
+  if (byName.length === 1) return byName[0]!
+  if (byName.length > 1) {
+    throw new Error(`模型名称不唯一：${input}。请改用 Model ID。`)
+  }
+  throw new Error(`找不到可用模型：${input}`)
+}
+
+function normalizeModelName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
 }
 
 function parseCommand(text: string): { name: string; args: string[] } | null {
@@ -522,7 +544,13 @@ function commandError(title: string, detail: string, usage?: string): string {
   return [`## ❌ ${title}`, '', detail, ...(usage ? ['', '### 用法', `\`${usage}\``] : [])].join('\n')
 }
 
-function formatStatus(conv: Conversation, language: UserLanguage, targetCli: CliType, targetCwd: string): string {
+function formatStatus(
+  conv: Conversation,
+  language: UserLanguage,
+  targetCli: CliType,
+  targetCwd: string,
+  selectedModel: CliModelPreference | null | undefined,
+): string {
   const isEnglish = language === 'en'
   return [
     isEnglish ? '## 📊 Current session' : '## 📊 当前会话',
@@ -533,12 +561,26 @@ function formatStatus(conv: Conversation, language: UserLanguage, targetCli: Cli
     `- **CLI**: \`${conv.cli}\``,
     `- **${isEnglish ? 'Language' : '语言'}**: \`${language}\``,
     `- **CWD**: \`${conv.cwd}\``,
+    ...formatModelPreference(selectedModel, language),
     '',
     `### ${isEnglish ? 'Current target' : '当前目标'}`,
     `- **CLI**: \`${targetCli}\``,
     `- **CWD**: \`${targetCwd}\``,
     `- **${isEnglish ? 'Alive' : '已存活'}**: ${formatDuration(Date.now() - conv.createdAt)}`,
   ].join('\n')
+}
+
+function formatModelPreference(preference: CliModelPreference | null | undefined, language: UserLanguage): string[] {
+  const isEnglish = language === 'en'
+  return preference
+    ? [
+        `- **${isEnglish ? 'Model name' : '模型名称'}**: ${preference.modelName}`,
+        `- **Model ID**: \`${preference.modelId}\``,
+      ]
+    : [
+        `- **${isEnglish ? 'Model name' : '模型名称'}**: _${isEnglish ? 'CLI default' : 'CLI 默认'}_`,
+        '- **Model ID**: `-`',
+      ]
 }
 
 function formatSessions(sessions: Conversation[], language: UserLanguage, selectedCli: CliType): string {

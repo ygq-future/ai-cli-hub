@@ -75,7 +75,7 @@ describe('schema — 表结构与契约', () => {
 
     const cliPreferences = getTableConfig(userCliPreferences)
     expect(cliPreferences.columns.map(column => column.name)).toEqual(
-      expect.arrayContaining(['platform', 'user_id', 'cli', 'cwd', 'model_id']),
+      expect.arrayContaining(['platform', 'user_id', 'cli', 'cwd', 'model_id', 'model_name']),
     )
     expect(cliPreferences.primaryKeys).toHaveLength(1)
   })

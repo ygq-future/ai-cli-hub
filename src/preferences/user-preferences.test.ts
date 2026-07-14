@@ -14,7 +14,7 @@ function createRepos() {
     }
   >()
   const cwds = new Map<string, string>()
-  const models = new Map<string, string>()
+  const models = new Map<string, { modelId: string; modelName: string }>()
   const key = (platform: string, userId: string) => `${platform}:${userId}`
   const cwdKey = (platform: string, userId: string, cli: string) => `${platform}:${userId}:${cli}`
 
@@ -66,7 +66,8 @@ function createRepos() {
                 userId,
                 cli: cli as 'claude',
                 cwd,
-                modelId: models.get(cwdKey(platform, userId, cli)) ?? null,
+                modelId: models.get(cwdKey(platform, userId, cli))?.modelId ?? null,
+                modelName: models.get(cwdKey(platform, userId, cli))?.modelName ?? null,
                 updatedAt: 1,
               }
             : null
@@ -74,8 +75,14 @@ function createRepos() {
         async upsertCwd(platform: 'telegram' | 'qq' | 'websocket', userId: string, cli: string, cwd: string) {
           cwds.set(cwdKey(platform, userId, cli), cwd)
         },
-        async setModel(platform: 'telegram' | 'qq' | 'websocket', userId: string, cli: string, modelId: string) {
-          models.set(cwdKey(platform, userId, cli), modelId)
+        async setModel(
+          platform: 'telegram' | 'qq' | 'websocket',
+          userId: string,
+          cli: string,
+          modelId: string,
+          modelName: string,
+        ) {
+          models.set(cwdKey(platform, userId, cli), { modelId, modelName })
         },
       },
     },
@@ -104,8 +111,14 @@ describe('user preferences', () => {
 
     expect(await preferences.getTarget('telegram', 'u1')).toEqual({ cli: 'opencode', cwd: '/projects/open' })
     expect(await preferences.getModel('telegram', 'u1', 'opencode')).toBeNull()
-    await preferences.setModel('telegram', 'u1', 'opencode', 'deepseek/deepseek-v4')
-    expect(await preferences.getModel('telegram', 'u1', 'opencode')).toBe('deepseek/deepseek-v4')
+    await preferences.setModel('telegram', 'u1', 'opencode', {
+      modelId: 'deepseek/deepseek-v4',
+      modelName: 'DeepSeek V4',
+    })
+    expect(await preferences.getModel('telegram', 'u1', 'opencode')).toEqual({
+      modelId: 'deepseek/deepseek-v4',
+      modelName: 'DeepSeek V4',
+    })
     expect(await preferences.getLanguage('telegram', 'u1')).toBe('en')
     expect(await preferences.getAutoApprove('telegram', 'u1')).toEqual({ enabled: false, seconds: 5 })
     await preferences.setAutoApprove('telegram', 'u1', { enabled: true, seconds: 12 })

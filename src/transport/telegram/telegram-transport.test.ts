@@ -588,6 +588,53 @@ describe('TelegramTransport 出站流式（D12 累计全文）', () => {
     expect(mock.sent[0]!.text.trim()).toBe('status ok')
   })
 
+  test('模型 CommandReply 将名称渲染为复制 Model ID 的 Telegram 按钮', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+
+    bus.emit('CommandReply', {
+      ref: { platform: 'telegram', chatId: '1000', nativeId: '1' },
+      content: '## 🤖 可用模型',
+      copyActions: [
+        { label: 'Claude Sonnet', copyText: 'claude-sonnet-4-5' },
+        { label: 'Claude Opus', copyText: 'claude-opus-4-1' },
+      ],
+    })
+    await tick()
+
+    const extra = mock.sent[0]!.extra as {
+      reply_markup: { inline_keyboard: Array<Array<{ text: string; copy_text: { text: string } }>> }
+    }
+    expect(extra.reply_markup.inline_keyboard).toEqual([
+      [{ text: '📋 Claude Sonnet', copy_text: { text: 'claude-sonnet-4-5' } }],
+      [{ text: '📋 Claude Opus', copy_text: { text: 'claude-opus-4-1' } }],
+    ])
+  })
+
+  test('超过 100 个模型复制按钮时自动拆成多条 Telegram 消息', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({ bus, config: fakeConfig(), bot: mock.bot })
+    const copyActions = Array.from({ length: 101 }, (_, index) => ({
+      label: `Model ${index + 1}`,
+      copyText: `provider/model-${index + 1}`,
+    }))
+
+    bus.emit('CommandReply', {
+      ref: { platform: 'telegram', chatId: '1000', nativeId: '1' },
+      content: '## 🤖 可用模型',
+      copyActions,
+    })
+    await tick()
+
+    expect(mock.sent).toHaveLength(2)
+    const firstKeyboard = mock.sent[0]!.extra as { reply_markup: { inline_keyboard: unknown[][] } }
+    const secondKeyboard = mock.sent[1]!.extra as { reply_markup: { inline_keyboard: unknown[][] } }
+    expect(firstKeyboard.reply_markup.inline_keyboard).toHaveLength(100)
+    expect(secondKeyboard.reply_markup.inline_keyboard).toHaveLength(1)
+  })
+
   test('Windows 路径展示为正斜杠且保留 MarkdownV2 渲染', async () => {
     const bus = createEventBus()
     const mock = createMockBot()

@@ -177,12 +177,12 @@ export type NewMemory = typeof memories.$inferInsert;
 
 ```text
 user_preferences: (platform, user_id) → language, default_cli, auto_approve_enabled, auto_approve_seconds
-user_cli_preferences: (platform, user_id, cli) → cwd, model_id nullable
+user_cli_preferences: (platform, user_id, cli) → cwd, model_id nullable, model_name nullable
 ```
 
 - 首次访问懒创建 `language='zh'`、`default_cli='claude'`、`auto_approve_enabled=false`、`auto_approve_seconds=5`。
 - 缺少 CLI 目录时，应用创建并写入 `~/ai-workspace/.<cli>`。
-- `INSERT ... ON CONFLICT DO UPDATE` 幂等写入每 CLI 的 cwd；`/model <model_id>` 在 Adapter 验证成功后更新同一行的 `model_id`，不会覆盖另一个 CLI 的偏好。
+- `INSERT ... ON CONFLICT DO UPDATE` 幂等写入每 CLI 的 cwd；`/model <model_name|model_id>` 在实时目录匹配并由 Adapter 验证成功后，原子更新同一行的 `model_id` 与 `model_name`，不会覆盖另一个 CLI 的偏好。
 - 这是“按用户命名空间的 KV”语义，但保留 Postgres 枚举、主键和类型约束。
 
 ---

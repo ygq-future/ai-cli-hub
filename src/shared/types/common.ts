@@ -37,6 +37,18 @@ export interface CliModel {
   description?: string
 }
 
+/** 已验证并持久化的 CLI 模型偏好。 */
+export interface CliModelPreference {
+  modelId: string
+  modelName: string
+}
+
+/** Transport 可按平台能力渲染为复制按钮；不支持时回退为名称列表。 */
+export interface CopyAction {
+  label: string
+  copyText: string
+}
+
 /** 分支品牌类型，防止不同 ID 串用。 */
 export type ConversationId = string & { readonly __brand: 'ConversationId' }
 export type MessageId = string & { readonly __brand: 'MessageId' }

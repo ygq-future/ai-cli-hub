@@ -91,7 +91,7 @@ export interface UserPreferenceRepository {
   setAutoApprove(platform: Platform, userId: string, enabled: boolean, seconds: number): Promise<void>
   findCliPreference(platform: Platform, userId: string, cli: CliType): Promise<UserCliPreference | null>
   upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>
-  setModel(platform: Platform, userId: string, cli: CliType, modelId: string): Promise<void>
+  setModel(platform: Platform, userId: string, cli: CliType, modelId: string, modelName: string): Promise<void>
 }
 
 /** 装配根注入 Core/业务模块的仓储集合（docs/03 §7）。 */

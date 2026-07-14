@@ -22,6 +22,7 @@ import { sanitizeFileName, withTimeout } from '../utils'
 import type {
   ApprovalCard,
   CliType,
+  CopyAction,
   ConversationId,
   InboundAttachment,
   InboundCustomEmoji,
@@ -408,10 +409,10 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     return String(err).includes('message is too long')
   }
 
-  async function sendPlainChunks(chatId: string, raw: string): Promise<MessageRef> {
+  async function sendPlainChunks(chatId: string, raw: string, extra?: unknown): Promise<MessageRef> {
     let firstRef: MessageRef | null = null
-    for (const chunk of splitText(raw)) {
-      const ref = await doSend(chatId, chunk)
+    for (const [index, chunk] of splitText(raw).entries()) {
+      const ref = await doSend(chatId, chunk, index === 0 ? extra : undefined)
       firstRef ??= ref
     }
     return firstRef ?? (await doSend(chatId, ''))
@@ -425,17 +426,35 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     }
   }
 
-  async function sendFormatted(chatId: string, raw: string): Promise<MessageRef> {
+  async function sendFormatted(chatId: string, raw: string, copyActions?: CopyAction[]): Promise<MessageRef> {
+    if (copyActions?.length) return sendCopyActionPages(chatId, raw, copyActions)
+    return sendFormattedPage(chatId, raw)
+  }
+
+  async function sendFormattedPage(chatId: string, raw: string, replyMarkup?: unknown): Promise<MessageRef> {
     const plain = normalizeWindowsPathSlashes(normalizeMarkdownTables(raw))
     const { text, extra } = fmt(raw)
+    const sendExtra = mergeTelegramExtra(extra, replyMarkup)
+    const plainExtra = mergeTelegramExtra(undefined, replyMarkup)
     try {
-      if (text.length > TELEGRAM_SAFE_TEXT_LIMIT) return sendPlainChunks(chatId, plain)
-      return await doSend(chatId, text, extra)
+      if (text.length > TELEGRAM_SAFE_TEXT_LIMIT) return sendPlainChunks(chatId, plain, plainExtra)
+      return await doSend(chatId, text, sendExtra)
     } catch (err) {
-      if (isMessageTooLong(err)) return sendPlainChunks(chatId, plain)
-      if (isParseEntitiesError(err)) return sendPlainChunks(chatId, plain) // 降级：纯文本
+      if (isMessageTooLong(err)) return sendPlainChunks(chatId, plain, plainExtra)
+      if (isParseEntitiesError(err)) return sendPlainChunks(chatId, plain, plainExtra) // 降级：纯文本
       throw err
     }
+  }
+
+  async function sendCopyActionPages(chatId: string, raw: string, actions: CopyAction[]): Promise<MessageRef> {
+    const pages = chunkCopyActions(actions)
+    let firstRef: MessageRef | null = null
+    for (const [index, page] of pages.entries()) {
+      const content = index === 0 ? raw : `## 🤖 可用模型（续 ${index + 1}/${pages.length}）`
+      const ref = await sendFormattedPage(chatId, content, copyActionKeyboard(page))
+      firstRef ??= ref
+    }
+    return firstRef!
   }
   async function editFormatted(ref: MessageRef, raw: string): Promise<void> {
     const plain = normalizeWindowsPathSlashes(normalizeMarkdownTables(raw))
@@ -734,7 +753,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     bus.on('CommandReply', async p => {
       if (p.ref.platform !== 'telegram') return
       try {
-        await sendFormatted(p.ref.chatId, p.content)
+        await sendFormatted(p.ref.chatId, p.content, p.copyActions)
       } catch (err) {
         reportError('telegram:CommandReply', err)
       }
@@ -866,4 +885,26 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     sendApproval: (chatId, card) => doSendApproval(chatId, card),
     getUserLanguage,
   }
+}
+
+const TELEGRAM_COPY_BUTTONS_PER_MESSAGE = 100
+
+function chunkCopyActions(actions: CopyAction[]): CopyAction[][] {
+  const chunks: CopyAction[][] = []
+  for (let index = 0; index < actions.length; index += TELEGRAM_COPY_BUTTONS_PER_MESSAGE) {
+    chunks.push(actions.slice(index, index + TELEGRAM_COPY_BUTTONS_PER_MESSAGE))
+  }
+  return chunks
+}
+
+function copyActionKeyboard(actions: CopyAction[]) {
+  return {
+    inline_keyboard: actions.map(action => [{ text: `📋 ${action.label}`, copy_text: { text: action.copyText } }]),
+  }
+}
+
+function mergeTelegramExtra(extra: unknown, replyMarkup: unknown): unknown {
+  if (!replyMarkup) return extra
+  const base = extra && typeof extra === 'object' && !Array.isArray(extra) ? (extra as Record<string, unknown>) : {}
+  return { ...base, reply_markup: replyMarkup }
 }

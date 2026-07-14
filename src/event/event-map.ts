@@ -2,7 +2,16 @@
  * Event Bus 类型契约 —— 模块间唯一通信枢纽的 payload 定义。
  * 契约见 docs/03-Interface-Contracts.md §1；新增事件只在此扩展 EventMap 一处。
  */
-import type { CliType, ConversationId, MemoryType, MessageRef, Platform, Unsubscribe, UserLanguage } from '../shared'
+import type {
+  CliType,
+  ConversationId,
+  CopyAction,
+  MemoryType,
+  MessageRef,
+  Platform,
+  Unsubscribe,
+  UserLanguage,
+} from '../shared'
 
 export interface EventMap {
   // —— 会话生命周期 ——
@@ -33,7 +42,7 @@ export interface EventMap {
   /** final=false 为流式增量。 */
   MessageGenerated: { conversationId: ConversationId; content: string; final: boolean }
   /** 命令类回复：不绑定 conversation，直接回到原始客户端消息所在 chat。 */
-  CommandReply: { ref: MessageRef; content: string }
+  CommandReply: { ref: MessageRef; content: string; copyActions?: CopyAction[] }
   UserLanguageChanged: { userId: string; platform: Platform; language: 'zh' | 'en' }
   /** 用户当前选中的 CLI/cwd 发生变化，例如执行 /switch。 */
   UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }
