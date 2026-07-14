@@ -189,9 +189,10 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           await repos.messages.deleteByConversation(conv.id as ConversationId)
           if (deps.clearConversationFiles) await deps.clearConversationFiles(conv.id as ConversationId)
           else bus.emit('ConversationCleared', { conversationId: conv.id as ConversationId })
+          bus.emit('ConversationContextReset', { conversationId: conv.id as ConversationId })
           reply(
             payload,
-            `## 🧹 会话已清空\n\n- **ID**: \`${conv.id}\`\n- 对话消息和暂存文件已清理\n- CLI、工作目录、模型与偏好保持不变`,
+            `## 🧹 会话已清空\n\n- **ID**: \`${conv.id}\`\n- 对话消息、暂存文件与 CLI 上下文已清理\n- 工作目录、模型与偏好保持不变\n- 下一条消息会重新启动 CLI`,
           )
           return true
         }
@@ -206,6 +207,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             await repos.messages.deleteByConversation(conv.id as ConversationId)
             if (deps.clearConversationFiles) await deps.clearConversationFiles(conv.id as ConversationId)
             else bus.emit('ConversationCleared', { conversationId: conv.id as ConversationId })
+            bus.emit('ConversationContextReset', { conversationId: conv.id as ConversationId })
           }
           const target = await deps.resetUserPreferences(payload.platform, payload.userId)
           reply(
@@ -213,7 +215,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             [
               '## ♻️ 用户配置已重置',
               '',
-              `- 当前会话消息与暂存文件：${conv ? '已清空' : '无活跃会话'}`,
+              `- 当前会话消息、暂存文件与 CLI 上下文：${conv ? '已清空' : '无活跃会话'}`,
               '- 语言、默认 CLI、各 CLI 工作目录与模型、自动审批：已恢复默认值',
               '- 长期记忆：保留',
               `- **默认 CLI**：\`${target.cli}\``,

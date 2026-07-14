@@ -213,4 +213,17 @@ describe('MessageAggregator', () => {
 
     expect(events).toEqual([])
   })
+
+  test('discard：清除指定会话缓冲且不发出旧回复', async () => {
+    const bus = createEventBus()
+    const events = capture(bus)
+    const agg = createMessageAggregator(bus, { debounceMs: 10, minEditIntervalMs: 0, maxChunkChars: 100 })
+
+    agg.push(CID, 'old output')
+    agg.discard(CID)
+    await wait(25)
+
+    expect(events).toEqual([])
+    agg.destroy()
+  })
 })

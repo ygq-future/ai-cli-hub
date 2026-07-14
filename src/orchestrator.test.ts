@@ -680,6 +680,26 @@ describe('SessionOrchestrator', () => {
     agg.destroy()
   })
 
+  test('ConversationContextReset → 丢弃当前 CLI 上下文，下一条消息启动全新 adapter', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
+
+    await orch.handler.onMessage('before clear', CID)
+    bus.emit('ConversationContextReset', { conversationId: CID })
+    await tick()
+    await orch.handler.onMessage('after clear', CID)
+
+    expect(fake.calls.stop).toBe(1)
+    expect(fake.calls.start).toHaveLength(2)
+    expect(fake.calls.sendUserInput.at(-1)).toBe('after clear')
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
   test('adapter 空闲超时 → stop 并把会话状态标回 idle', async () => {
     const fake = createFakeAdapter()
     const bus = createEventBus()

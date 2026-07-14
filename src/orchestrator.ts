@@ -558,6 +558,12 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     }),
   )
   globalUnsubs.push(
+    bus.on('ConversationContextReset', p => {
+      aggregator.discard(p.conversationId)
+      void stopEntry(p.conversationId)
+    }),
+  )
+  globalUnsubs.push(
     bus.on('UserLanguageChanged', p => {
       void stopEntriesForUser(p.userId, p.platform)
     }),

@@ -1540,7 +1540,9 @@ describe('CommandRouter', () => {
       },
     })
     const replies: Array<{ content: string }> = []
+    const contextClears: ConversationId[] = []
     bus.on('CommandReply', payload => replies.push(payload))
+    bus.on('ConversationContextReset', payload => contextClears.push(payload.conversationId))
     const payload = {
       userId: 'u1',
       platform: 'telegram' as const,
@@ -1553,10 +1555,12 @@ describe('CommandRouter', () => {
     expect(await repos.messages.listByConversation(cid)).toEqual([])
     expect((await repos.conversations.findById(cid))?.status).toBe('idle')
     expect(cleared).toEqual([cid])
+    expect(contextClears).toEqual([cid])
     expect(replies[0]!.content).toContain('偏好保持不变')
 
     await commandRouter.tryHandle({ ...payload, text: '/reset' })
     expect(cleared).toEqual([cid, cid])
+    expect(contextClears).toEqual([cid, cid])
     expect(resetCount).toBe(1)
     expect(replies[1]!.content).toContain('长期记忆：保留')
   })

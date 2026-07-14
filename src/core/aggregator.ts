@@ -46,6 +46,8 @@ export interface MessageAggregator {
   flush(conversationId: ConversationId): void
   /** 强制冲刷所有会话缓冲；用于优雅关闭前定稿所有草稿。 */
   flushAll(): void
+  /** 丢弃指定会话尚未定稿的输出；用于清空 CLI 上下文，禁止旧回复延迟发出。 */
+  discard(conversationId: ConversationId): void
   /** 清理所有会话的定时器与状态（优雅关闭/测试收尾）。 */
   destroy(): void
 }
@@ -178,6 +180,14 @@ export function createMessageAggregator(
       for (const cid of Array.from(states.keys())) {
         this.flush(cid)
       }
+    },
+
+    discard(cid) {
+      const st = states.get(cid)
+      if (!st) return
+      if (st.debounce !== null) clearTimeout(st.debounce)
+      if (st.cooldown !== null) clearTimeout(st.cooldown)
+      states.delete(cid)
     },
 
     destroy() {

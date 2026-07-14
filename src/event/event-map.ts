@@ -25,8 +25,10 @@ export interface EventMap {
   }
   SessionMapped: { conversationId: ConversationId; platform: Platform; userId: string }
   SessionClosed: { conversationId: ConversationId; reason: 'user' | 'archiveTimeout' }
-  /** `/clear` 清空消息与当前会话文件，但保留 conversation 本身及其运行态。 */
+  /** 请求文件生命周期模块清理当前会话文件；主要用于未直接注入清理器的兼容路径。 */
   ConversationCleared: { conversationId: ConversationId }
+  /** 持久内容已清空，运行中的当前 CLI adapter 必须停止并丢弃上下文。 */
+  ConversationContextReset: { conversationId: ConversationId }
 
   // —— 消息 ——
   /**
@@ -123,6 +125,7 @@ const EVENT_TYPE_REGISTRY: Record<EventType, true> = {
   SessionMapped: true,
   SessionClosed: true,
   ConversationCleared: true,
+  ConversationContextReset: true,
   MessageReceived: true,
   MessageGenerated: true,
   CommandReply: true,
