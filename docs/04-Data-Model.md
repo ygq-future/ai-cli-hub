@@ -199,6 +199,10 @@ user_cli_preferences: (platform, user_id, cli) → cwd, model_id nullable, model
 | memories | GIN FTS on `content` | V1 关键词召回 |
 | memories | HNSW on `embedding` | V1.5 向量召回 |
 
+`conversation_files` 只保留一个 nullable `file_id`：Telegram 保存稳定的 `file_unique_id`，QQ 无稳定标识时为
+`NULL`。不保存有时效的平台下载 URL，也不再保留重复的 `file_unique_id` 列；实际操作始终以受控目录中的
+`local_path` 为准。
+
 ---
 
 ## 8. 迁移策略（Drizzle Kit）
