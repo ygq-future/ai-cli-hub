@@ -156,7 +156,7 @@ export interface TelegramBotLike {
   help(h: (ctx: TgCtx) => unknown): unknown
   on(filter: unknown, h: (ctx: TgCtx) => unknown): unknown
   action(trigger: RegExp, h: (ctx: TgCtx) => unknown): unknown
-  launch(): Promise<void>
+  launch(onLaunch?: () => void): Promise<void>
   stop(reason?: string): void
 }
 
@@ -171,6 +171,9 @@ export interface TelegramTransportDeps {
   downloadTelegramFile?: (file: TelegramDownloadRequest) => Promise<string>
   /** 用户语言持久化查询；缺省使用 Transport 内存偏好（测试/兼容）。 */
   resolveUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage>
+  /** 测试可缩短重连等待；生产默认 2 秒起、最多 60 秒。 */
+  pollingRetryInitialMs?: number
+  pollingRetryMaxMs?: number
 }
 
 export interface TelegramTransport extends Transport {
@@ -178,6 +181,7 @@ export interface TelegramTransport extends Transport {
 }
 
 const TELEGRAM_SAFE_TEXT_LIMIT = 3800
+const POLLING_STABLE_RESET_MS = 60_000
 interface TelegramDownloadRequest {
   fileId: string
   fileUniqueId?: string
@@ -194,6 +198,13 @@ function isNotModified(err: unknown): boolean {
 /** Telegram 400 解析实体错误（MarkdownV2 转义边界漏网时触发），据此降级为纯文本重发。 */
 function isParseEntitiesError(err: unknown): boolean {
   return String(err).includes("can't parse entities")
+}
+
+function telegramErrorCode(err: unknown): number | undefined {
+  if (!err || typeof err !== 'object') return undefined
+  const value = err as { code?: unknown; response?: { error_code?: unknown } }
+  const code = value.code ?? value.response?.error_code
+  return typeof code === 'number' ? code : undefined
 }
 
 function tableCells(line: string): string[] {
@@ -291,9 +302,75 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     { contexts: TgCtx[]; timer: ReturnType<typeof setTimeout>; firstMessageId: number }
   >()
   const unsubs: Unsubscribe[] = []
+  const pollingRetryInitialMs = Math.max(1, deps.pollingRetryInitialMs ?? 2_000)
+  const pollingRetryMaxMs = Math.max(pollingRetryInitialMs, deps.pollingRetryMaxMs ?? 60_000)
+  let stopping = false
+  let launchTask: Promise<void> | null = null
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
+  let resolveRetryWait: (() => void) | null = null
 
   function reportError(scope: string, err: unknown) {
     bus.emit('ErrorOccurred', { scope, message: err instanceof Error ? err.message : String(err) })
+  }
+
+  function waitBeforePollingRetry(delayMs: number): Promise<void> {
+    return new Promise(resolve => {
+      resolveRetryWait = resolve
+      retryTimer = setTimeout(() => {
+        retryTimer = null
+        resolveRetryWait = null
+        resolve()
+      }, delayMs)
+    })
+  }
+
+  function cancelPollingRetryWait(): void {
+    if (retryTimer) clearTimeout(retryTimer)
+    retryTimer = null
+    const resolve = resolveRetryWait
+    resolveRetryWait = null
+    resolve?.()
+  }
+
+  async function supervisePolling(): Promise<void> {
+    let retryDelayMs = pollingRetryInitialMs
+    while (!stopping) {
+      bus.emit('TransportStatusChanged', { platform: 'telegram', state: 'connecting' })
+      let failure: unknown
+      let readyAt: number | undefined
+      try {
+        await bot.launch(() => {
+          readyAt = Date.now()
+          bus.emit('TransportStatusChanged', { platform: 'telegram', state: 'ready' })
+        })
+        if (stopping) return
+        failure = new Error('Telegram polling stopped unexpectedly.')
+      } catch (err) {
+        if (stopping) return
+        failure = err
+      }
+
+      reportError('telegram:launch', failure)
+      if (telegramErrorCode(failure) === 401) {
+        bus.emit('TransportStatusChanged', {
+          platform: 'telegram',
+          state: 'stopped',
+          detail: 'Telegram bot token was rejected (401); automatic reconnect disabled.',
+        })
+        return
+      }
+
+      if (readyAt && Date.now() - readyAt >= POLLING_STABLE_RESET_MS) retryDelayMs = pollingRetryInitialMs
+
+      const detail = failure instanceof Error ? failure.message : String(failure)
+      bus.emit('TransportStatusChanged', {
+        platform: 'telegram',
+        state: 'reconnecting',
+        detail: `${detail}; retrying in ${retryDelayMs}ms`,
+      })
+      await waitBeforePollingRetry(retryDelayMs)
+      retryDelayMs = Math.min(retryDelayMs * 2, pollingRetryMaxMs)
+    }
   }
 
   function getUserLanguage(userId: string): UserLanguage {
@@ -579,8 +656,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       })
       attachments.push({
         kind,
-        fileId: file.file_id,
-        fileUniqueId: file.file_unique_id,
+        fileId: file.file_unique_id,
         fileName: file.file_name,
         mimeType: file.mime_type,
         fileSize: file.file_size,
@@ -599,8 +675,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       })
       attachments.push({
         kind: 'photo',
-        fileId: photo.file_id,
-        fileUniqueId: photo.file_unique_id,
+        fileId: photo.file_unique_id,
         fileSize: photo.file_size,
         mimeType: 'image/jpeg',
         localPath,
@@ -910,12 +985,20 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     platform: 'telegram',
 
     start() {
-      // launch() 的 Promise 在 bot 停止时才 resolve，故不 await
-      void bot.launch().catch(err => reportError('telegram:launch', err))
+      if (launchTask) return Promise.resolve()
+      stopping = false
+      bus.emit('TransportStatusChanged', { platform: 'telegram', state: 'starting' })
+      const task = supervisePolling()
+      launchTask = task
+      void task.then(() => {
+        if (launchTask === task) launchTask = null
+      })
       return Promise.resolve()
     },
 
-    stop() {
+    async stop() {
+      stopping = true
+      cancelPollingRetryWait()
       for (const group of mediaGroups.values()) clearTimeout(group.timer)
       mediaGroups.clear()
       for (const approval of approvals.values()) {
@@ -928,7 +1011,8 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       } catch (err) {
         reportError('telegram:stop', err)
       }
-      return Promise.resolve()
+      await launchTask
+      bus.emit('TransportStatusChanged', { platform: 'telegram', state: 'stopped' })
     },
 
     sendMessage: (chatId, content) => doSend(chatId, content),

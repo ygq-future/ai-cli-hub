@@ -68,8 +68,10 @@ describe('schema — 表结构与契约', () => {
   test('conversation_files：会话内编号唯一且会话删除时级联清理映射', () => {
     const table = getTableConfig(conversationFiles)
     expect(table.columns.map(column => column.name)).toEqual(
-      expect.arrayContaining(['conversation_id', 'sequence', 'kind', 'local_path', 'created_at']),
+      expect.arrayContaining(['conversation_id', 'sequence', 'kind', 'file_id', 'local_path', 'created_at']),
     )
+    expect(table.columns.map(column => column.name)).not.toContain('file_unique_id')
+    expect(table.columns.find(column => column.name === 'file_id')?.notNull).toBe(false)
     expect(table.foreignKeys[0]?.onDelete).toBe('cascade')
     expect(table.indexes.map(index => index.config.name)).toContain('uniq_conversation_file_sequence')
   })

@@ -423,6 +423,7 @@ describe('QQTransport 媒体入站', () => {
     expect(preprocessor.calls[0]?.attachments).toEqual([
       expect.objectContaining({ kind: 'photo', fileName: 'photo.jpg', mimeType: 'image/jpeg', fileSize: 12345 }),
     ])
+    expect(preprocessor.calls[0]?.attachments?.[0]?.fileId).toBeUndefined()
     expect(received.length).toBe(1)
     expect(received[0]?.text).toContain('[attachments: photo]')
   })

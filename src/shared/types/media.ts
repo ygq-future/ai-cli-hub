@@ -35,8 +35,8 @@ export type InboundAttachmentKind =
 
 export interface InboundAttachment {
   kind: InboundAttachmentKind
-  fileId: string
-  fileUniqueId?: string
+  /** 平台稳定文件标识；Telegram 使用 file_unique_id，平台未提供时留空。 */
+  fileId?: string
   fileName?: string
   mimeType?: string
   fileSize?: number

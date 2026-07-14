@@ -69,7 +69,6 @@ export function createMessageRouter(
             conversationId: conversationId as ConversationId,
             kind: attachment.kind,
             fileId: attachment.fileId,
-            fileUniqueId: attachment.fileUniqueId,
             fileName: attachment.fileName,
             mimeType: attachment.mimeType,
             fileSize: attachment.fileSize,

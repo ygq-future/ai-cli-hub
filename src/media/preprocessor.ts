@@ -65,8 +65,7 @@ function formatAttachmentMeta(file: InboundAttachment): string {
     compact(file.fileName ? `name=${file.fileName}` : undefined),
     compact(file.mimeType ? `mime=${file.mimeType}` : undefined),
     file.fileSize ? `bytes=${file.fileSize}` : null,
-    `file_id=${file.fileId}`,
-    compact(file.fileUniqueId ? `file_unique_id=${file.fileUniqueId}` : undefined),
+    compact(file.fileId ? `file_id=${file.fileId}` : undefined),
     `local_path=${file.localPath.replace(/\\+/g, '/')}`,
   ].filter((part): part is string => Boolean(part))
   return `- ${parts.join(', ')}`

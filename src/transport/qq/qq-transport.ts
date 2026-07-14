@@ -318,7 +318,6 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
         const localPath = await downloadQQFile(url, { fileName, fileSize })
         attachments.push({
           kind,
-          fileId: url,
           fileName,
           mimeType,
           fileSize,

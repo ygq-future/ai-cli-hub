@@ -109,7 +109,7 @@ describe('TelegramTransport 入站', () => {
       downloadTelegramFile: async file => `/tmp/${file.fileId}.jpg`,
       mediaPreprocessor: {
         async preprocess(input) {
-          batches.push((input.attachments ?? []).map(file => file.fileId))
+          batches.push((input.attachments ?? []).map(file => file.fileId).filter((id): id is string => Boolean(id)))
           return { text: `ocr:${input.attachments?.length ?? 0}`, warnings: [] }
         },
       },
@@ -120,13 +120,22 @@ describe('TelegramTransport 入站', () => {
     mock.handlers.text!({
       from: { id: 42 },
       chat: { id: 1000 },
-      message: { message_id: 10, media_group_id: 'album-1', caption: '两张图', photo: [{ file_id: 'p1' }] },
+      message: {
+        message_id: 10,
+        media_group_id: 'album-1',
+        caption: '两张图',
+        photo: [{ file_id: 'download-p1', file_unique_id: 'p1' }],
+      },
       reply: async () => {},
     })
     mock.handlers.text!({
       from: { id: 42 },
       chat: { id: 1000 },
-      message: { message_id: 11, media_group_id: 'album-1', photo: [{ file_id: 'p2' }] },
+      message: {
+        message_id: 11,
+        media_group_id: 'album-1',
+        photo: [{ file_id: 'download-p2', file_unique_id: 'p2' }],
+      },
       reply: async () => {},
     })
     await new Promise(resolve => setTimeout(resolve, 450))
@@ -405,8 +414,7 @@ describe('TelegramTransport 入站', () => {
 
     expect(seen[0]).toMatchObject({
       kind: 'photo',
-      fileId: 'large',
-      fileUniqueId: 'l',
+      fileId: 'l',
       fileSize: 100,
       mimeType: 'image/jpeg',
       localPath: 'D:/media/large.jpg',
@@ -455,8 +463,7 @@ describe('TelegramTransport 入站', () => {
 
     expect(seen[0]).toMatchObject({
       kind: 'audio',
-      fileId: 'audio-file',
-      fileUniqueId: 'audio-unique',
+      fileId: 'audio-unique',
       fileName: '稳稳的幸福（DJ）.mp3',
       mimeType: 'audio/mpeg',
       fileSize: 2048,
@@ -487,6 +494,53 @@ describe('TelegramTransport 入站', () => {
     await tick()
 
     expect(downloaded).toBe(false)
+  })
+})
+
+describe('TelegramTransport polling 自恢复', () => {
+  test('socket 异常退出后按退避策略重新 launch，stop 后不再重连', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    const errors: Array<{ scope: string; message: string }> = []
+    const states: string[] = []
+    let launchCount = 0
+    let releasePolling: (() => void) | undefined
+
+    bus.on('ErrorOccurred', payload => errors.push(payload))
+    bus.on('TransportStatusChanged', payload => states.push(payload.state))
+    mock.bot.launch = async onLaunch => {
+      launchCount += 1
+      onLaunch?.()
+      if (launchCount <= 2) throw new Error('The socket connection was closed unexpectedly.')
+      await new Promise<void>(resolve => {
+        releasePolling = resolve
+      })
+    }
+    mock.bot.stop = () => releasePolling?.()
+
+    const transport = createTelegramTransport({
+      bus,
+      config: fakeConfig(),
+      bot: mock.bot,
+      pollingRetryInitialMs: 1,
+      pollingRetryMaxMs: 2,
+    })
+    await transport.start()
+    for (let attempt = 0; attempt < 20 && launchCount < 3; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
+
+    expect(launchCount).toBe(3)
+    expect(errors).toContainEqual({
+      scope: 'telegram:launch',
+      message: 'The socket connection was closed unexpectedly.',
+    })
+    expect(states).toEqual(expect.arrayContaining(['starting', 'connecting', 'ready', 'reconnecting']))
+
+    await transport.stop()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(launchCount).toBe(3)
+    expect(states.at(-1)).toBe('stopped')
   })
 })
 
