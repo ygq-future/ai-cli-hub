@@ -112,9 +112,10 @@ describe('user preferences', () => {
       },
     })
 
-    const defaultClaudeCwd = path.join('/home/hub', 'ai-workspace', '.claude')
-    expect(await preferences.getTarget('telegram', 'u1')).toEqual({ cli: 'claude', cwd: defaultClaudeCwd })
-    expect(created).toEqual([defaultClaudeCwd])
+    const telegramClaudeCwd = path.join('/home/hub', 'ai-workspace', '.claude-telegram')
+    const qqClaudeCwd = path.join('/home/hub', 'ai-workspace', '.claude-qq')
+    expect(await preferences.getTarget('telegram', 'u1')).toEqual({ cli: 'claude', cwd: telegramClaudeCwd })
+    expect(created).toEqual([telegramClaudeCwd])
     await preferences.setTarget('telegram', 'u1', { cli: 'opencode', cwd: '/projects/open' })
     await preferences.setLanguage('telegram', 'u1', 'en')
 
@@ -133,7 +134,8 @@ describe('user preferences', () => {
     await preferences.setAutoApprove('telegram', 'u1', { enabled: true, seconds: 12 })
     expect(await preferences.getAutoApprove('telegram', 'u1')).toEqual({ enabled: true, seconds: 12 })
     expect(await preferences.getAutoApprove('qq', 'u1')).toEqual({ enabled: false, seconds: 5 })
-    expect(await preferences.getTarget('qq', 'u1')).toEqual({ cli: 'claude', cwd: defaultClaudeCwd })
+    expect(await preferences.getTarget('qq', 'u1')).toEqual({ cli: 'claude', cwd: qqClaudeCwd })
+    expect(created).toEqual([telegramClaudeCwd, qqClaudeCwd])
   })
 
   test('reset 删除持久化偏好与缓存并恢复默认值', async () => {
@@ -150,7 +152,7 @@ describe('user preferences', () => {
 
     const target = await preferences.reset('telegram', 'u1')
 
-    expect(target).toEqual({ cli: 'claude', cwd: path.join('/home/hub', 'ai-workspace', '.claude') })
+    expect(target).toEqual({ cli: 'claude', cwd: path.join('/home/hub', 'ai-workspace', '.claude-telegram') })
     expect(await preferences.getLanguage('telegram', 'u1')).toBe('zh')
     expect(await preferences.getAutoApprove('telegram', 'u1')).toEqual({ enabled: false, seconds: 5 })
     expect(await preferences.getModel('telegram', 'u1', 'opencode')).toBeNull()

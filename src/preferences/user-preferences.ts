@@ -57,7 +57,7 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
   async function getCwd(platform: Platform, userId: string, cli: CliType): Promise<string> {
     const row = await repos.userPreferences.findCliPreference(platform, userId, cli)
     if (row) return row.cwd
-    const cwd = defaultCwd(deps.homeDir, cli)
+    const cwd = defaultCwd(deps.homeDir, cli, platform)
     await ensureDirectory(cwd)
     await repos.userPreferences.upsertCwd(platform, userId, cli, cwd)
     return cwd
@@ -128,7 +128,7 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
     languageCache.delete(key)
     targetCache.delete(key)
     autoApproveCache.delete(key)
-    const target = { cli: DEFAULT_CLI, cwd: defaultCwd(deps.homeDir, DEFAULT_CLI) }
+    const target = { cli: DEFAULT_CLI, cwd: defaultCwd(deps.homeDir, DEFAULT_CLI, platform) }
     await ensureDirectory(target.cwd)
     bus.emit('UserTargetChanged', { platform, userId, ...target })
     bus.emit('UserPreferencesReset', { platform, userId })
@@ -172,6 +172,6 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
   }
 }
 
-export function defaultCwd(homeDir: string, cli: CliType): string {
-  return path.join(homeDir, 'ai-workspace', `.${cli}`)
+export function defaultCwd(homeDir: string, cli: CliType, platform: Platform): string {
+  return path.join(homeDir, 'ai-workspace', `.${cli}-${platform}`)
 }
