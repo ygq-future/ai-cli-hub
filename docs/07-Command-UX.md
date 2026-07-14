@@ -35,9 +35,9 @@ flowchart TD
 | `/start` | — | 欢迎 + 当前会话状态 | 若无活跃会话则展示引导 |
 | `/help` | — | 命令帮助 | 返回本表精简版 |
 | `/switch` | `<cli> [path]` | 切换 CLI 会话 | 有未关闭会话则恢复；否则按显式或持久化 cwd 新建；不关闭其他 CLI 会话 |
-| `/model` | `[model_name\|model_id]` | 查看或切换当前 CLI 模型 | 当前会话 idle 时先激活；无参数紧凑列出名称并提供复制按钮，带参数按名称/ID 匹配后切换并持久化；无会话时拒绝 |
+| `/model` | `[model_name\|model_id]` | 查看或切换当前 CLI 模型 | 当前会话 idle 时先激活；无参数紧凑列出名称，Telegram 提供复制按钮、QQ 以 fenced code block 提供客户端原生复制；带参数按名称/ID 匹配后切换并持久化；无会话时拒绝 |
 | `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；不做非 LLM 自动会话摘录 |
-| `/status` | — | 当前会话详情 | 展示完整 conversationId、status、cli/cwd、目标 cli/cwd、语言 |
+| `/status` | — | 当前会话详情 | 有当前会话时展示完整 conversationId、status、平台、cli/cwd、语言、模型名称/ID 与已存活时间；无会话时展示持久化目标 |
 | `/sessions` | — | 列出该用户近期会话 | 历史查看，不表示 resume |
 | `/audit` | `[conversationId]` | 查看审批审计 | 无参数查看当前会话；带完整或短会话 ID 查看指定会话最近审批记录 |
 | `/autoapprove` | `[on\|off] [seconds]` | 查看或持久化自动审批 | 默认关闭、5 秒；秒数为 1–300 整数，省略则重置为 5 秒 |
@@ -60,7 +60,7 @@ flowchart TD
 |---|---|
 | 普通发消息 | 命中 `(platform,user,selectedCli)` 的未关闭会话则复用；否则按该 CLI 持久化 cwd 新建 |
 | `/switch <cli> [path]` | 恢复该 CLI 的未关闭会话；不存在时创建 `idle` 会话。显式 path 仅在新建时持久化；与已有会话 cwd 冲突时拒绝 |
-| `/model [model_name\|model_id]` | 仅使用当前 CLI 未关闭会话；idle 会话激活为 running。无参数显示模型名称，Telegram 按钮复制规范 ID、QQ 回退名称列表；带参数按唯一名称或 ID 切换并保存名称+ID；不创建新会话 |
+| `/model [model_name\|model_id]` | 仅使用当前 CLI 未关闭会话；idle 会话激活为 running。无参数显示模型名称，Telegram 按钮复制规范 ID、QQ 将规范 ID 放在 fenced code block 供原生复制；带参数按唯一名称或 ID 切换并保存名称+ID；不创建新会话 |
 | `/close` | 当前会话关闭；不自动写长期记忆，下条消息将开新会话 |
 | 长期无活动 | 超 `SESSION_ARCHIVE_DAYS` 自动归档（等同 `/close`，`reason:archiveTimeout`） |
 

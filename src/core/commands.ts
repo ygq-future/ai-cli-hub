@@ -260,7 +260,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           }
           const language = await getUserLanguage(payload.platform, payload.userId)
           const selectedModel = await deps.getSelectedModel?.(payload.platform, payload.userId, conv.cli as CliType)
-          reply(payload, formatStatus(conv, language, conv.cli as CliType, conv.cwd, selectedModel))
+          reply(payload, formatStatus(conv, language, selectedModel))
           return true
         }
 
@@ -547,8 +547,6 @@ function commandError(title: string, detail: string, usage?: string): string {
 function formatStatus(
   conv: Conversation,
   language: UserLanguage,
-  targetCli: CliType,
-  targetCwd: string,
   selectedModel: CliModelPreference | null | undefined,
 ): string {
   const isEnglish = language === 'en'
@@ -563,9 +561,6 @@ function formatStatus(
     `- **CWD**: \`${conv.cwd}\``,
     ...formatModelPreference(selectedModel, language),
     '',
-    `### ${isEnglish ? 'Current target' : '当前目标'}`,
-    `- **CLI**: \`${targetCli}\``,
-    `- **CWD**: \`${targetCwd}\``,
     `- **${isEnglish ? 'Alive' : '已存活'}**: ${formatDuration(Date.now() - conv.createdAt)}`,
   ].join('\n')
 }

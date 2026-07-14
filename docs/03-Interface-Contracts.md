@@ -143,7 +143,7 @@ export interface ApprovalCard {
 > **接缝在语义化的 `CLIAdapter`，不在 `Runtime`（决策 D11）。** Core / Transport 只依赖 `CLIAdapter`，它说的是**领域语义**（一轮输入 / 流式输出 / 审批请求+决定 / 生命周期），与「字节还是结构化」无关。字节 vs 结构化的差异**封死在 Adapter 内部**。
 >
 > Adapter 分**两个家族**，同实现 `CLIAdapter`、对 Core 完全同形：
-> - **SDK 家族（Claude/opencode 等提供 SDK 的 CLI，首选）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄；`OpenCodeSdkAdapter` 通过 `@opencode-ai/sdk` 拉起 `opencode serve` 并订阅 SSE 事件。输出来自结构化消息/事件，审批来自 SDK 回调或 permission 事件，无需 scraping、无 `Runtime`、无 `ApprovalDetector`。OpenCode text/tool part 只有在其 `messageID` 已由 `message.updated.info.role` 确认为 assistant 时才可转成 `OutputDelta`；user/noReply context part 必须丢弃。
+> - **SDK 家族（Claude/opencode 等提供 SDK 的 CLI，首选）**：`ClaudeSdkAdapter` 内部持 `@anthropic-ai/claude-agent-sdk` 的 `query()` 句柄；`OpenCodeSdkAdapter` 通过由 Composition Root 管理的共享、引用计数 `opencode serve` 获取 client，但每个 adapter 创建独立 session、仅消费本 session 的 SSE 事件。输出来自结构化消息/事件，审批来自 SDK 回调或 permission 事件，无需 scraping、无 `Runtime`、无 `ApprovalDetector`。OpenCode text/tool part 只有在其 `messageID` 已由 `message.updated.info.role` 确认为 assistant 时才可转成 `OutputDelta`；user/noReply context part 必须丢弃。
 > - **PTY 家族（无 SDK 的 CLI 备用）**：`XxxPtyAdapter` 内部持 `PtyRuntime`（§3.2）+ 一个 per-CLI `ApprovalDetector`（§3.3）。字节流剥 ANSI 得输出，正则 scraping 认出审批点。**这些脏活被关在 Adapter 内部，不外泄。**
 
 ### 3.1 CLIAdapter（`cli/base.ts`）—— Core / Transport 唯一依赖的语义抽象
@@ -369,7 +369,7 @@ const repos = createRepositories(db);            // repository/
 
 const core = createCoreHub({ bus, repos, config });   // 注入抽象
 core.registerAdapter(new ClaudeSdkAdapter({ bus, config })); // SDK 家族，内部持 query()，无需 runtime
-core.registerAdapter(new OpenCodeSdkAdapter({ bus, config })); // SDK 家族，内部持 opencode server/client，审批经 permission 事件
+core.registerAdapter(new OpenCodeSdkAdapter({ bus, config, serverPool })); // SDK 家族，共享 serve、独立 session，审批经 permission 事件
 createMemoryModule({ bus, repos, config });      // 订阅事件，无需 Core 感知
 
 const transports = [

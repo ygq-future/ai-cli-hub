@@ -1,32 +1,50 @@
 import { describe, expect, test } from 'bun:test'
 import type { OpencodeClient } from '@opencode-ai/sdk'
 import { createOpenCodeSdkAdapter } from './opencode-sdk-adapter'
+import { createOpenCodeServerPool } from './opencode-server-pool'
 import type { ApprovalRequest, OutputDelta, SpawnOptions } from '..'
 
 const SPAWN: SpawnOptions = { conversationId: 'c1' as SpawnOptions['conversationId'], cwd: '/tmp/project' }
 
 function createEventQueue() {
   const events: unknown[] = []
-  const waiters: Array<() => void> = []
+  const waiters = new Set<() => void>()
   let closed = false
 
-  async function* stream(): AsyncGenerator<unknown> {
-    for (;;) {
-      while (events.length) yield events.shift()!
-      if (closed) return
-      await new Promise<void>(resolve => waiters.push(resolve))
+  function stream(signal?: AbortSignal) {
+    let nextIndex = 0
+    return (async function* (): AsyncGenerator<unknown> {
+      for (;;) {
+        while (nextIndex < events.length) yield events[nextIndex++]
+        if (closed || signal?.aborted) return
+        await new Promise<void>(resolve => {
+          const wake = () => {
+            waiters.delete(wake)
+            resolve()
+          }
+          waiters.add(wake)
+          signal?.addEventListener('abort', wake, { once: true })
+        })
+      }
+    })()
+  }
+
+  function wakeAll() {
+    for (const resolve of waiters) {
+      waiters.delete(resolve)
+      resolve()
     }
   }
 
   return {
-    stream: stream(),
+    stream,
     push(event: unknown) {
       events.push(event)
-      waiters.shift()?.()
+      wakeAll()
     },
     close() {
       closed = true
-      waiters.shift()?.()
+      wakeAll()
     },
   }
 }
@@ -39,11 +57,18 @@ function createFakeOpenCode() {
   const permissions: Array<{ permissionID: string; response: string }> = []
   const aborts: string[] = []
   const closed: boolean[] = []
+  const sessionIds: string[] = []
+  let starts = 0
+  let nextSession = 1
   let capturedConfig: unknown
 
   const client = {
     session: {
-      create: () => Promise.resolve({ data: { id: 's1' }, error: undefined }),
+      create: () => {
+        const id = `s${nextSession++}`
+        sessionIds.push(id)
+        return Promise.resolve({ data: { id }, error: undefined })
+      },
       promptAsync: (opts: {
         body?: {
           agent?: string
@@ -66,7 +91,7 @@ function createFakeOpenCode() {
       },
     },
     event: {
-      subscribe: () => Promise.resolve({ stream: queue.stream }),
+      subscribe: (opts: { signal?: AbortSignal }) => Promise.resolve({ stream: queue.stream(opts.signal) }),
     },
     provider: {
       list: () =>
@@ -108,6 +133,7 @@ function createFakeOpenCode() {
   } as unknown as OpencodeClient
 
   const createOpencodeFn = async (opts?: { config?: unknown }) => {
+    starts += 1
     capturedConfig = opts?.config
     return {
       client,
@@ -130,6 +156,8 @@ function createFakeOpenCode() {
     permissions,
     aborts,
     closed,
+    sessionIds,
+    starts: () => starts,
     capturedConfig: () => capturedConfig,
   }
 }
@@ -137,7 +165,7 @@ function createFakeOpenCode() {
 const tick = () => new Promise(resolve => setTimeout(resolve, 5))
 
 describe('OpenCodeSdkAdapter', () => {
-  test('start creates an opencode session and injects system guardrails', async () => {
+  test('start creates an opencode session with reusable shared-server config', async () => {
     const fake = createFakeOpenCode()
     const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
 
@@ -156,8 +184,27 @@ describe('OpenCodeSdkAdapter', () => {
         },
       },
     })
-    expect(JSON.stringify(fake.capturedConfig())).toContain('请默认使用中文回复用户。')
-    expect(JSON.stringify(fake.capturedConfig())).toContain('Never claim a filesystem or shell operation succeeded')
+    expect(JSON.stringify(fake.capturedConfig())).not.toContain('请默认使用中文回复用户。')
+    expect(JSON.stringify(fake.capturedConfig())).toContain('"prompt":""')
+  })
+
+  test('two adapters share a provided server while retaining separate adapter lifecycles', async () => {
+    const fake = createFakeOpenCode()
+    const serverPool = createOpenCodeServerPool({ createOpencodeFn: fake.createOpencodeFn })
+    const first = createOpenCodeSdkAdapter({ serverPool })
+    const second = createOpenCodeSdkAdapter({ serverPool })
+
+    await Promise.all([
+      first.start({ ...SPAWN, conversationId: 'first' as SpawnOptions['conversationId'] }),
+      second.start({ ...SPAWN, conversationId: 'second' as SpawnOptions['conversationId'] }),
+    ])
+    expect(fake.starts()).toBe(1)
+    expect(fake.sessionIds).toEqual(['s1', 's2'])
+
+    await first.stop()
+    expect(fake.closed).toEqual([])
+    await second.stop()
+    expect(fake.closed).toEqual([true])
   })
 
   test('sendUserInput posts prompt and streams visible text until session idle finalizes the turn', async () => {

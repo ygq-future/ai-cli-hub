@@ -20,7 +20,12 @@ import { closeDb, createDb } from './storage'
 import { createRepositories } from './repository'
 import { createCoreHub } from './core'
 import { createMessageAggregator } from './core'
-import { createClaudeSdkAdapter, createOpenCodeSdkAdapter, resolveSystemClaudeExecutable } from './cli'
+import {
+  createClaudeSdkAdapter,
+  createOpenCodeSdkAdapter,
+  createOpenCodeServerPool,
+  resolveSystemClaudeExecutable,
+} from './cli'
 import { createApprovalAudit } from './audit'
 import { createMemoryModule } from './memory'
 import { createLightOcrProvider, createMediaPreprocessor } from './media'
@@ -146,6 +151,7 @@ async function main() {
   }
   const getUserLanguage = userPreferences.getLanguage
   const claudeExecutablePath = resolveSystemClaudeExecutable(config.CLAUDE_EXECUTABLE_PATH)
+  const openCodeServerPool = createOpenCodeServerPool()
 
   // —— 9. Orchestrator（adapter 编排，每会话一个 adapter）——
   const orch = createSessionOrchestrator({
@@ -155,6 +161,7 @@ async function main() {
     adapterFactory: cli => {
       if (cli === 'opencode') {
         return createOpenCodeSdkAdapter({
+          serverPool: openCodeServerPool,
           debugRawJson: config.DEBUG_AGENT_SDK_JSON,
           rawMessageLogger: rawJson => logger.info({ cli: 'opencode', rawJson }, 'Agent SDK raw message'),
         })
@@ -222,6 +229,7 @@ async function main() {
           await Promise.all(transports.map(transport => transport.stop()))
           aggregator.flushAll()
           await orch.destroy()
+          await openCodeServerPool.close()
           memory.destroy()
           userPreferences.destroy()
           approvalAudit.destroy()

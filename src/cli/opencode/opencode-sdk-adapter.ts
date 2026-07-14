@@ -25,19 +25,14 @@ import {
   isReadOnlyToolName,
   unsubscribeHandler,
 } from '../utils'
+import {
+  createOpenCodeServerPool,
+  type CreateOpenCodeFn,
+  type OpenCodeServerLease,
+  type OpenCodeServerPool,
+} from './opencode-server-pool'
 
-type CreateOpencodeFn = (options?: { signal?: AbortSignal; config?: Config }) => Promise<{
-  client: OpencodeClient
-  server: {
-    url: string
-    close(): void
-  }
-}>
-
-interface StartedOpenCode {
-  client: OpencodeClient
-  server: Awaited<ReturnType<CreateOpencodeFn>>['server']
-}
+type StartedOpenCode = OpenCodeServerLease
 
 interface OpenCodeEventEnvelope {
   directory?: string
@@ -50,13 +45,14 @@ interface PendingOpenCodePermission {
 }
 
 export interface OpenCodeSdkAdapterDeps {
-  createOpencodeFn?: CreateOpencodeFn
+  createOpencodeFn?: CreateOpenCodeFn
+  serverPool?: OpenCodeServerPool
   debugRawJson?: boolean
   rawMessageLogger?: (rawJson: string) => void
 }
 
 export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdapter {
-  const createOpencodeFn = deps?.createOpencodeFn ?? defaultCreateOpencode
+  const serverPool = deps?.serverPool ?? createOpenCodeServerPool({ createOpencodeFn: deps?.createOpencodeFn })
   const debugRawJson = deps?.debugRawJson ?? false
   const rawMessageLogger = deps?.rawMessageLogger
   const cliType: CliType = 'opencode'
@@ -275,9 +271,11 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
       emitHandlers(exitHandlers, { code: 1, reason: 'crash' })
     } finally {
       if (!signal.aborted) {
+        const active = started
         started = null
         sessionId = null
         state = 'stopped'
+        await active?.release()
       }
     }
   }
@@ -298,15 +296,19 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
 
       systemPrompt = buildSystemPromptAppend(opts.systemLanguageHint)
       modelId = opts.modelId ?? null
-      const instance = await createOpencodeFn({
-        signal: abortController.signal,
-        config: buildOpenCodeConfig(systemPrompt),
-      })
+      const instance = await serverPool.acquire(buildOpenCodeConfig())
       started = instance
 
-      const created = await instance.client.session.create({ query: { directory: cwd } })
-      if (created.error) throw new Error(`OpenCodeSdkAdapter: failed to create session: ${formatError(created.error)}`)
-      sessionId = created.data.id
+      try {
+        const created = await instance.client.session.create({ query: { directory: cwd } })
+        if (created.error)
+          throw new Error(`OpenCodeSdkAdapter: failed to create session: ${formatError(created.error)}`)
+        sessionId = created.data.id
+      } catch (err) {
+        started = null
+        await instance.release()
+        throw err
+      }
 
       eventTask = listenForEvents(instance.client, abortController.signal)
       state = 'ready'
@@ -318,10 +320,11 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
       abortController?.abort()
       abortController = null
       if (client && sid) await client.session.abort({ path: { id: sid }, query: { directory: cwd } }).catch(() => {})
-      started?.server.close()
+      const active = started
       started = null
       sessionId = null
       state = 'stopped'
+      await active?.release()
       await eventTask?.catch(() => {})
       eventTask = null
     },
@@ -416,7 +419,7 @@ function parseOpenCodeModelId(modelId: string): { providerID: string; modelID: s
   return { providerID: modelId.slice(0, separator), modelID: modelId.slice(separator + 1) }
 }
 
-function buildOpenCodeConfig(systemPrompt: string): Config {
+function buildOpenCodeConfig(): Config {
   return {
     permission: {
       edit: 'ask',
@@ -429,7 +432,7 @@ function buildOpenCodeConfig(systemPrompt: string): Config {
     agent: {
       ai_cli_hub: {
         mode: 'primary',
-        prompt: systemPrompt,
+        prompt: '',
         permission: {
           edit: 'ask',
           bash: 'ask',
@@ -521,11 +524,6 @@ function readString(source: Record<string, unknown>, key: string): string | unde
 function readMessageRole(source: Record<string, unknown>): 'user' | 'assistant' | undefined {
   const role = readString(source, 'role')
   return role === 'user' || role === 'assistant' ? role : undefined
-}
-
-async function defaultCreateOpencode(options?: Parameters<CreateOpencodeFn>[0]): ReturnType<CreateOpencodeFn> {
-  const sdk = await import('@opencode-ai/sdk')
-  return sdk.createOpencode(options)
 }
 
 function formatError(error: unknown): string {

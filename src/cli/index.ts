@@ -13,6 +13,8 @@ export type {
 export { createClaudeSdkAdapter } from './claude/claude-sdk-adapter'
 export { resolveSystemClaudeExecutable } from './claude/system-claude'
 export { createOpenCodeSdkAdapter } from './opencode/opencode-sdk-adapter'
+export { createOpenCodeServerPool } from './opencode/opencode-server-pool'
+export type { OpenCodeServerPool } from './opencode/opencode-server-pool'
 export { formatOutputDelta } from './format-output'
 export { EMPTY_VISIBLE_RESULT_MESSAGE, OPERATION_RESULT_GUARDRAIL } from './constants'
 export { buildSystemPromptAppend, emitHandlers, unsubscribeHandler } from './utils'

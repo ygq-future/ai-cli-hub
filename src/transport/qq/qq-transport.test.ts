@@ -216,7 +216,7 @@ describe('QQTransport 出站流式与审批', () => {
     ])
   })
 
-  test('模型 CommandReply 在 QQ 回退为紧凑名称列表', async () => {
+  test('模型 CommandReply 在 QQ 用代码块展示可复制的 Model ID', async () => {
     const bus = createEventBus()
     const fake = createFakeClient()
     const transport = createQQTransport({ bus, config: fakeConfig(), client: fake.client })
@@ -235,8 +235,8 @@ describe('QQTransport 出站流式与审批', () => {
     await tick()
 
     expect(fake.messages.at(-1)?.content).toContain('- Claude Sonnet')
-    expect(fake.messages.at(-1)?.content).toContain('- Claude Opus')
-    expect(fake.messages.at(-1)?.content).not.toContain('claude-sonnet-4-5')
+    expect(fake.messages.at(-1)?.content).toContain('```text\nclaude-sonnet-4-5\n```')
+    expect(fake.messages.at(-1)?.content).toContain('```text\nclaude-opus-4-1\n```')
   })
 
   test('QQ 会话映射后用官方 stream_messages 连续刷新并 final 定稿', async () => {

@@ -980,6 +980,8 @@ describe('CommandRouter', () => {
     expect(content).toContain(`**会话 ID**: \`${cid}\``)
     expect(content).toContain('**模型名称**: Claude Sonnet 4.5')
     expect(content).toContain('**Model ID**: `claude-sonnet-4-5`')
+    expect(content).not.toContain('### 当前目标')
+    expect(content).toContain('**已存活**:')
   })
 
   test('/status 只展示当前选中 CLI 的会话', async () => {
@@ -1012,8 +1014,8 @@ describe('CommandRouter', () => {
 
     const content = (replies[0] as { content: string }).content
     expect(content).toContain('**CLI**: `opencode`')
-    expect(content).toContain('### 当前目标')
     expect(content).toContain('**CWD**: `/project`')
+    expect(content).toContain('**已存活**:')
     expect(content).not.toContain('`claude`')
   })
 

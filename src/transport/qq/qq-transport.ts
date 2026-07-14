@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import type { AppConfig } from '../../config'
 import type { EventBus } from '../../event'
-import { DEFAULT_AUTO_APPROVE_SECONDS } from '../../shared'
+import { DEFAULT_AUTO_APPROVE_SECONDS, type CopyAction } from '../../shared'
 import { getHelpText, getLanguageChangedText, getLanguageUsageText, getStartText } from '../messages'
 import { sanitizeFileName, withTimeout } from '../utils'
 import type {
@@ -398,9 +398,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       if (p.ref.platform !== 'qq') return
       const context = userContext.get(p.ref.chatId)
       if (!context) return
-      const content = p.copyActions?.length
-        ? [p.content, '', ...p.copyActions.map(action => `- ${action.label}`)].join('\n')
-        : p.content
+      const content = p.copyActions?.length ? formatCopyActions(p.content, p.copyActions) : p.content
       void sendToContext(context, content).catch(err => reportError('qq:CommandReply', err))
     }),
   )
@@ -556,4 +554,10 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
     },
     getUserLanguage,
   }
+}
+
+function formatCopyActions(content: string, actions: CopyAction[]): string {
+  return [content, '', ...actions.flatMap(action => [`- ${action.label}`, '```text', action.copyText, '```'])].join(
+    '\n',
+  )
 }
