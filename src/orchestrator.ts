@@ -563,6 +563,11 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     }),
   )
   globalUnsubs.push(
+    bus.on('UserPreferencesReset', p => {
+      void stopEntriesForUser(p.userId, p.platform)
+    }),
+  )
+  globalUnsubs.push(
     bus.on('MemoryUpdated', p => {
       if (!p.operatorUserId) return
       void stopEntriesForUser(p.operatorUserId)

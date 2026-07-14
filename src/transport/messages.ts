@@ -18,9 +18,12 @@ export function getHelpText(language: UserLanguage): string {
       '- `/close` — Close the current session.',
       '- `/status` — Show the current session status.',
       '- `/sessions` — List recent sessions.',
+      '- `/clear` — Clear messages and temporary files in the current session without closing it.',
+      '- `/reset` — Clear the current session and reset language, CLI, directory, model, and auto-approval preferences.',
       '',
       '### Memory and operations',
       '- `/audit [conversationId]` — View approval audit records.',
+      '- `/file <limit> [keyword]` — List recent temporary files, optionally filtering by filename.',
       '- `/autoapprove on|off [seconds]` — Persist automatic approval and its 1–300 second countdown; omitted seconds reset to 5.',
       '- `/remember <text>` — Save a long-term memory.',
       '- `/memory` — View long-term memories.',
@@ -34,7 +37,7 @@ export function getHelpText(language: UserLanguage): string {
       '> You can also say “remember this” naturally. The hub summarizes recent user/assistant messages with the configured memory model and saves a session-derived memory; it does not send that request to the CLI.',
       '> A path passed to `/switch` is used only when that CLI has no open session. To change an existing CLI directory, run `/close`, then `/switch <cli> <path>`.',
       '> Shell pipelines and command lists run without approval only when every AST node is confirmed read-only. Mutating or unknown commands still require approval.',
-      '> Send text, emoji, stickers, images, or files to chat. Attachments are used only as text context and are never executed.',
+      '> Images are OCRed automatically. Other files are stored without being sent to the AI; use `@read1` to read file 1 or `@file1` to pass only its local path.',
     ].join('\n')
   }
 
@@ -47,9 +50,12 @@ export function getHelpText(language: UserLanguage): string {
     '- `/close` — 关闭当前会话。',
     '- `/status` — 查看当前会话状态。',
     '- `/sessions` — 查看最近会话。',
+    '- `/clear` — 清空当前会话消息和暂存文件，但不关闭会话。',
+    '- `/reset` — 清空当前会话，并重置语言、CLI、目录、模型和自动审批偏好。',
     '',
     '### 记忆与运维',
     '- `/audit [conversationId]` — 查看审批审计。',
+    '- `/file <limit> [keyword]` — 查看最近暂存文件，可按文件名关键词筛选。',
     '- `/autoapprove on|off [seconds]` — 持久化自动审批及 1–300 秒倒计时；省略秒数时重置为 5 秒。',
     '- `/remember <text>` — 写入长期记忆。',
     '- `/memory` — 查看长期记忆。',
@@ -63,7 +69,7 @@ export function getHelpText(language: UserLanguage): string {
     '> 也可自然地说“记住这个/记一下”。系统会用记忆模型总结当前会话最近的用户与助手消息，写入会话派生记忆；该请求不会发送给 CLI。',
     '> `/switch` 的 path 仅在目标 CLI 没有未关闭会话时生效。若要更换已有 CLI 的目录，请先执行 `/close`，再执行 `/switch <cli> <path>`。',
     '> Shell 管道和组合命令仅在 AST 的每个节点都确认只读时免审批；写操作及无法确认安全性的命令仍会请求审批。',
-    '> 直接发送文本、emoji、sticker、图片或文件即可对话；附件只作为文本上下文，不会执行。',
+    '> 图片会自动 OCR；其他文件只暂存且不会告知 AI。使用 `@read1` 读取文件 1，或用 `@file1` 仅把本地路径交给 AI。',
   ].join('\n')
 }
 

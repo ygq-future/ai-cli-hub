@@ -129,6 +129,7 @@ interface TgMessage {
   video_note?: TgVideoNote
   animation?: TgAnimation
   sticker?: TgSticker
+  media_group_id?: string
 }
 interface TgFileInfo {
   file_id: string
@@ -285,6 +286,10 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
   const convUser = new Map<string, string>() // conversationId → userId
   const drafts = new Map<string, { ref: MessageRef; lastContent: string }>() // 当前流式草稿
   const approvals = new Map<string, TelegramApprovalMeta>()
+  const mediaGroups = new Map<
+    string,
+    { contexts: TgCtx[]; timer: ReturnType<typeof setTimeout>; firstMessageId: number }
+  >()
   const unsubs: Unsubscribe[] = []
 
   function reportError(scope: string, err: unknown) {
@@ -646,8 +651,32 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       cwd: targetCwd(userId),
       text,
       ref: { platform: 'telegram', chatId, nativeId: String(ctx.message?.message_id ?? '') },
-      attachments,
+      ...(attachments?.length ? { attachments } : {}),
     })
+  }
+
+  async function processIncoming(contexts: TgCtx[]): Promise<void> {
+    const firstContext = contexts[0]
+    if (!firstContext) return
+    const messages = contexts
+      .map(context => context.message)
+      .filter((message): message is TgMessage => Boolean(message))
+    const text = messages
+      .map(message => message.text ?? message.caption ?? '')
+      .filter(Boolean)
+      .join('\n')
+    const attachments = (await Promise.all(messages.map(message => extractAttachments(message)))).flat()
+    const result = await withTimeout(
+      mediaPreprocessor.preprocess({
+        text,
+        customEmojis: messages.flatMap(message => extractCustomEmojis(message, message.text ?? message.caption ?? '')),
+        stickers: messages.flatMap(extractSticker),
+        attachments,
+      }),
+      config.MEDIA_PARSE_TIMEOUT_MS,
+      'Media preprocessing',
+    )
+    await emitIncoming(firstContext, result.text, attachments)
   }
 
   async function onIncoming(ctx: TgCtx): Promise<void> {
@@ -659,7 +688,6 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     if (!userId || !chatId) return
     userChat.set(userId, chatId)
 
-    const text = message.text ?? message.caption ?? ''
     const commandName = message.text ? parseCommandName(message.text) : null
     if (commandName) {
       await emitIncoming(ctx, message.text ?? '')
@@ -667,21 +695,42 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     }
 
     try {
-      const attachments = await extractAttachments(message)
-      const result = await withTimeout(
-        mediaPreprocessor.preprocess({
-          text,
-          customEmojis: extractCustomEmojis(message, text),
-          stickers: extractSticker(message),
-          attachments,
-        }),
-        config.MEDIA_PARSE_TIMEOUT_MS,
-        'Media preprocessing',
-      )
-      await emitIncoming(ctx, result.text, attachments)
+      if (message.media_group_id) {
+        const key = `${chatId}:${message.media_group_id}`
+        const pending = mediaGroups.get(key)
+        if (pending) {
+          pending.contexts.push(ctx)
+          clearTimeout(pending.timer)
+          pending.timer = setTimeout(() => void flushMediaGroup(key), 350)
+        } else {
+          mediaGroups.set(key, {
+            contexts: [ctx],
+            firstMessageId: message.message_id ?? 0,
+            timer: setTimeout(() => void flushMediaGroup(key), 350),
+          })
+        }
+        return
+      }
+      await processIncoming([ctx])
     } catch (err) {
       reportError('telegram:media', err)
       void ctx.reply(`附件处理失败：${err instanceof Error ? err.message : String(err)}`).catch(() => {})
+    }
+  }
+
+  async function flushMediaGroup(key: string): Promise<void> {
+    const pending = mediaGroups.get(key)
+    if (!pending) return
+    mediaGroups.delete(key)
+    try {
+      pending.contexts.sort(
+        (a, b) => (a.message?.message_id ?? pending.firstMessageId) - (b.message?.message_id ?? pending.firstMessageId),
+      )
+      await processIncoming(pending.contexts)
+    } catch (err) {
+      reportError('telegram:mediaGroup', err)
+      const first = pending.contexts[0]
+      if (first) void first.reply(`附件处理失败：${err instanceof Error ? err.message : String(err)}`).catch(() => {})
     }
   }
 
@@ -867,6 +916,8 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     },
 
     stop() {
+      for (const group of mediaGroups.values()) clearTimeout(group.timer)
+      mediaGroups.clear()
       for (const approval of approvals.values()) {
         if (approval.countdownTimer) clearInterval(approval.countdownTimer)
       }

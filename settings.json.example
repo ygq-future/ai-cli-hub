@@ -55,7 +55,9 @@
     "downloadDir": ".data/media",
     "maxFileBytes": 10485760,
     "maxTextChars": 20000,
-    "parseTimeoutMs": 30000
+    "parseTimeoutMs": 30000,
+    "pdfMaxPages": 20,
+    "pdfRenderScale": 2
   },
   "ocr": {
     "apiBaseUrl": "",

@@ -26,6 +26,7 @@ export interface UserPreferences {
   getModel(platform: Platform, userId: string, cli: CliType): Promise<CliModelPreference | null>
   setTarget(platform: Platform, userId: string, target: UserTarget): Promise<void>
   setModel(platform: Platform, userId: string, cli: CliType, model: CliModelPreference): Promise<void>
+  reset(platform: Platform, userId: string): Promise<UserTarget>
   destroy(): void
 }
 
@@ -121,6 +122,19 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
     autoApproveCache.set(cacheKey(platform, userId), preference)
   }
 
+  async function reset(platform: Platform, userId: string): Promise<UserTarget> {
+    await repos.userPreferences.reset(platform, userId)
+    const key = cacheKey(platform, userId)
+    languageCache.delete(key)
+    targetCache.delete(key)
+    autoApproveCache.delete(key)
+    const target = { cli: DEFAULT_CLI, cwd: defaultCwd(deps.homeDir, DEFAULT_CLI) }
+    await ensureDirectory(target.cwd)
+    bus.emit('UserTargetChanged', { platform, userId, ...target })
+    bus.emit('UserPreferencesReset', { platform, userId })
+    return target
+  }
+
   unsubs.push(
     bus.on('UserLanguageChanged', payload => {
       void setLanguage(payload.platform, payload.userId, payload.language).catch(err =>
@@ -150,6 +164,7 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
     getModel,
     setTarget,
     setModel,
+    reset,
     destroy() {
       for (const unsubscribe of unsubs) unsubscribe()
       unsubs.length = 0

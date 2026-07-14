@@ -52,6 +52,8 @@ export interface CoreHubOptions {
   performUpdate?: (ref: MessageRef) => Promise<string>
   getRestartPreview?: () => string
   performRestart?: (ref: MessageRef) => Promise<string>
+  clearConversationFiles?: (conversationId: ConversationId) => Promise<void>
+  resetUserPreferences?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
   resolveCwd?: (
     cwd: string,
   ) =>
@@ -91,6 +93,8 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
       performUpdate: opts.performUpdate,
       getRestartPreview: opts.getRestartPreview,
       performRestart: opts.performRestart,
+      clearConversationFiles: opts.clearConversationFiles,
+      resetUserPreferences: opts.resetUserPreferences,
     })
 
   // MessageRouter：消息路由 + handler 处理（M6 由 orchestrator 注入真实 adapter 驱动）

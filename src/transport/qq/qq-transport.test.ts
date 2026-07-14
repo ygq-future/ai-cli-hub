@@ -39,7 +39,14 @@ function fakeConfig(extra?: Partial<ReturnType<typeof loadConfig>>) {
       recentContextMessageMaxChars: 1200,
     },
     aggregator: { debounceMs: 400, minEditIntervalMs: 1000, maxChunkChars: 4096 },
-    media: { downloadDir: '.data/media', maxFileBytes: 10_485_760, maxTextChars: 20_000, parseTimeoutMs: 30_000 },
+    media: {
+      downloadDir: '.data/media',
+      maxFileBytes: 10_485_760,
+      maxTextChars: 20_000,
+      parseTimeoutMs: 30_000,
+      pdfMaxPages: 20,
+      pdfRenderScale: 2,
+    },
     ocr: { apiBaseUrl: '', apiTimeoutMs: 30_000 },
     envProbe: { timeoutMs: 1500 },
     ops: {

@@ -140,7 +140,12 @@ async function main() {
     maxTextChars: config.MEDIA_MAX_TEXT_CHARS,
     ocrProvider,
   })
-  const fileContentReader = createFileContentReader({ maxTextChars: config.MEDIA_MAX_TEXT_CHARS })
+  const fileContentReader = createFileContentReader({
+    maxTextChars: config.MEDIA_MAX_TEXT_CHARS,
+    maxPdfPages: config.MEDIA_PDF_MAX_PAGES,
+    pdfRenderScale: config.MEDIA_PDF_RENDER_SCALE,
+    ocrProvider,
+  })
   const conversationFileLifecycle = createConversationFileLifecycle({
     bus,
     repos,
@@ -227,6 +232,8 @@ async function main() {
     performUpdate: updater.run,
     getRestartPreview: restarter.preview,
     performRestart: restarter.run,
+    clearConversationFiles: conversationFileLifecycle.clear,
+    resetUserPreferences: userPreferences.reset,
   })
 
   // —— 注册优雅关闭 ——

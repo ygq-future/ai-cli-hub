@@ -98,6 +98,45 @@ describe('TelegramTransport 入站', () => {
     ])
   })
 
+  test('同一 media_group 的多张图片聚合后只触发一次 OCR 预处理和入站消息', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    const batches: string[][] = []
+    createTelegramTransport({
+      bus,
+      config: fakeConfig(),
+      bot: mock.bot,
+      downloadTelegramFile: async file => `/tmp/${file.fileId}.jpg`,
+      mediaPreprocessor: {
+        async preprocess(input) {
+          batches.push((input.attachments ?? []).map(file => file.fileId))
+          return { text: `ocr:${input.attachments?.length ?? 0}`, warnings: [] }
+        },
+      },
+    })
+    const received: Array<{ text: string; attachments?: unknown[] }> = []
+    bus.on('MessageReceived', payload => received.push(payload))
+
+    mock.handlers.text!({
+      from: { id: 42 },
+      chat: { id: 1000 },
+      message: { message_id: 10, media_group_id: 'album-1', caption: '两张图', photo: [{ file_id: 'p1' }] },
+      reply: async () => {},
+    })
+    mock.handlers.text!({
+      from: { id: 42 },
+      chat: { id: 1000 },
+      message: { message_id: 11, media_group_id: 'album-1', photo: [{ file_id: 'p2' }] },
+      reply: async () => {},
+    })
+    await new Promise(resolve => setTimeout(resolve, 450))
+
+    expect(batches).toEqual([['p1', 'p2']])
+    expect(received).toHaveLength(1)
+    expect(received[0]?.text).toBe('ocr:2')
+    expect(received[0]?.attachments).toHaveLength(2)
+  })
+
   test('非白名单 → 静默丢弃，不 emit', () => {
     const bus = createEventBus()
     const mock = createMockBot()
@@ -201,6 +240,11 @@ describe('TelegramTransport 入站', () => {
     await tick()
 
     expect(replies.at(-1)).toContain('Available commands')
+    expect(replies.at(-1)).toContain('/clear')
+    expect(replies.at(-1)).toContain('/reset')
+    expect(replies.at(-1)).toContain('/file <limit> [keyword]')
+    expect(replies.at(-1)).toContain('@read1')
+    expect(replies.at(-1)).toContain('@file1')
   })
 
   test('SessionCreated 后更新当前目标 cwd，后续普通消息沿用新 cwd', async () => {

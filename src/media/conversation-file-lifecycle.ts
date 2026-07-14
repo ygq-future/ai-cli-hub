@@ -3,9 +3,10 @@ import path from 'node:path'
 import { unlink } from 'node:fs/promises'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
-import type { Unsubscribe } from '../shared'
+import type { ConversationId, Unsubscribe } from '../shared'
 
 export interface ConversationFileLifecycle {
+  clear(conversationId: ConversationId): Promise<void>
   destroy(): void
 }
 
@@ -19,23 +20,27 @@ export function createConversationFileLifecycle(options: ConversationFileLifecyc
   const mediaDirectory = path.resolve(options.mediaDirectory)
   const unsubs: Unsubscribe[] = [
     options.bus.on('ConversationCleared', payload => {
-      void clearConversationFiles(payload.conversationId)
+      void clearConversationFiles(payload.conversationId, true)
     }),
     options.bus.on('SessionClosed', payload => {
-      void clearConversationFiles(payload.conversationId)
+      void clearConversationFiles(payload.conversationId, true)
     }),
   ]
 
-  async function clearConversationFiles(conversationId: string): Promise<void> {
+  async function clearConversationFiles(conversationId: ConversationId, reportError = false): Promise<void> {
     try {
-      const files = await options.repos.conversationFiles.deleteByConversation(conversationId as never)
+      const files = await options.repos.conversationFiles.deleteByConversation(conversationId)
       await Promise.all(files.map(file => removeManagedFile(file.localPath)))
     } catch (err) {
-      options.bus.emit('ErrorOccurred', {
-        scope: 'media:conversationFileCleanup',
-        conversationId: conversationId as never,
-        message: err instanceof Error ? err.message : String(err),
-      })
+      if (reportError) {
+        options.bus.emit('ErrorOccurred', {
+          scope: 'media:conversationFileCleanup',
+          conversationId,
+          message: err instanceof Error ? err.message : String(err),
+        })
+        return
+      }
+      throw err
     }
   }
 
@@ -54,6 +59,7 @@ export function createConversationFileLifecycle(options: ConversationFileLifecyc
   }
 
   return {
+    clear: conversationId => clearConversationFiles(conversationId),
     destroy() {
       for (const unsub of unsubs) unsub()
       unsubs.length = 0

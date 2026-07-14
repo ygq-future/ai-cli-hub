@@ -84,6 +84,15 @@ function createRepos() {
         ) {
           models.set(cwdKey(platform, userId, cli), { modelId, modelName })
         },
+        async reset(platform: 'telegram' | 'qq' | 'websocket', userId: string) {
+          preferences.delete(key(platform, userId))
+          for (const storedKey of [...cwds.keys()]) {
+            if (storedKey.startsWith(`${platform}:${userId}:`)) cwds.delete(storedKey)
+          }
+          for (const storedKey of [...models.keys()]) {
+            if (storedKey.startsWith(`${platform}:${userId}:`)) models.delete(storedKey)
+          }
+        },
       },
     },
   }
@@ -125,5 +134,26 @@ describe('user preferences', () => {
     expect(await preferences.getAutoApprove('telegram', 'u1')).toEqual({ enabled: true, seconds: 12 })
     expect(await preferences.getAutoApprove('qq', 'u1')).toEqual({ enabled: false, seconds: 5 })
     expect(await preferences.getTarget('qq', 'u1')).toEqual({ cli: 'claude', cwd: defaultClaudeCwd })
+  })
+
+  test('reset 删除持久化偏好与缓存并恢复默认值', async () => {
+    const bus = createEventBus()
+    const resetEvents: unknown[] = []
+    bus.on('UserPreferencesReset', payload => resetEvents.push(payload))
+    const { repos } = createRepos()
+    const preferences = createUserPreferences({ bus, repos: repos as never, homeDir: '/home/hub' })
+    await preferences.getTarget('telegram', 'u1')
+    await preferences.setTarget('telegram', 'u1', { cli: 'opencode', cwd: '/projects/open' })
+    await preferences.setLanguage('telegram', 'u1', 'en')
+    await preferences.setAutoApprove('telegram', 'u1', { enabled: true, seconds: 12 })
+    await preferences.setModel('telegram', 'u1', 'opencode', { modelId: 'm1', modelName: 'Model 1' })
+
+    const target = await preferences.reset('telegram', 'u1')
+
+    expect(target).toEqual({ cli: 'claude', cwd: path.join('/home/hub', 'ai-workspace', '.claude') })
+    expect(await preferences.getLanguage('telegram', 'u1')).toBe('zh')
+    expect(await preferences.getAutoApprove('telegram', 'u1')).toEqual({ enabled: false, seconds: 5 })
+    expect(await preferences.getModel('telegram', 'u1', 'opencode')).toBeNull()
+    expect(resetEvents).toEqual([{ platform: 'telegram', userId: 'u1' }])
   })
 })

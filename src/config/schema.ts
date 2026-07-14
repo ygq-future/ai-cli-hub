@@ -81,6 +81,8 @@ const MediaJsonSchema = z.object({
     .default(10 * 1024 * 1024),
   maxTextChars: z.number().int().positive().default(20_000),
   parseTimeoutMs: z.number().int().positive().default(30_000),
+  pdfMaxPages: z.number().int().positive().max(200).default(20),
+  pdfRenderScale: z.number().positive().max(4).default(2),
 })
 
 const OcrJsonSchema = z.object({
@@ -171,6 +173,8 @@ export type AppConfig = {
   MEDIA_MAX_FILE_BYTES: number
   MEDIA_MAX_TEXT_CHARS: number
   MEDIA_PARSE_TIMEOUT_MS: number
+  MEDIA_PDF_MAX_PAGES: number
+  MEDIA_PDF_RENDER_SCALE: number
   // ocr
   OCR_API_BASE_URL: string
   OCR_API_TIMEOUT_MS: number
@@ -244,6 +248,8 @@ function flattenSettings(json: SettingsJson): AppConfig {
     MEDIA_MAX_FILE_BYTES: media.maxFileBytes,
     MEDIA_MAX_TEXT_CHARS: media.maxTextChars,
     MEDIA_PARSE_TIMEOUT_MS: media.parseTimeoutMs,
+    MEDIA_PDF_MAX_PAGES: media.pdfMaxPages,
+    MEDIA_PDF_RENDER_SCALE: media.pdfRenderScale,
 
     OCR_API_BASE_URL: ocr.apiBaseUrl,
     OCR_API_TIMEOUT_MS: ocr.apiTimeoutMs,

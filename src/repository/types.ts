@@ -13,8 +13,8 @@ import type {
   NewMessage,
   AuditLog,
   NewAuditLog,
-  Memory as StoredMemory,
-  NewMemory as StoredNewMemory,
+  Memory,
+  NewMemory,
   UserPreference,
   UserCliPreference,
   ConversationFile,
@@ -32,13 +32,9 @@ export type {
   UserCliPreference,
   ConversationFile,
   NewConversationFile,
+  Memory,
+  NewMemory,
 }
-/**
- * 迁移兼容形状：运行期/数据库已不再保存这两个字段；仅让旧测试夹具在本次 schema
- * 迁移期间能够逐步收口，业务实现不得读取或写入它们。
- */
-export type Memory = StoredMemory & { conversationId?: string | null; sourceMessageId?: string | null }
-export type NewMemory = StoredNewMemory & { conversationId?: string | null; sourceMessageId?: string | null }
 export type { CliType, Platform, SessionStatus, ConversationId, MessageId }
 
 export interface ConversationRepository {
@@ -112,6 +108,8 @@ export interface UserPreferenceRepository {
   findCliPreference(platform: Platform, userId: string, cli: CliType): Promise<UserCliPreference | null>
   upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>
   setModel(platform: Platform, userId: string, cli: CliType, modelId: string, modelName: string): Promise<void>
+  /** 删除用户级与各 CLI 偏好，使后续读取重新采用系统默认值。 */
+  reset(platform: Platform, userId: string): Promise<void>
 }
 
 /** 装配根注入 Core/业务模块的仓储集合（docs/03 §7）。 */

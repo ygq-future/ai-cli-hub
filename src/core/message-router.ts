@@ -11,7 +11,14 @@
  * 依赖矩阵：core/ 禁依赖 cli/，故 handler 是语义接缝——具体 adapter 驱动由 Composition
  * Root（orchestrator）实现并注入。
  */
-import type { ConversationId, FileContentReader, Platform, Unsubscribe, UserLanguage } from '../shared'
+import type {
+  ConversationId,
+  FileContentReader,
+  InboundAttachmentKind,
+  Platform,
+  Unsubscribe,
+  UserLanguage,
+} from '../shared'
 import type { EventBus } from '../event'
 import type { Repositories } from '../repository'
 import type { CommandRouter } from './commands'
@@ -55,9 +62,10 @@ export function createMessageRouter(
 
       // 解析/新建会话（新建时同步发 SessionCreated）
       conversationId = await sessionManager.findOrCreate({ userId, platform, cli, cwd, text })
-      const registeredFiles = await Promise.all(
-        (payload.attachments ?? []).map(attachment =>
-          repos.conversationFiles.createNext({
+      const registeredFiles = []
+      for (const attachment of payload.attachments ?? []) {
+        registeredFiles.push(
+          await repos.conversationFiles.createNext({
             conversationId: conversationId as ConversationId,
             kind: attachment.kind,
             fileId: attachment.fileId,
@@ -67,8 +75,8 @@ export function createMessageRouter(
             fileSize: attachment.fileSize,
             localPath: attachment.localPath,
           }),
-        ),
-      )
+        )
+      }
       if (registeredFiles.some(file => !isImageAttachment(file.kind, file.mimeType, file.fileName, file.localPath))) {
         bus.emit('CommandReply', { ref: payload.ref, content: formatDeferredFileReply(registeredFiles) })
         return
@@ -201,7 +209,7 @@ async function resolveFileReferences(
     if (!reader) return { ok: false, message: '文件读取能力尚未装配。' }
     const result = await reader.read({
       sequence: file.sequence,
-      kind: file.kind as never,
+      kind: parseAttachmentKind(file.kind),
       fileName: file.fileName,
       mimeType: file.mimeType,
       localPath: file.localPath,
@@ -209,12 +217,31 @@ async function resolveFileReferences(
     if (result.status !== 'ok') return { ok: false, message: `文件 ${sequence} 无法读取：${result.reason}` }
     replacements.set(
       raw,
-      `[File ${sequence} extracted content: ${file.fileName ?? 'unnamed'}]\n${result.text}\n[End file ${sequence}]`,
+      [
+        `[File ${sequence} extracted content: ${file.fileName ?? 'unnamed'}]`,
+        ...(result.warnings?.length ? [`[Warnings: ${result.warnings.join('; ')}]`] : []),
+        result.text,
+        `[End file ${sequence}]`,
+      ].join('\n'),
     )
   }
   let resolved = text
   for (const [directive, replacement] of replacements) resolved = resolved.replaceAll(directive, replacement)
   return { ok: true, text: resolved }
+}
+
+function parseAttachmentKind(kind: string): InboundAttachmentKind {
+  const kinds: ReadonlySet<string> = new Set([
+    'photo',
+    'document',
+    'audio',
+    'voice',
+    'video',
+    'video_note',
+    'animation',
+    'other',
+  ])
+  return kinds.has(kind) ? (kind as InboundAttachmentKind) : 'other'
 }
 
 function isMemorySummaryRequest(text: string): boolean {

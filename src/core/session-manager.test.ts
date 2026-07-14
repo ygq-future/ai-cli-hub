@@ -7,6 +7,7 @@ import type {
   NewAuditLog,
   Memory,
   NewMemory,
+  ConversationFile,
 } from '../repository'
 import type { EventBus } from '../event'
 import { createCommandRouter } from './commands'
@@ -19,6 +20,7 @@ function createMockRepos() {
   const messages: Array<Record<string, unknown>> = []
   const auditLogs: AuditLog[] = []
   const memories: Memory[] = []
+  const conversationFiles: ConversationFile[] = []
 
   // messages is referenced by the arrow functions below
   void messages
@@ -81,6 +83,11 @@ function createMockRepos() {
       async listByConversation(id: ConversationId) {
         return messages.filter(m => m.conversationId === id)
       },
+      async deleteByConversation(id: ConversationId) {
+        for (let index = messages.length - 1; index >= 0; index--) {
+          if (messages[index]?.conversationId === id) messages.splice(index, 1)
+        }
+      },
     },
     audit: {
       async record(a: NewAuditLog) {
@@ -112,7 +119,7 @@ function createMockRepos() {
         return memory
       },
       async listGlobal(namespace: string) {
-        return memories.filter(m => m.namespace === namespace && m.conversationId === null)
+        return memories.filter(m => m.namespace === namespace)
       },
       async findById(id: string) {
         return memories.find(m => m.id === id) ?? null
@@ -127,6 +134,40 @@ function createMockRepos() {
       async delete(id: string) {
         const idx = memories.findIndex(m => m.id === id)
         if (idx >= 0) memories.splice(idx, 1)
+      },
+    },
+    conversationFiles: {
+      async createNext(input: Omit<ConversationFile, 'id' | 'sequence' | 'createdAt'>) {
+        const row = {
+          ...input,
+          id: crypto.randomUUID(),
+          sequence:
+            Math.max(
+              0,
+              ...conversationFiles
+                .filter(file => file.conversationId === input.conversationId)
+                .map(file => file.sequence),
+            ) + 1,
+          createdAt: Date.now(),
+        } as ConversationFile
+        conversationFiles.push(row)
+        return row
+      },
+      async findBySequence(conversationId: ConversationId, sequence: number) {
+        return (
+          conversationFiles.find(file => file.conversationId === conversationId && file.sequence === sequence) ?? null
+        )
+      },
+      async listByConversation(conversationId: ConversationId, limit: number, keyword?: string) {
+        return conversationFiles
+          .filter(file => file.conversationId === conversationId && (!keyword || file.fileName?.includes(keyword)))
+          .slice(-limit)
+          .reverse()
+      },
+      async deleteByConversation(conversationId: ConversationId) {
+        const deleted = conversationFiles.filter(file => file.conversationId === conversationId)
+        for (const file of deleted) conversationFiles.splice(conversationFiles.indexOf(file), 1)
+        return deleted
       },
     },
   } as unknown as Parameters<typeof createSessionManager>[1]
@@ -559,6 +600,101 @@ describe('MessageRouter with MockHandler', () => {
     expect(generated.length).toBe(1)
     expect((generated[0] as Record<string, unknown>).content).toBe('Echo: Hello from test')
     expect((generated[0] as Record<string, unknown>).final).toBe(true)
+  })
+
+  test('非图片附件只暂存并返回会话内编号，不进入 handler', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    let handlerCalls = 0
+    createMessageRouter(bus as unknown as EventBus, repos, sm, undefined, {
+      async onMessage() {
+        handlerCalls++
+        return 'unexpected'
+      },
+    })
+    const replies: Array<{ content: string }> = []
+    bus.on('CommandReply', payload => replies.push(payload))
+
+    bus.emit('MessageReceived', {
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: '仅保存',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+      attachments: [
+        {
+          kind: 'document',
+          fileId: 'f1',
+          fileName: 'notes.docx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          localPath: '/tmp/notes.docx',
+        },
+      ],
+    })
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    expect(handlerCalls).toBe(0)
+    expect(replies[0]?.content).toContain('文件 1')
+    const cid = await sm.findCurrent({ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/project' })
+    expect(cid).not.toBeNull()
+    expect(await repos.messages.listByConversation(cid!)).toEqual([])
+  })
+
+  test('@readN 注入提取内容，@fileN 只注入本地路径', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const seen: string[] = []
+    createMessageRouter(
+      bus as unknown as EventBus,
+      repos,
+      sm,
+      undefined,
+      {
+        async onMessage(text) {
+          seen.push(text)
+          return ''
+        },
+      },
+      undefined,
+      10,
+      {
+        async read() {
+          return { status: 'ok', text: '按需读取内容' }
+        },
+      },
+    )
+    const base = {
+      userId: 'u1',
+      platform: 'telegram' as const,
+      cli: 'claude' as const,
+      cwd: '/project',
+      ref: { platform: 'telegram' as const, chatId: 'c', nativeId: '1' },
+    }
+    bus.emit('MessageReceived', {
+      ...base,
+      text: '',
+      attachments: [
+        {
+          kind: 'document',
+          fileId: 'f1',
+          fileName: 'notes.txt',
+          mimeType: 'text/plain',
+          localPath: 'D:\\tmp\\notes.txt',
+        },
+      ],
+    })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    bus.emit('MessageReceived', { ...base, text: '总结 @read1' })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    bus.emit('MessageReceived', { ...base, text: '处理 @file1' })
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    expect(seen[0]).toContain('按需读取内容')
+    expect(seen[1]).toContain('local_path=D:/tmp/notes.txt')
+    expect(seen[1]).not.toContain('按需读取内容')
   })
 
   test('自然语言记忆请求触发 MemorySummaryRequested，不进入 handler/SDK', async () => {
@@ -1129,13 +1265,11 @@ describe('CommandRouter', () => {
     const memories = await repos.memories.listGlobal('global')
     expect(memories.length).toBe(1)
     expect(memories[0]!.namespace).toBe('global')
-    expect(memories[0]!.conversationId).toBeNull()
     expect(memories[0]!.type).toBe('preference')
     expect(memories[0]!.content).toBe('always use Bun')
     expect((replies[0] as { content: string }).content).toContain('长期记忆已保存')
     expect(updates).toEqual([
       {
-        conversationId: null,
         namespace: 'global',
         memoryType: 'preference',
         memoryId: memories[0]!.id,
@@ -1156,11 +1290,9 @@ describe('CommandRouter', () => {
     const memory = await repos.memories.insert({
       id: 'memory-abcdef',
       namespace: 'global',
-      conversationId: null,
       type: 'semantic',
       content: '所有软件都放在 softs 文件夹',
       embedding: null,
-      sourceMessageId: null,
       importance: 0.75,
       accessCount: 0,
       lastAccessedAt: null,
@@ -1210,11 +1342,9 @@ describe('CommandRouter', () => {
       refreshEnvironmentSnapshot: async () => {
         refreshed = true
         await repos.memories.upsertByTag('global', 'env.media', {
-          conversationId: null,
           type: 'semantic',
           content: '环境画像：[媒体目录]\nMEDIA_DOWNLOAD_DIR=/tmp/media\nwritable=true',
           embedding: null,
-          sourceMessageId: null,
           importance: 0.8,
           accessCount: 0,
           lastAccessedAt: null,
@@ -1381,6 +1511,54 @@ describe('CommandRouter', () => {
     expect(replies[2]!.content).toContain('自动审批已关闭')
     expect(replies[2]!.content).toContain('5 秒')
     expect(replies[3]!.content).toContain('1–300')
+  })
+
+  test('/clear 清空消息和文件但保持会话，/reset 额外恢复用户偏好', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const cid = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/old',
+      text: 'hello',
+    })
+    await repos.messages.append({ id: 'm1', conversationId: cid, role: 'user', content: 'hello', createdAt: 1 })
+    const cleared: ConversationId[] = []
+    let resetCount = 0
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      async clearConversationFiles(conversationId) {
+        cleared.push(conversationId)
+      },
+      async resetUserPreferences() {
+        resetCount++
+        return { cli: 'claude', cwd: '/default' }
+      },
+    })
+    const replies: Array<{ content: string }> = []
+    bus.on('CommandReply', payload => replies.push(payload))
+    const payload = {
+      userId: 'u1',
+      platform: 'telegram' as const,
+      cli: 'claude' as const,
+      cwd: '/old',
+      ref: { platform: 'telegram' as const, chatId: 'c', nativeId: '1' },
+    }
+
+    await commandRouter.tryHandle({ ...payload, text: '/clear' })
+    expect(await repos.messages.listByConversation(cid)).toEqual([])
+    expect((await repos.conversations.findById(cid))?.status).toBe('idle')
+    expect(cleared).toEqual([cid])
+    expect(replies[0]!.content).toContain('偏好保持不变')
+
+    await commandRouter.tryHandle({ ...payload, text: '/reset' })
+    expect(cleared).toEqual([cid, cid])
+    expect(resetCount).toBe(1)
+    expect(replies[1]!.content).toContain('长期记忆：保留')
   })
 
   test('所有本地命令回复都经过 Markdown 卡片兜底', async () => {

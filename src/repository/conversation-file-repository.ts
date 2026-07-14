@@ -1,7 +1,7 @@
 /**
  * ConversationFileRepository —— 会话内文件映射的 Drizzle 实现。
  */
-import { and, desc, eq, ilike, max } from 'drizzle-orm'
+import { and, desc, eq, ilike, max, sql } from 'drizzle-orm'
 import type { Db } from '../storage'
 import { conversationFiles } from '../storage/schema'
 import type { ConversationFileRepository, ConversationFile } from './types'
@@ -10,6 +10,8 @@ export function createConversationFileRepository(db: Db): ConversationFileReposi
   return {
     async createNext(input): Promise<ConversationFile> {
       return db.transaction(async tx => {
+        // 同一 conversation 的并发附件上传必须串行分配编号。
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.conversationId}))`)
         const [latest] = await tx
           .select({ sequence: max(conversationFiles.sequence) })
           .from(conversationFiles)

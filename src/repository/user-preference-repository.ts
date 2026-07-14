@@ -78,5 +78,16 @@ export function createUserPreferenceRepository(db: Db): UserPreferenceRepository
           ),
         )
     },
+
+    async reset(platform, userId) {
+      await db.transaction(async tx => {
+        await tx
+          .delete(userCliPreferences)
+          .where(and(eq(userCliPreferences.platform, platform), eq(userCliPreferences.userId, userId)))
+        await tx
+          .delete(userPreferences)
+          .where(and(eq(userPreferences.platform, platform), eq(userPreferences.userId, userId)))
+      })
+    },
   }
 }

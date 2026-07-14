@@ -50,6 +50,8 @@ export interface EventMap {
   UserLanguageChanged: { userId: string; platform: Platform; language: 'zh' | 'en' }
   /** 用户当前选中的 CLI/cwd 发生变化，例如执行 /switch。 */
   UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }
+  /** `/reset` 已删除该用户的持久化偏好；已启动 adapter 应停止以便下轮加载默认配置。 */
+  UserPreferencesReset: { userId: string; platform: Platform }
   /** Transport 生命周期诊断；用于确认外部 Bot Gateway 是否已真正就绪。 */
   TransportStatusChanged: {
     platform: Platform
@@ -126,6 +128,7 @@ const EVENT_TYPE_REGISTRY: Record<EventType, true> = {
   CommandReply: true,
   UserLanguageChanged: true,
   UserTargetChanged: true,
+  UserPreferencesReset: true,
   TransportStatusChanged: true,
   ApprovalRequested: true,
   ApprovalApproved: true,

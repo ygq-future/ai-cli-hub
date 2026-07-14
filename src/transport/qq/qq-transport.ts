@@ -273,7 +273,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       cwd: targetCwd(context.userId),
       text,
       ref: { platform: 'qq', chatId: context.chatId, nativeId: context.messageId },
-      attachments,
+      ...(attachments?.length ? { attachments } : {}),
     })
   }
   async function onC2CMessage(data: Record<string, unknown>) {

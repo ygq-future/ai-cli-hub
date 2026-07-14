@@ -59,6 +59,8 @@ function validJson() {
       maxFileBytes: 10_485_760,
       maxTextChars: 20_000,
       parseTimeoutMs: 30_000,
+      pdfMaxPages: 20,
+      pdfRenderScale: 2,
     },
     ocr: {
       apiBaseUrl: '',
@@ -242,12 +244,16 @@ describe('loadConfig', () => {
         maxFileBytes: 1024,
         maxTextChars: 2048,
         parseTimeoutMs: 5000,
+        pdfMaxPages: 5,
+        pdfRenderScale: 1.5,
       },
     })
     expect(c.MEDIA_DOWNLOAD_DIR).toBe('D:/hub-media')
     expect(c.MEDIA_MAX_FILE_BYTES).toBe(1024)
     expect(c.MEDIA_MAX_TEXT_CHARS).toBe(2048)
     expect(c.MEDIA_PARSE_TIMEOUT_MS).toBe(5000)
+    expect(c.MEDIA_PDF_MAX_PAGES).toBe(5)
+    expect(c.MEDIA_PDF_RENDER_SCALE).toBe(1.5)
   })
 
   test('OCR API 配置从 JSON 读取', () => {

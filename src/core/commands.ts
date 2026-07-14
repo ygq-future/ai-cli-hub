@@ -46,6 +46,8 @@ export interface CommandRouterDeps {
   performUpdate?: (ref: EventMap['MessageReceived']['ref']) => Promise<string>
   getRestartPreview?: () => string
   performRestart?: (ref: EventMap['MessageReceived']['ref']) => Promise<string>
+  clearConversationFiles?: (conversationId: ConversationId) => Promise<void>
+  resetUserPreferences?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
 }
 
 type CwdResolveResult = { ok: true; cwd: string } | { ok: false; message: string }
@@ -185,10 +187,38 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             return true
           }
           await repos.messages.deleteByConversation(conv.id as ConversationId)
-          bus.emit('ConversationCleared', { conversationId: conv.id as ConversationId })
+          if (deps.clearConversationFiles) await deps.clearConversationFiles(conv.id as ConversationId)
+          else bus.emit('ConversationCleared', { conversationId: conv.id as ConversationId })
           reply(
             payload,
             `## 🧹 会话已清空\n\n- **ID**: \`${conv.id}\`\n- 对话消息和暂存文件已清理\n- CLI、工作目录、模型与偏好保持不变`,
+          )
+          return true
+        }
+
+        case 'reset': {
+          if (!deps.resetUserPreferences) {
+            reply(payload, commandError('重置不可用', '服务尚未配置用户偏好重置能力。'))
+            return true
+          }
+          const conv = await currentConversation(payload)
+          if (conv) {
+            await repos.messages.deleteByConversation(conv.id as ConversationId)
+            if (deps.clearConversationFiles) await deps.clearConversationFiles(conv.id as ConversationId)
+            else bus.emit('ConversationCleared', { conversationId: conv.id as ConversationId })
+          }
+          const target = await deps.resetUserPreferences(payload.platform, payload.userId)
+          reply(
+            payload,
+            [
+              '## ♻️ 用户配置已重置',
+              '',
+              `- 当前会话消息与暂存文件：${conv ? '已清空' : '无活跃会话'}`,
+              '- 语言、默认 CLI、各 CLI 工作目录与模型、自动审批：已恢复默认值',
+              '- 长期记忆：保留',
+              `- **默认 CLI**：\`${target.cli}\``,
+              `- **默认 CWD**：\`${target.cwd}\``,
+            ].join('\n'),
           )
           return true
         }
