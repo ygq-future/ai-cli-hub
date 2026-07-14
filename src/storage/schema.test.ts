@@ -88,6 +88,14 @@ describe('schema — 表结构与契约', () => {
     expect(journal.entries.map(entry => entry.tag).sort()).toEqual(sqlTags)
   })
 
+  test('文件标识迁移先解除 file_id 非空约束，再把无稳定标识的平台更新为 NULL', async () => {
+    const migration = await readFile(path.resolve('drizzle/0013_conversation_file_identifier.sql'), 'utf8')
+    const dropNotNullAt = migration.indexOf('ALTER COLUMN "file_id" DROP NOT NULL')
+    const updateAt = migration.indexOf('UPDATE "conversation_files"')
+    expect(dropNotNullAt).toBeGreaterThanOrEqual(0)
+    expect(updateAt).toBeGreaterThan(dropNotNullAt)
+  })
+
   test('pgvector 序列化：number[] → 文本字面量 [a,b,c]', () => {
     const t = getTableConfig(memories)
     const embedding = t.columns.find(c => c.name === 'embedding')!
