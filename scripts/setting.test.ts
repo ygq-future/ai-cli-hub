@@ -20,8 +20,8 @@ import { migrateSettings } from './setting-migrate'
 const settings = JSON.parse(readFileSync('settings.json.example', 'utf-8')) as Record<string, unknown>
 
 describe('CATEGORIES 字段定义', () => {
-  test('13 个分类', () => {
-    expect(CATEGORIES).toHaveLength(13)
+  test('14 个分类', () => {
+    expect(CATEGORIES).toHaveLength(14)
   })
 
   test('每个字段有合法 jsonPath 与 typeTag', () => {
@@ -56,6 +56,7 @@ describe('getNested / setNested', () => {
     expect(getNested(settings, ['database', 'host'])).toBe('127.0.0.1')
     expect(getNested(settings, ['memory', 'embedding', 'model'])).toBe('BAAI/bge-m3')
     expect(getNested(settings, ['logging', 'level'])).toBe('info')
+    expect(getNested(settings, ['http', 'port'])).toBe(8787)
   })
 
   test('读取不存在的路径返回 undefined', () => {

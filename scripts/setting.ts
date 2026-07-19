@@ -195,6 +195,15 @@ export const CATEGORIES: CategoryDef[] = [
       { jsonPath: ['debug', 'messageFlow'], label: 'Message Flow', type: 'boolean', typeTag: 'bool' },
     ],
   },
+  {
+    key: 'http',
+    label: 'HTTP 本机服务',
+    fields: [
+      { jsonPath: ['http', 'host'], label: 'Host', type: 'string', typeTag: 'host' },
+      { jsonPath: ['http', 'port'], label: 'Port', type: 'number', typeTag: 'num' },
+      { jsonPath: ['http', 'authToken'], label: 'Auth Token', type: 'password', typeTag: 'secret' },
+    ],
+  },
 ]
 
 // ─── 工具函数 ─────────────────────────────────────────────────────

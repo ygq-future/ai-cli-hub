@@ -283,6 +283,7 @@
 
 | 2026-07-19 | **新增 `/chatid` 命令**：CommandRouter 返回当前入站消息 `ref.chatId` 及平台，并明确提示它不是内部 `conversationId/sessionId`；同步中英文 `helpText`、命令 UX 文档与状态说明。 |
 | 2026-07-19 | **新增本机 HTTP 出站消息接口**：默认监听 `127.0.0.1:8787`；`/api/platform-msg` 按 `platform + chatId` 发送，`/api/session-msg` 按 `conversationId` 发送；增加可选 Bearer token、白名单校验、会话映射校验，并同步接口契约。 |
+| 2026-07-19 | **补齐 `bun setting` 的 HTTP 配置分类**：交互式配置编辑器新增 `http` 分类，可编辑 host、port、authToken；分类数与 `settings.json.example`/配置 schema 对齐为 14 类，并增加字段定义回归覆盖。 |
 
 ---
 
