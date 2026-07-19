@@ -97,6 +97,31 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
       if (!parsed) return false
 
       switch (parsed.name) {
+        case 'chatid': {
+          const language = await getUserLanguage(payload.platform, payload.userId)
+          reply(
+            payload,
+            language === 'en'
+              ? [
+                  '## 🪪 Current chat ID',
+                  '',
+                  `- **Platform**: \`${payload.platform}\``,
+                  `- **Chat ID**: \`${payload.ref.chatId}\``,
+                  '',
+                  'This is the platform chat ID, not the internal conversation/session ID.',
+                ].join('\n')
+              : [
+                  '## 🪪 当前 Chat ID',
+                  '',
+                  `- **平台**: \`${payload.platform}\``,
+                  `- **Chat ID**: \`${payload.ref.chatId}\``,
+                  '',
+                  '这是平台侧的聊天 ID，不是项目内部的 conversation/session ID。',
+                ].join('\n'),
+          )
+          return true
+        }
+
         case 'switch': {
           const cliArg = parsed.args[0]?.toLowerCase()
           if (!cliArg) {

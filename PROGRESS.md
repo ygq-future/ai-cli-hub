@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-14 · 阶段：**V3 日常优化维护**
+> 最后更新：2026-07-19 · 阶段：**V3 日常优化维护**
 
 ---
 
@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V3 JSON setting 迁移（进行中）** |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID 且无重复目标字段。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 13 分类），`loadConfig` 不再读 process.env。** |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID 且无重复目标字段；新增 `/chatid` 查看平台原生 Chat ID。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 13 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
 | 下一步 | 文件处理优化已完成；在 VPS 真机验证 Telegram 相册、PDF `@readN` OCR、`/clear`/`/reset`，随后继续 Linux `/update confirm` 回归。 |
@@ -280,6 +280,8 @@
 | 2026-07-12 | **只读 Shell 审批升级为 AST 三态分析**：新增零依赖 TypeScript 解析器 `unbash`，把原先“看到组合符即审批”的字符串策略升级为 AST 递归分析。确认所有叶子只读时允许管道、`&&/||/;`、命令替换和 `2>&1`；具名输出重定向、明确写命令仍拒绝自动放行，解析失败/动态命令/未知程序保持人工审批。增加 `docker inspect` 查询和 `docker exec` 内层命令递归分析，覆盖容器版本查询、JSON 格式化管道及危险容器写操作反例。自动验收：`bun run format`、`bun run typecheck`、`bun run lint`、完整依赖环境 `bun test` 全部通过，379 pass / 7 skip / 0 fail。 |
 | 2026-07-12 | **多 CLI 会话切换完成**：会话 scope 从 `(platform,userId)` 扩为 `(platform,userId,cli)`，新增迁移 `0008_conversation_cli_scope`，同一用户可同时保留 Claude/OpenCode 未关闭会话。彻底删除 `/new`，新增 `/switch <cli> [path]`：有会话则恢复、无会话则按持久化/显式 cwd 创建，不关闭其他 CLI；已有会话与显式 path 冲突时拒绝。`/status` 只看当前选中 CLI，`/sessions` 标记当前会话，帮助与架构/契约/数据模型同步。自动验收：`bun run format`、`bun run typecheck`、`bun run lint`、完整依赖环境 `bun test` 全部通过，379 pass / 7 skip / 0 fail。 |
 | 2026-07-12 | **会话命令进一步收口**：删除独立 `/cwd` 命令及对应测试、共享中英文 Help 条目；每 CLI cwd 持久化保留，统一由 `/switch <cli> [path]` 管理。Help 明确已有会话时 path 不会覆盖目录，更换目录需先 `/close` 再 `/switch <cli> <path>`；PRD、架构、接口契约、实施计划与命令 UX 同步。自动验收：`bun run format`、`bun run typecheck`、`bun run lint`、完整依赖环境 `bun test` 全部通过，378 pass / 7 skip / 0 fail。 |
+
+| 2026-07-19 | **新增 `/chatid` 命令**：CommandRouter 返回当前入站消息 `ref.chatId` 及平台，并明确提示它不是内部 `conversationId/sessionId`；同步中英文 `helpText`、命令 UX 文档与状态说明。 |
 
 ---
 

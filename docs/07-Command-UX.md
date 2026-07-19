@@ -34,6 +34,7 @@ flowchart TD
 |---|---|---|---|
 | `/start` | — | 欢迎 + 当前会话状态 | 若无活跃会话则展示引导 |
 | `/help` | — | 命令帮助 | 返回本表精简版 |
+| `/chatid` | — | 查看当前平台 Chat ID | 返回入站消息携带的原生 `chatId`；明确提示它不是内部 `conversationId/sessionId` |
 | `/switch` | `<cli> [path]` | 切换 CLI 会话 | 有未关闭会话则恢复；否则按显式或持久化 cwd 新建；不关闭其他 CLI 会话 |
 | `/model` | `[model_name\|model_id]` | 查看或切换当前 CLI 模型 | 当前会话 idle 时先激活；无参数紧凑列出名称，Telegram 提供复制按钮、QQ 以 fenced code block 提供客户端原生复制；带参数按名称/ID 匹配后切换并持久化；无会话时拒绝 |
 | `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；不做非 LLM 自动会话摘录 |

@@ -852,6 +852,32 @@ describe('MessageRouter with MockHandler', () => {
 })
 
 describe('CommandRouter', () => {
+  test('/chatid 返回平台 Chat ID，并明确区别于 conversationId', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+    })
+    const replies: Array<{ content: string }> = []
+    bus.on('CommandReply', reply => replies.push(reply))
+
+    const handled = await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: '/chatid',
+      ref: { platform: 'telegram', chatId: '123456789', nativeId: '1' },
+    })
+
+    expect(handled).toBe(true)
+    expect(replies[0]?.content).toContain('**Chat ID**: `123456789`')
+    expect(replies[0]?.content).toContain('不是项目内部的 conversation/session ID')
+  })
+
   test('/model 激活 idle 会话、列出模型并持久化选择', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()
