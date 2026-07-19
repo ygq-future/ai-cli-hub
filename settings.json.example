@@ -81,5 +81,10 @@
   "debug": {
     "agentSdkJson": false,
     "messageFlow": false
+  },
+  "http": {
+    "host": "127.0.0.1",
+    "port": 8787,
+    "authToken": ""
   }
 }

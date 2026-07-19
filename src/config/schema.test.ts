@@ -92,6 +92,9 @@ describe('loadConfig', () => {
   test('校验通过并套用默认值', () => {
     const c = loadConfig(validJson())
     expect(c.WHITELIST_USER_IDS).toEqual(['111', '222', '333'])
+    expect(c.HTTP_HOST).toBe('127.0.0.1')
+    expect(c.HTTP_PORT).toBe(8787)
+    expect(c.HTTP_AUTH_TOKEN).toBe('')
     expect(c.TELEGRAM_BOT_TOKEN).toBe('tok')
     expect(c.QQBOT_APP_ID).toBe('')
     expect(c.QQBOT_APP_SECRET).toBe('')

@@ -44,8 +44,8 @@ import {
 } from './ops'
 import { createSessionOrchestrator } from './orchestrator'
 import { createUserPreferences } from './preferences'
-import { createQQTransport, createTelegramTransport } from './transport'
-import type { Transport } from './shared'
+import { createHttpTransport, createQQTransport, createTelegramTransport } from './transport'
+import type { ConversationId, Transport } from './shared'
 
 async function main() {
   // —— 1. Config ——
@@ -165,6 +165,19 @@ async function main() {
   if (!transports.length) {
     throw new Error('At least one transport must be configured: TELEGRAM_BOT_TOKEN or QQBOT_APP_ID/QQBOT_APP_SECRET.')
   }
+  const httpTransport = createHttpTransport({
+    host: config.HTTP_HOST,
+    port: config.HTTP_PORT,
+    authToken: config.HTTP_AUTH_TOKEN,
+    whitelistUserIds: config.WHITELIST_USER_IDS,
+    transports,
+    resolveConversation: async (conversationId: ConversationId) => {
+      const conversation = await repos.conversations.findById(conversationId)
+      if (!conversation || conversation.status === 'closed') return null
+      const transport = transports.find(item => item.platform === conversation.platform)
+      return transport ? { transport } : null
+    },
+  })
   const getUserLanguage = userPreferences.getLanguage
   const claudeExecutablePath = resolveSystemClaudeExecutable(config.CLAUDE_EXECUTABLE_PATH)
   const openCodeServerPool = createOpenCodeServerPool()
@@ -245,6 +258,7 @@ async function main() {
     try {
       await withTimeout(
         (async () => {
+          await httpTransport.stop()
           await Promise.all(transports.map(transport => transport.stop()))
           aggregator.flushAll()
           await orch.destroy()
@@ -300,6 +314,8 @@ async function main() {
   if (readyCount === 0) {
     logger.error('没有任何 Transport 成功就绪，请检查 Token/网络/代理配置；进程保持存活以便后台重连。')
   }
+  await httpTransport.start()
+  logger.info({ host: config.HTTP_HOST, port: config.HTTP_PORT }, 'HTTP 服务已就绪')
   await notifyRestartComplete(restartNotices, transports, logger)
 
   // 主进程保持存活（Transport start() 只建立入站连接，不阻塞；此处挂起防 main 退出）

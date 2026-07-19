@@ -119,6 +119,7 @@ export interface Transport {
   stop(): Promise<void>;
 
   sendMessage(chatId: string, content: string): Promise<MessageRef>;
+  sendConversationMessage(conversationId: ConversationId, content: string): Promise<MessageRef | null>;
   editMessage(ref: MessageRef, content: string): Promise<void>;
   deleteMessage(ref: MessageRef): Promise<void>;
   sendApproval(chatId: string, card: ApprovalCard): Promise<MessageRef>;
@@ -353,7 +354,7 @@ export interface ConversationFileRepository {
 
 ## 6. Config（`config/`）—— `settings.json` 唯一业务配置源
 
-`SettingsJsonSchema` 使用 Zod 校验 `settings.json` 的 13 个嵌套分类，`loadConfig()` 在启动时 fail-fast，再展平为现有消费者使用的 `AppConfig`。
+`SettingsJsonSchema` 使用 Zod 校验 `settings.json` 的 14 个嵌套分类，`loadConfig()` 在启动时 fail-fast，再展平为现有消费者使用的 `AppConfig`。
 
 ```typescript
 export type SettingsJson = z.infer<typeof SettingsJsonSchema>;
@@ -373,7 +374,38 @@ export function loadConfig(
 
 ---
 
-## 7. Composition Root（`main.ts`）装配顺序
+## 7. Local HTTP API（`transport/http`）
+
+HTTP 服务默认只监听 `127.0.0.1:8787`。请求体为 JSON，成功发送后返回 `200`；配置 `http.authToken` 后必须携带 `Authorization: Bearer <token>`。
+
+### `POST /api/platform-msg`
+
+按平台原生 Chat ID 发送。`chatId` 必须存在于 `transport.whitelistUserIds`，且 `platform` 对应的 Transport 必须已装配。
+
+```json
+{
+  "platform": "telegram",
+  "chatId": "7031086257",
+  "content": "要发送的内容"
+}
+```
+
+### `POST /api/session-msg`
+
+按项目内部 `conversationId` 发送。会话必须存在、未关闭，并且当前进程仍保留该会话到平台 Chat ID 的映射。
+
+```json
+{
+  "conversationId": "conversation-id",
+  "content": "要发送的内容"
+}
+```
+
+二者是不同的寻址方式：`chatId` 是 Telegram/QQ 的平台标识，`conversationId` 是 Hub 内部会话标识；两个接口不混用字段。
+
+---
+
+## 8. Composition Root（`main.ts`）装配顺序
 
 ```typescript
 const config = loadConfig();

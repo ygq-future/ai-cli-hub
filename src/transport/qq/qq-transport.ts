@@ -529,6 +529,11 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       const response = await client.sendC2CMessage(chatId, content)
       return { platform: 'qq', chatId, nativeId: response.id }
     },
+    async sendConversationMessage(conversationId, content) {
+      const context = convContext.get(conversationId)
+      if (!context) return null
+      return sendToContext(context, content)
+    },
     async editMessage(ref, content) {
       const context = userContext.get(ref.chatId)
       if (context) {

@@ -113,6 +113,12 @@ const DebugJsonSchema = z.object({
   messageFlow: z.boolean().default(false),
 })
 
+const HttpJsonSchema = z.object({
+  host: z.string().default('127.0.0.1'),
+  port: z.number().int().positive().default(8787),
+  authToken: z.string().default(''),
+})
+
 /** settings.json 顶层结构（用户可读的嵌套 JSON）。 */
 export const SettingsJsonSchema = z.object({
   transport: TransportJsonSchema,
@@ -127,6 +133,7 @@ export const SettingsJsonSchema = z.object({
   ops: OpsJsonSchema,
   logging: LoggingJsonSchema,
   debug: DebugJsonSchema,
+  http: HttpJsonSchema.default({ host: '127.0.0.1', port: 8787, authToken: '' }),
 })
 
 export type SettingsJson = z.infer<typeof SettingsJsonSchema>
@@ -193,6 +200,10 @@ export type AppConfig = {
   // debug
   DEBUG_AGENT_SDK_JSON: boolean
   DEBUG_MESSAGE_FLOW: boolean
+  // http
+  HTTP_HOST: string
+  HTTP_PORT: number
+  HTTP_AUTH_TOKEN: string
 }
 
 const SETTINGS_PATH = 'settings.json'
@@ -206,8 +217,21 @@ function buildDatabaseUrl(db: z.infer<typeof DatabaseJsonSchema>): string {
 
 /** 把嵌套 JSON 展平为向下兼容的 AppConfig。 */
 function flattenSettings(json: SettingsJson): AppConfig {
-  const { transport, database, memory, lifecycle, session, aggregator, media, ocr, envProbe, ops, logging, debug } =
-    json
+  const {
+    transport,
+    database,
+    memory,
+    lifecycle,
+    session,
+    aggregator,
+    media,
+    ocr,
+    envProbe,
+    ops,
+    logging,
+    debug,
+    http,
+  } = json
 
   return {
     TELEGRAM_BOT_TOKEN: transport.telegramBotToken,
@@ -267,6 +291,10 @@ function flattenSettings(json: SettingsJson): AppConfig {
     LOG_LEVEL: logging.level,
     DEBUG_AGENT_SDK_JSON: debug.agentSdkJson,
     DEBUG_MESSAGE_FLOW: debug.messageFlow,
+
+    HTTP_HOST: http.host,
+    HTTP_PORT: http.port,
+    HTTP_AUTH_TOKEN: http.authToken,
   }
 }
 

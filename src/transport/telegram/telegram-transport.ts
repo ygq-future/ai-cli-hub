@@ -1016,6 +1016,11 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     },
 
     sendMessage: (chatId, content) => doSend(chatId, content),
+    async sendConversationMessage(conversationId, content) {
+      const chatId = convChat.get(conversationId)
+      if (!chatId) return null
+      return sendFormatted(chatId, content)
+    },
     editMessage: (ref, content) => doEdit(ref, content),
     deleteMessage: ref => doDelete(ref),
     sendApproval: (chatId, card) => doSendApproval(chatId, card),

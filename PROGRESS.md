@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V3 JSON setting 迁移（进行中）** |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID 且无重复目标字段；新增 `/chatid` 查看平台原生 Chat ID。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 13 分类），`loadConfig` 不再读 process.env。** |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID 且无重复目标字段；新增 `/chatid` 查看平台原生 Chat ID；新增仅监听本机 `127.0.0.1:8787` 的 HTTP `/api/platform-msg` 与 `/api/session-msg` 出站消息接口。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 14 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
 | 下一步 | 文件处理优化已完成；在 VPS 真机验证 Telegram 相册、PDF `@readN` OCR、`/clear`/`/reset`，随后继续 Linux `/update confirm` 回归。 |
@@ -282,6 +282,7 @@
 | 2026-07-12 | **会话命令进一步收口**：删除独立 `/cwd` 命令及对应测试、共享中英文 Help 条目；每 CLI cwd 持久化保留，统一由 `/switch <cli> [path]` 管理。Help 明确已有会话时 path 不会覆盖目录，更换目录需先 `/close` 再 `/switch <cli> <path>`；PRD、架构、接口契约、实施计划与命令 UX 同步。自动验收：`bun run format`、`bun run typecheck`、`bun run lint`、完整依赖环境 `bun test` 全部通过，378 pass / 7 skip / 0 fail。 |
 
 | 2026-07-19 | **新增 `/chatid` 命令**：CommandRouter 返回当前入站消息 `ref.chatId` 及平台，并明确提示它不是内部 `conversationId/sessionId`；同步中英文 `helpText`、命令 UX 文档与状态说明。 |
+| 2026-07-19 | **新增本机 HTTP 出站消息接口**：默认监听 `127.0.0.1:8787`；`/api/platform-msg` 按 `platform + chatId` 发送，`/api/session-msg` 按 `conversationId` 发送；增加可选 Bearer token、白名单校验、会话映射校验，并同步接口契约。 |
 
 ---
 

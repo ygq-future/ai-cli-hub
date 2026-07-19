@@ -7,7 +7,7 @@
  *  - 出站：订阅 MessageGenerated（流式 editMessage）与 ApprovalRequested（sendApproval）。
  *  - 审批按钮点击 → emit ApprovalApproved | ApprovalRejected。
  */
-import type { MessageRef, Platform } from './common'
+import type { ConversationId, MessageRef, Platform } from './common'
 
 export interface Transport {
   readonly platform: Platform
@@ -16,6 +16,8 @@ export interface Transport {
   stop(): Promise<void>
 
   sendMessage(chatId: string, content: string): Promise<MessageRef>
+  /** 向该 Transport 已建立映射的内部会话发送主动消息；无映射时返回 null。 */
+  sendConversationMessage(conversationId: ConversationId, content: string): Promise<MessageRef | null>
   editMessage(ref: MessageRef, content: string): Promise<void>
   deleteMessage(ref: MessageRef): Promise<void>
   sendApproval(chatId: string, card: ApprovalCard): Promise<MessageRef>
