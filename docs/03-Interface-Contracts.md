@@ -376,7 +376,7 @@ export function loadConfig(
 
 ## 7. Local HTTP API（`transport/http`）
 
-HTTP 服务默认只监听 `127.0.0.1:8787`。请求体为 JSON，成功发送后返回 `200`；配置 `http.authToken` 后必须携带 `Authorization: Bearer <token>`。
+HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0.0` 对外监听。对外监听时必须配置 `http.authToken`，并配合防火墙或反向代理限制来源。请求体为 JSON，成功发送后返回 `200`；配置 `http.authToken` 后必须携带 `Authorization: Bearer <token>`。
 
 ### `POST /api/platform-msg`
 

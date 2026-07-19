@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createHttpRequestHandler } from './http-transport'
+import { createHttpRequestHandler, createHttpTransport } from './http-transport'
 import type { ConversationId, MessageRef, Transport } from '../../shared'
 
 const CID = 'conversation-1' as ConversationId
@@ -37,6 +37,21 @@ function request(path: string, body: unknown, headers?: Record<string, string>) 
 }
 
 describe('HTTP transport', () => {
+  test('允许绑定到 0.0.0.0', async () => {
+    const fake = createFakeTransport()
+    const transport = createHttpTransport({
+      host: '0.0.0.0',
+      port: 0,
+      authToken: '',
+      whitelistUserIds: [],
+      transports: [fake.transport],
+      resolveConversation: async () => null,
+    })
+
+    await transport.start()
+    await transport.stop()
+  })
+
   test('platform-msg 按 platform + chatId 发送', async () => {
     const fake = createFakeTransport()
     const handler = createHttpRequestHandler({

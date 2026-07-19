@@ -1,7 +1,7 @@
 import type { ConversationId, Platform, Transport } from '../../shared'
 
 const MAX_REQUEST_BYTES = 1_048_576
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
+const SUPPORTED_BIND_HOSTS = new Set(['0.0.0.0', '127.0.0.1', 'localhost', '::1'])
 
 export interface HttpConversationTarget {
   transport: Transport
@@ -35,8 +35,10 @@ export function createHttpTransport(deps: HttpTransportDeps): HttpTransport {
 
   return {
     async start() {
-      if (!LOOPBACK_HOSTS.has(deps.host)) {
-        throw new Error(`HTTP transport must bind to loopback; received host: ${deps.host}`)
+      if (!SUPPORTED_BIND_HOSTS.has(deps.host)) {
+        throw new Error(
+          `HTTP transport host must be one of 0.0.0.0, 127.0.0.1, localhost, or ::1; received: ${deps.host}`,
+        )
       }
       if (server) return
       server = Bun.serve({
