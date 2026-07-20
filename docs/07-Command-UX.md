@@ -38,7 +38,7 @@ flowchart TD
 | `/switch` | `<cli> [path]` | 切换 CLI 会话 | 有未关闭会话则恢复；否则按显式或持久化 cwd 新建；不关闭其他 CLI 会话 |
 | `/model` | `[model_name\|model_id]` | 查看或切换当前 CLI 模型 | 当前会话 idle 时先激活；无参数紧凑列出名称，Telegram 提供复制按钮、QQ 以 fenced code block 提供客户端原生复制；带参数按名称/ID 匹配后切换并持久化；无会话时拒绝 |
 | `/close` | — | 结束当前会话 | 状态 → `closing` → `SessionClosed{reason:user}` → `closed`；不做非 LLM 自动会话摘录 |
-| `/status` | — | 当前会话详情 | 有当前会话时展示完整 conversationId、status、平台、cli/cwd、语言、模型名称/ID 与已存活时间；无会话时展示持久化目标 |
+| `/status` | — | 当前会话详情 | 有当前会话时展示完整 conversationId、status、平台、cli/cwd、语言、模型名称/ID、自动审批开关/倒计时与已存活时间；无会话时展示持久化目标与自动审批状态 |
 | `/sessions` | — | 列出该用户近期会话 | 历史查看，不表示 resume |
 | `/clear` | — | 清空当前会话 | 删除当前 conversation 的 messages、文件映射、受控临时文件并停止当前 CLI adapter；不关闭 conversation，不修改 CLI/模型/用户偏好；下一条消息以干净上下文重新启动 CLI，文件编号从 1 重新开始 |
 | `/reset` | — | 重置当前会话与用户/CLI 偏好 | 在 `/clear` 基础上以默认值覆盖语言、默认 CLI、各 CLI cwd/model 与自动审批偏好（不删除偏好记录）；当前用户所有未关闭会话按各自 CLI 同步为平台隔离的默认 cwd，并停止对应 adapter；长期 memories 保留 |
@@ -89,7 +89,7 @@ Markdown 卡片 + 内联按钮：
 
 - 卡片携带 `approvalId`（按钮 callback data 内），供回调定位。
 - 审批是运行时状态：conversation 持久状态保持 `running`，pending approval 只存在于 adapter/orchestrator 内存和后续 audit 记录中。
-- Claude/OpenCode 共用同一套保守只读 shell 策略：POSIX/cmd/PowerShell 的单条查询（如 `ls`、`rg`、`git status`、`dir`、`Get-ChildItem`、`Get-Content`、`Test-Path`、`docker inspect`、`docker volume ls`）直接执行；只有把 stderr 丢到 `/dev/null` 的 `2>/dev/null` 不算写入，具名文件重定向仍审批。管道、串联和命令替换会递归检查每个叶子；`find -delete/-exec`、文件写入、未知命令及不确定命令仍进入审批。OpenCode 对安全 `bash` permission 直接回复 `once`，不生成审批卡。
+- Claude/OpenCode 共用同一套保守只读 shell 策略：POSIX/cmd/PowerShell 的单条查询（如 `cd <path>`、`ls`、`rg`、`git status`、`git remote -v`、`git branch -a`、`dir`、`Get-ChildItem`、`Get-Content`、`Test-Path`、`docker inspect`、`docker volume ls`）直接执行；`cd` 仅改变当前临时 shell 的目录。只有把 stderr 丢到 `/dev/null` 的 `2>/dev/null` 不算写入，具名文件重定向仍审批。管道、串联和命令替换会递归检查每个叶子；`git pull`、`find -delete/-exec`、文件写入、未知命令及不确定命令仍进入审批。OpenCode 对安全 `bash` permission 直接回复 `once`，不生成审批卡。
 - `/autoapprove on [seconds]` 时卡片仅保留“拒绝本轮”：orchestrator 按该用户持久化的 1–300 秒倒计时；Telegram 每秒编辑同一消息显示剩余时间，QQ 静态显示配置秒数；到期统一发 `ApprovalApproved{automatic:true}`，并另发自动批准结果通知。省略秒数会写回默认 5 秒。
 - 倒计时期间点击拒绝会取消定时器，并沿用 `interrupt + reject + stop adapter` 中断当前整轮；持久化开关不变，下一轮仍继续自动审批。
 

@@ -307,6 +307,10 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
         }
 
         case 'status': {
+          const autoApprove = (await deps.getAutoApprove?.(payload.platform, payload.userId)) ?? {
+            enabled: false,
+            seconds: DEFAULT_AUTO_APPROVE_SECONDS,
+          }
           const conv = await currentConversation(payload)
           if (!conv) {
             const preferredTarget = getUserTarget
@@ -328,13 +332,14 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
                 `- **${isEnglish ? 'Target CWD' : '目标 CWD'}**: \`${preferredTarget.cwd}\``,
                 ...formatModelPreference(selectedModel, language),
                 `- **${isEnglish ? 'Language' : '语言'}**: \`${language}\``,
+                ...formatAutoApprovePreference(autoApprove, language),
               ].join('\n'),
             )
             return true
           }
           const language = await getUserLanguage(payload.platform, payload.userId)
           const selectedModel = await deps.getSelectedModel?.(payload.platform, payload.userId, conv.cli as CliType)
-          reply(payload, formatStatus(conv, language, selectedModel))
+          reply(payload, formatStatus(conv, language, selectedModel, autoApprove))
           return true
         }
 
@@ -637,6 +642,7 @@ function formatStatus(
   conv: Conversation,
   language: UserLanguage,
   selectedModel: CliModelPreference | null | undefined,
+  autoApprove: AutoApprovePreference,
 ): string {
   const isEnglish = language === 'en'
   return [
@@ -649,8 +655,17 @@ function formatStatus(
     `- **${isEnglish ? 'Language' : '语言'}**: \`${language}\``,
     `- **CWD**: \`${conv.cwd}\``,
     ...formatModelPreference(selectedModel, language),
+    ...formatAutoApprovePreference(autoApprove, language),
     `- **${isEnglish ? 'Alive' : '已存活'}**: ${formatDuration(Date.now() - conv.createdAt)}`,
   ].join('\n')
+}
+
+function formatAutoApprovePreference(preference: AutoApprovePreference, language: UserLanguage): string[] {
+  const isEnglish = language === 'en'
+  return [
+    `- **${isEnglish ? 'Auto approval' : '自动审批'}**: ${preference.enabled ? '✅ ON' : '⛔ OFF'}`,
+    `- **${isEnglish ? 'Auto-approval countdown' : '自动审批倒计时'}**: ${preference.seconds} ${isEnglish ? 'seconds' : '秒'}`,
+  ]
 }
 
 function formatModelPreference(preference: CliModelPreference | null | undefined, language: UserLanguage): string[] {

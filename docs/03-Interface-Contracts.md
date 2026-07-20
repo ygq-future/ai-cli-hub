@@ -206,7 +206,7 @@ export type AdapterState = 'stopped' | 'starting' | 'ready' | 'busy' | 'waitingA
 
 > **事件映射（EventMap 不变）**：Adapter 的 `onApprovalRequest` → `bus.emit('ApprovalRequested', { approvalId, command, detail, conversationId })`；Transport 的 [Approve]/[Reject] → `bus.emit('ApprovalApproved'|'ApprovalRejected')` → Core 调 `adapter.resolveApproval(id, 'approve'|'reject')`。SDK 家族据此 `resolve({ behavior: 'allow'|'deny' })`；PTY 家族据此 `runtime.write("y\r"|"n\r")`。
 
-> **共享只读查询策略**：所有 CLI Adapter 必须复用 `cli/utils.isReadOnlyShellCommand`。策略使用 `unbash` AST 和 `read-only | mutating | unknown` 三态模型；管道、`&&`、`||`、`;` 仅在所有叶子命令都确定只读时免审批，`2>&1` 以及仅把 stderr 丢到 `/dev/null` 的 `2>/dev/null` 不视为写文件，具名文件输出仍视为写入。`docker exec`、`bash/sh -c`、PowerShell/cmd 包装命令递归分析内部命令；`docker inspect` 与 `docker volume ls/inspect` 可带经验证的只读命令替换参数，`find` 仅在没有 `-delete`、`-exec`、`-fprint` 等副作用 action 时放行。解析失败、动态命令名和未知程序一律审批。Claude 在 `canUseTool(Bash)` 放行，OpenCode 在 `permission=bash` 时直接 reply `once`。
+> **共享只读查询策略**：所有 CLI Adapter 必须复用 `cli/utils.isReadOnlyShellCommand`。策略使用 `unbash` AST 和 `read-only | mutating | unknown` 三态模型；管道、`&&`、`||`、`;` 仅在所有叶子命令都确定只读时免审批，`cd <path>` 仅改变临时 shell 工作目录，属于只读链路的一部分；`2>&1` 以及仅把 stderr 丢到 `/dev/null` 的 `2>/dev/null` 不视为写文件，具名文件输出仍视为写入。`docker exec`、`bash/sh -c`、PowerShell/cmd 包装命令递归分析内部命令；`docker inspect` 与 `docker volume ls/inspect` 可带经验证的只读命令替换参数，`find` 仅在没有 `-delete`、`-exec`、`-fprint` 等副作用 action 时放行。`git pull` 会更新 Git 元数据且可能改写工作区，始终要求审批。解析失败、动态命令名和未知程序一律审批。Claude 在 `canUseTool(Bash)` 放行，OpenCode 在 `permission=bash` 时直接 reply `once`。
 
 ### 3.2 PtyRuntime（`runtime/`）—— **PTY 家族内部容器**，非跨形态抽象
 

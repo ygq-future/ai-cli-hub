@@ -1117,6 +1117,7 @@ describe('CommandRouter', () => {
       repos,
       sessionManager: sm,
       getSelectedModel: async () => ({ modelId: 'claude-sonnet-4-5', modelName: 'Claude Sonnet 4.5' }),
+      getAutoApprove: async () => ({ enabled: true, seconds: 12 }),
     })
     const cid = await sm.findOrCreate({
       userId: 'u1',
@@ -1142,8 +1143,10 @@ describe('CommandRouter', () => {
     expect(content).toContain(`**会话 ID**: \`${cid}\``)
     expect(content).toContain('**模型名称**: Claude Sonnet 4.5')
     expect(content).toContain('**Model ID**: `claude-sonnet-4-5`')
-    expect(content).toContain('**Model ID**: `claude-sonnet-4-5`\n- **已存活**:')
-    expect(content).not.toContain('**Model ID**: `claude-sonnet-4-5`\n\n- **已存活**:')
+    expect(content).toContain('**自动审批**: ✅ ON')
+    expect(content).toContain('**自动审批倒计时**: 12 秒')
+    expect(content).toContain('**自动审批倒计时**: 12 秒\n- **已存活**:')
+    expect(content).not.toContain('**自动审批倒计时**: 12 秒\n\n- **已存活**:')
     expect(content).not.toContain('### 当前目标')
     expect(content).toContain('**已存活**:')
   })

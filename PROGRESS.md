@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-19 · 阶段：**V3 日常优化维护**
+> 最后更新：2026-07-20 · 阶段：**V3 日常优化维护**
 
 ---
 
@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V3 JSON setting 迁移（进行中）** |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID 且无重复目标字段；新增 `/chatid` 查看平台原生 Chat ID；新增默认监听本机 `127.0.0.1:8787`、同时支持 `0.0.0.0` 的 HTTP `/api/platform-msg` 与 `/api/session-msg` 出站消息接口。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 14 分类），`loadConfig` 不再读 process.env。** |
+| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID、自动审批状态/倒计时且无重复目标字段；新增 `/chatid` 查看平台原生 Chat ID；新增默认监听本机 `127.0.0.1:8787`、同时支持 `0.0.0.0` 的 HTTP `/api/platform-msg` 与 `/api/session-msg` 出站消息接口。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 14 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
 | 下一步 | 文件处理优化已完成；在 VPS 真机验证 Telegram 相册、PDF `@readN` OCR、`/clear`/`/reset`，随后继续 Linux `/update confirm` 回归。 |
@@ -287,6 +287,8 @@
 | 2026-07-19 | **补齐 `bun setting` 的 HTTP 配置分类**：交互式配置编辑器新增 `http` 分类，可编辑 host、port、authToken；分类数与 `settings.json.example`/配置 schema 对齐为 14 类，并增加字段定义回归覆盖。 |
 
 ---
+
+| 2026-07-20 | **自动审批状态与只读 Bash 判定优化**：`/status` 在有/无当前会话时均展示自动审批开关和已保存倒计时；将 `cd <path>` 纳入临时 shell 的只读判定，完整 `cd && git remote -v && git branch -a && git status --short` 链路可自动放行。`git pull` 仍因会更新 Git 元数据且可能改写工作区而保留人工审批。同步接口契约、命令 UX 与回归测试。 |
 
 ## 6. 开放问题（Open Questions）
 
