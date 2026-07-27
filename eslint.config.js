@@ -4,7 +4,7 @@ import prettier from 'eslint-config-prettier'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['node_modules/**', 'dist/**', 'out/**', 'drizzle/**', 'index.ts', '**/*.cjs']),
+  globalIgnores(['node_modules/**', 'dist/**', 'out/**', 'public/**', 'drizzle/**', 'index.ts', '**/*.cjs']),
   {
     files: ['**/*.{js,ts}'],
     // prettier 置于最后，关闭与 Prettier 冲突的样式规则（格式化交给 Prettier）

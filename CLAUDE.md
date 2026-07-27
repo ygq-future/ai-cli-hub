@@ -2,7 +2,7 @@
 
 > 本文件是编码 Agent 的**宪法**，每个会话自动加载。动手写任何代码前，先读完本文件。
 > **然后读 [PROGRESS.md](./PROGRESS.md)** 了解当前进度、已拍板的决策和下一步——这是动态状态真相源，每个会话必读。
-> 相关文档：[PRD](./docs/01-PRD.md) · [架构](./docs/02-Architecture.md) · [接口契约](./docs/03-Interface-Contracts.md) · [数据模型](./docs/04-Data-Model.md) · [实施计划](./docs/05-Implementation-Plan.md) · [记忆设计](./docs/06-Memory-Design.md) · [命令 UX](./docs/07-Command-UX.md)
+> 相关文档：[PRD](./docs/01-PRD.md) · [架构](./docs/02-Architecture.md) · [接口契约](./docs/03-Interface-Contracts.md) · [数据模型](./docs/04-Data-Model.md) · [实施计划](./docs/05-Implementation-Plan.md) · [记忆设计](./docs/06-Memory-Design.md) · [命令 UX](./docs/07-Command-UX.md) · [Web Control Plane 任务书](./docs/08-Web-Control-Plane-Task-Book.md)
 
 ---
 
@@ -28,6 +28,7 @@
 | QQ | **腾讯官方 QQ Bot Gateway + HTTP API**（`ws` + Bun `fetch`） | 封装在 `transport/qq`；只接官方机器人，不接个人 QQ 协议 |
 | 日志 | **Pino** | 结构化 |
 | 校验 | **Zod** | 仅用于 `config/` |
+| WebUI 样式 | **Tailwind CSS + prettier-plugin-tailwindcss** | 原生 TypeScript/Web Components；仅构建期依赖，不引入前端运行时框架 |
 | 守护 | PM2 / systemd | 部署期 |
 
 ---
@@ -66,7 +67,9 @@ src/
 ├── core/         # 核心调度、Session 状态机、路由（无 SQL / 无 SDK / 无 PTY 字节流）
 ├── event/        # Event Bus + EventMap 类型
 ├── config/       # settings.json 唯一配置入口（Zod 校验，fail-fast）
+├── server/        # HTTP API、WebSocket 承载、WebUI 静态资源与认证
 ├── transport/    # 客户端接入 (telegram, qq, websocket)
+├── webui/         # 原生 TypeScript/Web Components 的浏览器端源码
 ├── cli/          # CLI 适配器 (base, claude=SDK 家族)；语义接缝 CLIAdapter，两家族同实现
 ├── runtime/      # 按需目录：接入无 SDK CLI 时再加入 PTY 字节容器
 ├── approval/     # PTY 家族审批 scraping（正则）；SDK 家族经 canUseTool，无需
