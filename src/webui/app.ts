@@ -41,6 +41,14 @@ const copy = {
     autoApprove: '自动审批',
     status: '状态',
     running: '运行中',
+    connecting: '正在连接…',
+    disconnected: '连接已断开',
+    you: '你',
+    approve: '同意',
+    reject: '拒绝',
+    restartPreview: '重启预览',
+    confirmRestart: '确认重启服务',
+    restartHint: '重启会暂时断开当前 WebSocket 连接。',
     validated: '配置会在写入 settings.json 前验证。',
     http: 'HTTP 服务',
     transport: '客户端接入',
@@ -76,6 +84,14 @@ const copy = {
     autoApprove: 'Auto approve',
     status: 'Status',
     running: 'running',
+    connecting: 'Connecting…',
+    disconnected: 'Disconnected',
+    you: 'YOU',
+    approve: 'Approve',
+    reject: 'Reject',
+    restartPreview: 'Restart preview',
+    confirmRestart: 'Confirm service restart',
+    restartHint: 'Restarting will temporarily disconnect this WebSocket session.',
     validated: 'Configuration is validated before it reaches settings.json.',
     http: 'HTTP service',
     transport: 'Transport',
@@ -104,6 +120,9 @@ class HubConsole extends HTMLElement {
   private approvals: PendingApproval[] = []
   private connectionState: 'connecting' | 'connected' | 'disconnected' = 'disconnected'
   private reconnectAttempts = 0
+  private settingsData: Record<string, unknown> | null = null
+  private settingsStatus = ''
+  private restartPreview = ''
 
   connectedCallback(): void {
     this.applyPreferences()
@@ -166,18 +185,18 @@ class HubConsole extends HTMLElement {
       this.connectionState === 'connected'
         ? t.connected
         : this.connectionState === 'connecting'
-          ? 'Connecting…'
-          : 'Disconnected'
+          ? t.connecting
+          : t.disconnected
     const messages = this.messages
       .map(
         message =>
-          `<article class="${message.role === 'user' ? 'message-out ml-auto' : 'message-in'} max-w-[92%] border p-4 leading-7 sm:max-w-[78%]" style="border-color:var(--line);background:${message.role === 'user' ? 'var(--accent-soft)' : 'var(--surface)'}"><p class="mb-2 text-xs font-medium accent">${message.role === 'user' ? 'YOU' : 'AI CLI'}</p><p>${escapeHtml(message.content)}</p></article>`,
+          `<article class="${message.role === 'user' ? 'message-out ml-auto' : 'message-in'} max-w-[92%] border p-4 leading-7 sm:max-w-[78%]" style="border-color:var(--line);background:${message.role === 'user' ? 'var(--accent-soft)' : 'var(--surface)'}"><p class="mb-2 text-xs font-medium accent">${message.role === 'user' ? t.you : 'AI CLI'}</p><p>${escapeHtml(message.content)}</p></article>`,
       )
       .join('')
     const approvals = this.approvals
       .map(
         approval =>
-          `<article class="message-in max-w-[92%] border p-4 sm:max-w-[78%]" style="border-color:var(--warning)"><p class="mb-2 text-xs font-medium" style="color:var(--warning)">${t.approvals}</p><p class="font-medium">${escapeHtml(approval.command)}</p><p class="mt-2 text-sm text-muted">${escapeHtml(approval.detail)}</p><div class="mt-4 flex gap-2"><button data-approval="approve" data-approval-id="${approval.approvalId}" data-conversation-id="${approval.conversationId}" class="accent-bg rounded-lg px-3 py-2 text-sm">Approve</button><button data-approval="reject" data-approval-id="${approval.approvalId}" data-conversation-id="${approval.conversationId}" class="rounded-lg border px-3 py-2 text-sm" style="border-color:var(--line)">Reject</button></div></article>`,
+          `<article class="message-in max-w-[92%] border p-4 sm:max-w-[78%]" style="border-color:var(--warning)"><p class="mb-2 text-xs font-medium" style="color:var(--warning)">${t.approvals}</p><p class="font-medium">${escapeHtml(approval.command)}</p><p class="mt-2 text-sm text-muted">${escapeHtml(approval.detail)}</p><div class="mt-4 flex gap-2"><button data-approval="approve" data-approval-id="${approval.approvalId}" data-conversation-id="${approval.conversationId}" class="accent-bg rounded-lg px-3 py-2 text-sm">${t.approve}</button><button data-approval="reject" data-approval-id="${approval.approvalId}" data-conversation-id="${approval.conversationId}" class="rounded-lg border px-3 py-2 text-sm" style="border-color:var(--line)">${t.reject}</button></div></article>`,
       )
       .join('')
     return `<div class="scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-5 sm:px-7 sm:py-8"><div class="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5"><div class="mx-auto rounded-full border px-3 py-1 text-xs text-muted" style="border-color:var(--line)">${state}</div>${messages || `<p class="my-auto text-center text-sm text-muted">${t.demo}</p>`}${approvals}</div></div><form data-chat-form class="border-t p-3 sm:p-5" style="border-color:var(--line)"><div class="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border p-2" style="border-color:var(--line);background:var(--surface)"><textarea data-chat-input class="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 outline-none" rows="1" placeholder="${t.command}"></textarea><button class="accent-bg rounded-xl px-4 py-2.5 text-sm font-medium">${t.send}</button></div></form>`
@@ -190,7 +209,11 @@ class HubConsole extends HTMLElement {
 
   private settingsTemplate(): string {
     const t = copy[this.preferences.locale]
-    return `<div class="scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8"><div class="mx-auto max-w-3xl"><p class="code text-xs tracking-[.18em] accent">CONTROL PLANE</p><h1 class="mt-2 text-3xl font-semibold tracking-tight">${t.settings}</h1><p class="mt-2 text-muted">Configuration is validated before it reaches settings.json.</p><div class="mt-7 grid gap-4 sm:grid-cols-2"><section class="surface rounded-2xl border p-5"><p class="text-sm font-semibold">HTTP service</p><p class="mt-1 text-sm text-muted">127.0.0.1:8787 · Token configured</p><button class="mt-5 rounded-lg border px-3 py-2 text-sm" style="border-color:var(--line)">Edit endpoint</button></section><section class="surface rounded-2xl border p-5"><p class="text-sm font-semibold">Transport</p><p class="mt-1 text-sm text-muted">Telegram + QQ enabled</p><button class="mt-5 rounded-lg border px-3 py-2 text-sm" style="border-color:var(--line)">Manage clients</button></section><section class="surface rounded-2xl border p-5 sm:col-span-2"><p class="text-sm font-semibold">${t.appearance}</p><p class="mt-1 text-sm text-muted">${t.language}, ${t.theme}, ${t.accent}</p>${this.appearanceTemplate(false)}<div class="mt-5 flex flex-wrap gap-2"><button class="rounded-lg border px-3 py-2 text-sm" style="border-color:var(--line)">${t.save}</button><button class="accent-bg rounded-lg px-3 py-2 text-sm">${t.restart}</button></div></section></div></div></div>`
+    const data = this.settingsData ? JSON.stringify(this.settingsData, null, 2) : 'Loading…'
+    const restartConfirmation = this.restartPreview
+      ? `<section class="mt-4 rounded-2xl border p-5" style="border-color:var(--warning)"><p class="text-sm font-semibold">${t.restartPreview}</p><pre class="code mt-3 overflow-x-auto whitespace-pre-wrap text-xs text-muted">${escapeHtml(this.restartPreview)}</pre><p class="mt-3 text-sm text-muted">${t.restartHint}</p><button data-confirm-restart class="accent-bg mt-4 rounded-lg px-3 py-2 text-sm">${t.confirmRestart}</button></section>`
+      : ''
+    return `<div class="scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8"><div class="mx-auto max-w-3xl"><p class="code text-xs tracking-[.18em] accent">CONTROL PLANE</p><h1 class="mt-2 text-3xl font-semibold tracking-tight">${t.settings}</h1><p class="mt-2 text-muted">${t.validated}</p>${this.settingsStatus ? `<p class="mt-3 text-sm" role="status">${this.settingsStatus}</p>` : ''}<section class="surface mt-7 rounded-2xl border p-5"><label class="text-sm font-semibold">settings.json<textarea data-settings-json class="code mt-3 min-h-72 w-full rounded-xl border bg-transparent p-3 text-xs" style="border-color:var(--line)">${escapeHtml(data)}</textarea></label><div class="mt-5 flex flex-wrap gap-2"><button data-save-settings class="rounded-lg border px-3 py-2 text-sm" style="border-color:var(--line)">${t.save}</button><button data-restart class="accent-bg rounded-lg px-3 py-2 text-sm">${t.restart}</button></div>${restartConfirmation}</section><section class="surface mt-4 rounded-2xl border p-5"><p class="text-sm font-semibold">${t.appearance}</p>${this.appearanceTemplate(false)}</section></div></div>`
   }
 
   private appearanceTemplate(compact: boolean): string {
@@ -209,6 +232,7 @@ class HubConsole extends HTMLElement {
           this.authenticated = true
           this.loginError = ''
           this.connectWebSocket()
+          void this.loadSettings()
           this.render()
         })
         .catch(() => {
@@ -238,9 +262,55 @@ class HubConsole extends HTMLElement {
         this.render()
       }),
     )
+    this.querySelector<HTMLButtonElement>('[data-save-settings]')?.addEventListener('click', () => {
+      const raw = this.querySelector<HTMLTextAreaElement>('[data-settings-json]')?.value ?? ''
+      void fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: raw })
+        .then(response => {
+          if (!response.ok) throw new Error()
+          this.settingsStatus = this.preferences.locale === 'zh-CN' ? '已保存，等待重启。' : 'Saved. Restart required.'
+          this.render()
+        })
+        .catch(() => {
+          this.settingsStatus = this.preferences.locale === 'zh-CN' ? '保存失败。' : 'Save failed.'
+          this.render()
+        })
+    })
+    this.querySelector<HTMLButtonElement>('[data-restart]')?.addEventListener('click', () => {
+      void fetch('/api/restart')
+        .then(async response => {
+          if (!response.ok) throw new Error()
+          const payload = (await response.json()) as { preview?: string }
+          this.restartPreview = payload.preview ?? ''
+          this.settingsStatus = this.restartPreview
+            ? ''
+            : this.preferences.locale === 'zh-CN'
+              ? '无法获取重启预览。'
+              : 'Could not load restart preview.'
+          this.render()
+        })
+        .catch(() => {
+          this.settingsStatus =
+            this.preferences.locale === 'zh-CN' ? '无法获取重启预览。' : 'Could not load restart preview.'
+          this.render()
+        })
+    })
+    this.querySelector<HTMLButtonElement>('[data-confirm-restart]')?.addEventListener('click', () => {
+      void fetch('/api/restart', { method: 'POST' })
+        .then(response => {
+          if (!response.ok) throw new Error()
+          this.restartPreview = ''
+          this.settingsStatus = this.preferences.locale === 'zh-CN' ? '已安排重启。' : 'Restart scheduled.'
+          this.render()
+        })
+        .catch(() => {
+          this.settingsStatus = this.preferences.locale === 'zh-CN' ? '重启安排失败。' : 'Could not schedule restart.'
+          this.render()
+        })
+    })
     this.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(button =>
       button.addEventListener('click', () => {
         this.currentView = button.dataset.view === 'settings' ? 'settings' : 'chat'
+        if (this.currentView === 'settings') void this.loadSettings()
         this.mobilePanel = null
         this.render()
       }),
@@ -317,6 +387,20 @@ class HubConsole extends HTMLElement {
       } catch {
         /* malformed server message is ignored */
       }
+    }
+  }
+
+  private async loadSettings(): Promise<void> {
+    try {
+      const response = await fetch('/api/settings')
+      if (!response.ok) throw new Error('settings_failed')
+      const payload = (await response.json()) as { settings?: Record<string, unknown> }
+      this.settingsData = payload.settings ?? null
+      this.settingsStatus = ''
+      this.render()
+    } catch {
+      this.settingsStatus = this.preferences.locale === 'zh-CN' ? '配置读取失败。' : 'Could not load settings.'
+      this.render()
     }
   }
 }

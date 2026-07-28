@@ -14,7 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { sql } from 'drizzle-orm'
 import { createEventBus } from './event'
-import { loadConfig } from './config'
+import { createSettingsService, loadConfig } from './config'
 import { createLogger, attachEventLogger } from './logger'
 import { closeDb, createDb } from './storage'
 import { createRepositories } from './repository'
@@ -51,6 +51,7 @@ import type { ConversationId, Transport } from './shared'
 async function main() {
   // —— 1. Config ——
   const config = loadConfig()
+  const settings = createSettingsService()
 
   // —— 2. Logger + EventBus ——
   const logger = createLogger({ level: config.LOG_LEVEL })
@@ -187,6 +188,16 @@ async function main() {
     },
     secureCookie: config.HTTP_SECURE_COOKIE,
     webSocketGateway,
+    settings,
+    restart: {
+      preview: restarter.preview,
+      run: async () =>
+        restarter.run({
+          platform: 'websocket',
+          chatId: config.WHITELIST_USER_IDS[0] ?? '',
+          nativeId: crypto.randomUUID(),
+        }),
+    },
   })
   const getUserLanguage = userPreferences.getLanguage
   const claudeExecutablePath = resolveSystemClaudeExecutable(config.CLAUDE_EXECUTABLE_PATH)

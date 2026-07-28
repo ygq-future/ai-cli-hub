@@ -2,3 +2,5 @@
 // 契约见 docs/03-Interface-Contracts.md §6。
 export { loadConfig, SettingsJsonSchema } from './schema'
 export type { AppConfig, SettingsJson } from './schema'
+export { createSettingsService } from './settings-service'
+export type { SettingsService } from './settings-service'

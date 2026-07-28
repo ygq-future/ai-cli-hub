@@ -33,6 +33,8 @@ export interface AppServerDeps {
   secureCookie?: boolean
   now?: () => number
   webSocketGateway?: WebSocketGateway
+  settings?: { read(): Promise<Record<string, unknown>>; save(input: Record<string, unknown>): Promise<void> }
+  restart?: { preview(): string; run(): Promise<string> }
 }
 
 export interface AppServer {
@@ -127,6 +129,8 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
     }
 
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/settings') return handleSettingsRequest(request, deps, sessions, now())
+      if (url.pathname === '/api/restart') return handleRestartRequest(request, deps, sessions, now())
       if (request.method !== 'POST' || (url.pathname !== '/api/platform-msg' && url.pathname !== '/api/session-msg')) {
         return json({ error: 'Not found' }, 404)
       }
@@ -137,6 +141,38 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
     if (request.method !== 'GET' && request.method !== 'HEAD') return json({ error: 'Not found' }, 404)
     return serveWebUi(url.pathname, request.method, deps)
   }
+}
+
+async function handleSettingsRequest(
+  request: Request,
+  deps: AppServerDeps,
+  sessions: Map<string, number>,
+  now: number,
+): Promise<Response> {
+  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+  if (!deps.settings) return json({ error: 'Settings API is not configured' }, 501)
+  if (request.method === 'GET') return json({ settings: await deps.settings.read() })
+  if (request.method !== 'PUT') return json({ error: 'Method not allowed' }, 405, { allow: 'GET, PUT' })
+  try {
+    const settings = JSON.parse(await request.text()) as Record<string, unknown>
+    await deps.settings.save(settings)
+    return json({ saved: true, restartRequired: true })
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : String(error) }, 400)
+  }
+}
+
+async function handleRestartRequest(
+  request: Request,
+  deps: AppServerDeps,
+  sessions: Map<string, number>,
+  now: number,
+): Promise<Response> {
+  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+  if (!deps.restart) return json({ error: 'Restart API is not configured' }, 501)
+  if (request.method === 'GET') return json({ preview: deps.restart.preview() })
+  if (request.method === 'POST') return json({ result: await deps.restart.run() })
+  return json({ error: 'Method not allowed' }, 405, { allow: 'GET, POST' })
 }
 
 async function handleSessionRequest(

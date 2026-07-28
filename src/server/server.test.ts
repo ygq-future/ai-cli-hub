@@ -147,4 +147,35 @@ describe('app server', () => {
       ).status,
     ).toBe(200)
   })
+
+  test('配置 API 脱敏读取、校验保存与重启预览均需要认证', async () => {
+    const fake = createFakeTransport()
+    let saved: Record<string, unknown> | null = null
+    const handler = createServerRequestHandler({
+      host: '127.0.0.1',
+      port: 8787,
+      authToken: 'secret',
+      whitelistUserIds: [],
+      transports: [fake.transport],
+      resolveConversation: async () => null,
+      settings: {
+        read: async () => ({ http: { authToken: { configured: true } } }),
+        save: async value => {
+          if (!value.http) throw new Error('invalid settings')
+          saved = value
+        },
+      },
+      restart: { preview: () => 'restart preview', run: async () => 'restart scheduled' },
+    })
+    expect((await handler(request('/api/settings'))).status).toBe(401)
+    const headers = { authorization: 'Bearer secret', 'content-type': 'application/json' }
+    const read = await handler(request('/api/settings', { headers }))
+    expect(read.status).toBe(200)
+    expect(await read.json()).toEqual({ settings: { http: { authToken: { configured: true } } } })
+    expect((await handler(request('/api/settings', { method: 'PUT', headers, body: JSON.stringify({}) }))).status).toBe(
+      400,
+    )
+    expect(saved).toBeNull()
+    expect((await handler(request('/api/restart', { headers: { authorization: 'Bearer secret' } }))).status).toBe(200)
+  })
 })
