@@ -307,6 +307,7 @@
 | 2026-07-28 | **WebUI React 重构完成**：移除旧原生 Web Components 前端，改为 Vite + React 19 + TypeScript；界面使用 Tailwind、Radix/shadcn 风格 Button/Input/Dialog/Select 组件和 Lucide 图标。补齐浏览器 WebSocket 指数退避重连、流式输出合并、消息流内审批卡片、任意文件上传与图片/文件粘贴；主界面只保留消息、组合输入与 Web 专属会话状态。设置改为带中英文名称/说明的递归可视化表单，支持布尔开关、数组增删、敏感值保留标记与嵌套配置。主题、强调色、弹窗、菜单、消息和状态均有过渡动效，滚动条改为透明自定义样式，并新增打包到 `/webui/assets/icon.svg` 的站点图标。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run webui:build`、`bun run lint`、`git diff --check` 通过；相关 server/WebSocket 13 项测试通过。 |
 | 2026-07-28 | **WebUI 重启后模块 MIME 修复**：定位到 Vite 未配置 `base`，构建入口错误指向 `/assets/app.js` 而后端只托管 `/webui/assets/...`，服务器遂将该模块请求回退成 HTML 的主因；直接以 `bun src/main.ts` 重启时也不会重建被忽略的构建目录，是第二个风险。Vite 现固定 `base: '/webui/'`，构建入口为 `/webui/assets/app.js`；`main.ts` 于服务初始化前强制执行 `webui:build`，`start`/`dev` 统一委托该启动链路；server 不再把带文件扩展名的请求回退成 SPA HTML，默认静态入口只认构建产物。新增 Vite 基路径及 `/main.tsx` 404 回归测试。自动验收：format、format check、typecheck、Vite build、lint、Vite + server/WebSocket 15 项测试通过。 |
 | 2026-07-28 | **WebUI 静态根目录加固**：Composition Root 的静态入口、静态资源根目录及 Vite 构建工作目录统一以 `src/main.ts` 的仓库根路径解析，消除 PM2/手工启动工作目录不同而造成资源 404 的可能性。构建产物检查确认入口引用 `/webui/assets/app.js`。自动验收：format、format check、typecheck、Vite build、lint、15 项相关测试通过。 |
+| 2026-07-28 | **WebUI assets 路由拦截修复**：定位到模块 MIME 防护将所有带扩展名的请求提前返回 404，误伤了合法 `/webui/assets/app.js`、CSS 与图标请求。路由现仅拒绝 assets 前缀之外的文件型 SPA fallback，请求 `/webui/assets/*` 继续进入静态文件服务。新增真实 SVG 静态资源 200/MIME 回归测试。 |
 
 ## 6. 开放问题（Open Questions）
 

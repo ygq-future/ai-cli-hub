@@ -154,7 +154,9 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
     }
 
     if (request.method !== 'GET' && request.method !== 'HEAD') return json({ error: 'Not found' }, 404)
-    if (looksLikeFileRequest(url.pathname)) return json({ error: 'Not found' }, 404)
+    if (!url.pathname.startsWith('/webui/assets/') && looksLikeFileRequest(url.pathname)) {
+      return json({ error: 'Not found' }, 404)
+    }
     return serveWebUi(url.pathname, request.method, deps)
   }
 }

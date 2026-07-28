@@ -137,6 +137,23 @@ describe('app server', () => {
     expect((await handler(request('/webui/assets/..%2Findex.html'))).status).toBe(404)
   })
 
+  test('WebUI 构建资源可从 assets 路径读取', async () => {
+    const fake = createFakeTransport()
+    const handler = createServerRequestHandler({
+      host: '127.0.0.1',
+      port: 8787,
+      authToken: 'secret',
+      whitelistUserIds: [],
+      transports: [fake.transport],
+      resolveConversation: async () => null,
+      staticAssetsRoot: 'src/webui/public',
+      staticIndexPath: 'src/webui/index.html',
+    })
+    const response = await handler(request('/webui/assets/icon.svg'))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('image/svg+xml')
+  })
+
   test('模块脚本请求不回退到 SPA 入口', async () => {
     const { handler } = createHandler('secret')
     const response = await handler(request('/main.tsx'))
