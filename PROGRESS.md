@@ -11,7 +11,7 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V4 Web Control Plane（W4 已完成）** |
+| 当前里程碑 | **V4 Web Control Plane（React 重构已完成，待用户验收）** |
 | 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID、自动审批状态/倒计时且无重复目标字段；新增 `/chatid` 查看平台原生 Chat ID；新增默认监听本机 `127.0.0.1:8787`、同时支持 `0.0.0.0` 的 HTTP `/api/platform-msg` 与 `/api/session-msg` 出站消息接口。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 14 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
@@ -39,7 +39,7 @@
 | V2-R1 | 优化和 Bug 修复 | ✅ 首批完成 | 常量配置化、记忆摘要窗口语义收口、移除 `SessionClosed` 非 LLM 自动摘录、Claude SDK 审批 approve 保留原始 tool input、PTY approval 目录说明、async/import 清理、SDK raw JSON 与消息链路 debug 拆分、短问候跳过语义召回、Agent SDK host 指令泄漏清洗 |
 | V2-R2 | 运维自更新 / 自检测 / 自动拉起 | ✅ 完成 | `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启链路测试入口（Windows 直接拒绝）、重启后主动通知已接入；部署自检与自动拉起留待 V3 按需补强 |
 | V2-R3 | Transport 和 CLI 扩展 | ✅ 完成 | `OpenCodeSdkAdapter` 已完成；官方 QQ Bot C2C Transport 已完成并通过真机联调，含 Gateway 连接(指数退避重连 + `HttpsProxyAgent` 代理注入)、C2C 私聊、Markdown 消息渲染(`msg_type=2`)、流式消息、审批按钮(`INTERACTION_CREATE`)、ACK 5s 回调、重复点击提示、审批详情精简摘要；QQ 媒体能力已完成（附件下载/OCR/懒加载/语音 ASR/emoji 归一化）；opencode `permissionToApproval` 与 `summarizeApprovalDetail` 已按官方 SDK 类型对齐修复重复行/无意义字段；`QQBOT_WS_PROXY` 新增配置；`main.ts` 起動耐故障化（单 Transport 失败不拖垮进程）；Telegram/QQ 并列装配，混合白名单，platform 过滤防串路由 |
-| V4 | Web Control Plane | 🟡 已立项 | 后端服务、浏览器 WebSocket Transport、单管理员 WebUI；任务书见 `docs/08-Web-Control-Plane-Task-Book.md`。 |
+| V4 | Web Control Plane | 🟡 用户验收中 | 后端服务、浏览器 WebSocket Transport、单管理员 WebUI 已完成；前端现为 React + TypeScript + Tailwind + Radix/shadcn 风格组件，任务书见 `docs/08-Web-Control-Plane-Task-Book.md`。 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
 
@@ -303,6 +303,8 @@
 | 2026-07-28 | **Web 专属状态接口**：新增受认证 `GET /api/web/status`，由 Composition Root 注入仓储与偏好查询，仅暴露 WebSocket 平台管理员的当前会话、CLI、CWD、状态、模型与自动审批，供右侧状态栏使用；不会展示其他平台会话。服务端回归测试通过。 |
 | 2026-07-28 | **W4 Web 控制台重构完成**：移除伪造的跨平台会话栏，主界面收敛为消息流、支持粘贴图片/添加文件的组合输入框和 WebSocket 当前会话状态；审批只在消息流中显示，消息取消人称标签。设置收为齿轮覆盖层且仅内容区滚动，配置由字段化表单编辑；主题、强调色、自定义下拉、消息、状态与面板均有动效。新增受认证上传 API：文件在 `MEDIA_DOWNLOAD_DIR` 暂存，以一次性 ID 经 WebSocket 转为 `InboundAttachment`，再进入既有媒体预处理链路，支持文字与附件同时发送。自动验收：format、typecheck、lint、server/WebSocket 定向测试通过。 |
 | 2026-07-28 | **W4 WebUI 体验修正**：修复登录页窄宽度外观区挤压、输入框容器与文本域重复焦点边框、附件按钮未垂直居中以及移动端文件选择未显式声明任意文件类型的问题；下拉菜单新增箭头过渡与点击外部关闭，透明自定义滚动条替代原生白底轨道。配置分类与关键字段加入中英文名称/用途说明；白名单等数组改为可增删条目列表；敏感值明确标出名称、用途及替换规则。配置文本输入不再重新渲染页面，动态列表只局部刷新设置层并恢复滚动位置。自动验收：format、typecheck、lint、16 项相关测试通过。 |
+| 2026-07-28 | **WebUI React 重构进行中**：前端构建迁移为 Vite + React 19 + TypeScript，保留 Bun server 的静态托管以及认证、WebSocket、上传、设置 API 契约；引入 Radix/shadcn 依赖基础、Lucide 图标、React 状态化登录/会话/上传/设置界面，刷新可恢复 HttpOnly Cookie 会话。新增 AI CLI Hub SVG 网站图标，并由 Vite 打包到 `/webui/assets/icon.svg`。自动验收：format、typecheck、Vite build、lint、server/WebSocket 13 项回归通过。 |
+| 2026-07-28 | **WebUI React 重构完成**：移除旧原生 Web Components 前端，改为 Vite + React 19 + TypeScript；界面使用 Tailwind、Radix/shadcn 风格 Button/Input/Dialog/Select 组件和 Lucide 图标。补齐浏览器 WebSocket 指数退避重连、流式输出合并、消息流内审批卡片、任意文件上传与图片/文件粘贴；主界面只保留消息、组合输入与 Web 专属会话状态。设置改为带中英文名称/说明的递归可视化表单，支持布尔开关、数组增删、敏感值保留标记与嵌套配置。主题、强调色、弹窗、菜单、消息和状态均有过渡动效，滚动条改为透明自定义样式，并新增打包到 `/webui/assets/icon.svg` 的站点图标。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run webui:build`、`bun run lint`、`git diff --check` 通过；相关 server/WebSocket 13 项测试通过。 |
 
 ## 6. 开放问题（Open Questions）
 

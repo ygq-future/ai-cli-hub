@@ -127,7 +127,7 @@ describe('app server', () => {
     const response = await handler(request('/settings'))
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/html')
-    expect(await response.text()).toContain('<hub-console>')
+    expect(await response.text()).toContain('id="root"')
   })
 
   test('不存在或非法的静态资源不回退到入口', async () => {

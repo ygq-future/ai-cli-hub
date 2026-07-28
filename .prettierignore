@@ -1,6 +1,7 @@
 node_modules
 dist
 out
+public/webui
 coverage
 drizzle
 bun.lock

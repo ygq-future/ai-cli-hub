@@ -185,6 +185,7 @@ async function main() {
     host: config.HTTP_HOST,
     port: config.HTTP_PORT,
     authToken: config.HTTP_AUTH_TOKEN,
+    staticIndexPath: 'public/webui/index.html',
     whitelistUserIds: config.WHITELIST_USER_IDS,
     transports,
     resolveConversation: async (conversationId: ConversationId) => {
