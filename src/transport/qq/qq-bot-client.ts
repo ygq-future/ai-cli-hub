@@ -5,7 +5,7 @@
  * 协议细节封装在 transport 内，Core 不感知 QQ OpenID、事件 ID 或 Gateway op code。
  */
 import WebSocket from 'ws'
-import { HttpsProxyAgent } from 'https-proxy-agent'
+import type { HttpsProxyAgent } from 'https-proxy-agent'
 
 const TOKEN_URL = 'https://bots.qq.com/app/getAppAccessToken'
 const API_BASE = 'https://api.sgroup.qq.com'
@@ -85,7 +85,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 export function createQQBotClient(deps: QQBotClientDeps): QQBotClient {
   const fetchFn = deps.fetchFn ?? fetch
-  const proxyAgent = deps.wsProxy ? new HttpsProxyAgent(deps.wsProxy) : undefined
+  let proxyAgent: InstanceType<typeof HttpsProxyAgent> | undefined
+  let proxyInitialized = false
   const webSocketFactory =
     deps.webSocketFactory ?? (url => new WebSocket(url, proxyAgent ? { agent: proxyAgent } : undefined))
   const reconnectDelayMs = deps.reconnectDelayMs ?? 2000
@@ -101,6 +102,13 @@ export function createQQBotClient(deps: QQBotClientDeps): QQBotClient {
   let sessionId: string | null = null
   let onEvent: ((event: QQGatewayEvent) => void) | null = null
   let onStatus: ((status: QQGatewayStatusUpdate) => void) | null = null
+
+  async function initializeProxy(): Promise<void> {
+    if (!deps.wsProxy || proxyInitialized) return
+    const { HttpsProxyAgent: ProxyAgent } = await import('https-proxy-agent')
+    proxyAgent = new ProxyAgent(deps.wsProxy)
+    proxyInitialized = true
+  }
 
   function reportStatus(state: QQGatewayStatus, detail?: string) {
     onStatus?.({ state, detail })
@@ -181,6 +189,7 @@ export function createQQBotClient(deps: QQBotClientDeps): QQBotClient {
   }
 
   async function connect(): Promise<void> {
+    await initializeProxy()
     reportStatus('connecting', '正在请求腾讯 QQ Bot Gateway 地址')
     const gateway = await request<{ url?: string }>('/gateway', 'GET')
     if (!gateway.url) throw new Error('QQ Bot gateway response did not include url.')
