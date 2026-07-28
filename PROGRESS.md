@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V4 Web Control Plane（W0 已完成，进行 W1）** |
+| 当前里程碑 | **V4 Web Control Plane（W1 已完成，准备 W2）** |
 | 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID、自动审批状态/倒计时且无重复目标字段；新增 `/chatid` 查看平台原生 Chat ID；新增默认监听本机 `127.0.0.1:8787`、同时支持 `0.0.0.0` 的 HTTP `/api/platform-msg` 与 `/api/session-msg` 出站消息接口。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 14 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
-| 下一步 | 实施 W1：抽取 HTTP server、认证与兼容 HTTP API。 |
+| 下一步 | 实施 W2：浏览器 WebSocket Transport 与真实聊天闭环。 |
 
 ---
 
@@ -292,6 +292,7 @@
 | 2026-07-20 | **自动审批状态与只读 Bash 判定优化**：`/status` 在有/无当前会话时均展示自动审批开关和已保存倒计时；将 `cd <path>` 纳入临时 shell 的只读判定，完整 `cd && git remote -v && git branch -a && git status --short` 链路可自动放行。`git pull` 仍因会更新 Git 元数据且可能改写工作区而保留人工审批。同步接口契约、命令 UX 与回归测试。 |
 | 2026-07-27 | **V4 Web Control Plane 立项**：确认单一管理员模型，复用 `http.authToken` 建立 HttpOnly Web 会话；现有单用途 HTTP 出站模块将迁移为 `server/`，浏览器聊天通过独立 `transport/websocket` 进入 EventBus，禁止 server 直接依赖 Core。前端采用原生 TypeScript/Web Components + Tailwind CSS 与 `prettier-plugin-tailwindcss`，多端适配、中文/English、system/light/dark 主题和强调色切换必须在 W0 的界面骨架阶段完成，W4 只做真实数据下的体验收口与跨端回归。任务书见 `docs/08-Web-Control-Plane-Task-Book.md`。 |
 | 2026-07-27 | **V4 W0 WebUI 基础完成**：引入 Tailwind CSS v4、CLI 与 Prettier class 排序插件；新增浏览器端 TypeScript/Web Component、主题/强调色/双语偏好状态及单测，提供登录、三栏控制台、移动抽屉、聊天/审批/配置 mock 的响应式骨架。自动验收：`webui:build`、typecheck、目标测试、lint、format check 通过。 |
+| 2026-07-28 | **V4 W1 Server Foundation 与认证完成**：将旧 `transport/http` 兼容接口迁入 `server/`，由 `main.ts` 注入会话解析与 Transport 抽象；新增 WebUI 静态资源、SPA fallback、8 小时内存会话、Bearer/Cookie 双认证和 `http.secureCookie` 配置。`/api/platform-msg`、`/api/session-msg` 在配置 Token 时可使用 Bearer 或 Web Cookie；未配置 Token 保留旧自动化接口的开放兼容行为，Web 登录明确拒绝。新增 server 依赖矩阵规则与回归测试。 |
 
 ## 6. 开放问题（Open Questions）
 

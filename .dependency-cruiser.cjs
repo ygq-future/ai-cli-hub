@@ -57,6 +57,12 @@ module.exports = {
       to: { path: '^src/(core|storage|audit|ops)' },
     },
     {
+      name: 'server-scope',
+      comment: 'server/ 只依赖 config/event/shared 与平台 API，不依赖业务具体实现',
+      from: { path: '^src/server' },
+      to: { path: '^src/(core|transport|cli|runtime|approval|repository|storage|audit|memory|ops)' },
+    },
+    {
       name: 'cli-scope',
       comment: 'cli/ 不依赖 transport 与 storage',
       severity: 'error',

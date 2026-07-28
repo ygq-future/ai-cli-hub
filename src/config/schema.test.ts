@@ -95,6 +95,7 @@ describe('loadConfig', () => {
     expect(c.HTTP_HOST).toBe('127.0.0.1')
     expect(c.HTTP_PORT).toBe(8787)
     expect(c.HTTP_AUTH_TOKEN).toBe('')
+    expect(c.HTTP_SECURE_COOKIE).toBe(false)
     expect(c.TELEGRAM_BOT_TOKEN).toBe('tok')
     expect(c.QQBOT_APP_ID).toBe('')
     expect(c.QQBOT_APP_SECRET).toBe('')

@@ -374,9 +374,17 @@ export function loadConfig(
 
 ---
 
-## 7. Local HTTP API（`transport/http`）
+## 7. Web Server HTTP API（`server/`）
 
-HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0.0` 对外监听。对外监听时必须配置 `http.authToken`，并配合防火墙或反向代理限制来源。请求体为 JSON，成功发送后返回 `200`；配置 `http.authToken` 后必须携带 `Authorization: Bearer <token>`。
+HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0.0` 对外监听。`server/` 负责静态 WebUI、SPA fallback、认证会话和兼容出站 API；它不直接依赖 Core、具体 Transport 或 Drizzle，所需能力一律由 `main.ts` 注入。
+
+对外监听必须配置 `http.authToken`，并置于 HTTPS 反向代理、防火墙限制之后。HTTPS 部署时将 `http.secureCookie` 设为 `true`，使 Web 会话 Cookie 带 `Secure` 属性。未配置 `http.authToken` 时，Web 登录接口返回 `503`；为保持已有自动化兼容，两个旧出站 API 仍沿用其“无 Token 即不鉴权”的历史行为。
+
+### `POST /api/auth/session`
+
+请求携带 `Authorization: Bearer <http.authToken>`，成功后创建 8 小时的内存会话，并返回 `HttpOnly; SameSite=Strict; Path=/` Cookie。Token 不会写入 Cookie、响应体、浏览器持久化存储或日志。
+
+`GET /api/auth/session` 用 Bearer 或会话 Cookie 查询登录状态；`DELETE /api/auth/session` 使当前 Cookie 对应的会话失效。除健康检查外，配置了 Token 的 `/api/*` 接口均接受 Bearer 或该会话 Cookie。
 
 ### `POST /api/platform-msg`
 
@@ -401,7 +409,7 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 }
 ```
 
-二者是不同的寻址方式：`chatId` 是 Telegram/QQ 的平台标识，`conversationId` 是 Hub 内部会话标识；两个接口不混用字段。
+二者是不同的寻址方式：`chatId` 是 Telegram/QQ 的平台标识，`conversationId` 是 Hub 内部会话标识；两个接口不混用字段。配置 `http.authToken` 后，两者均接受 Bearer Token 或已登录的 Web 会话 Cookie。
 
 ---
 

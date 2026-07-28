@@ -117,6 +117,7 @@ const HttpJsonSchema = z.object({
   host: z.string().default('127.0.0.1'),
   port: z.number().int().positive().default(8787),
   authToken: z.string().default(''),
+  secureCookie: z.boolean().default(false),
 })
 
 /** settings.json 顶层结构（用户可读的嵌套 JSON）。 */
@@ -133,7 +134,7 @@ export const SettingsJsonSchema = z.object({
   ops: OpsJsonSchema,
   logging: LoggingJsonSchema,
   debug: DebugJsonSchema,
-  http: HttpJsonSchema.default({ host: '127.0.0.1', port: 8787, authToken: '' }),
+  http: HttpJsonSchema.default({ host: '127.0.0.1', port: 8787, authToken: '', secureCookie: false }),
 })
 
 export type SettingsJson = z.infer<typeof SettingsJsonSchema>
@@ -204,6 +205,7 @@ export type AppConfig = {
   HTTP_HOST: string
   HTTP_PORT: number
   HTTP_AUTH_TOKEN: string
+  HTTP_SECURE_COOKIE: boolean
 }
 
 const SETTINGS_PATH = 'settings.json'
@@ -295,6 +297,7 @@ function flattenSettings(json: SettingsJson): AppConfig {
     HTTP_HOST: http.host,
     HTTP_PORT: http.port,
     HTTP_AUTH_TOKEN: http.authToken,
+    HTTP_SECURE_COOKIE: http.secureCookie,
   }
 }
 

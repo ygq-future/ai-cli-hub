@@ -202,6 +202,7 @@ export const CATEGORIES: CategoryDef[] = [
       { jsonPath: ['http', 'host'], label: 'Host', type: 'string', typeTag: 'host' },
       { jsonPath: ['http', 'port'], label: 'Port', type: 'number', typeTag: 'num' },
       { jsonPath: ['http', 'authToken'], label: 'Auth Token', type: 'password', typeTag: 'secret' },
+      { jsonPath: ['http', 'secureCookie'], label: 'Secure Cookie (HTTPS)', type: 'boolean', typeTag: 'bool' },
     ],
   },
 ]
