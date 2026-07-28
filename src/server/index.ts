@@ -1,2 +1,2 @@
-export { createServer, createServerRequestHandler } from './server'
-export type { AppServer, AppServerDeps, HttpConversationTarget, ServerRequestHandler } from './server'
+export { createServer, createServerRequestHandler, createWebSocketGateway } from './server'
+export type { AppServer, AppServerDeps, HttpConversationTarget, ServerRequestHandler, WebSocketGateway } from './server'

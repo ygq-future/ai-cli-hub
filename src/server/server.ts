@@ -4,6 +4,19 @@ const MAX_REQUEST_BYTES = 1_048_576
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 const SUPPORTED_BIND_HOSTS = new Set(['0.0.0.0', '127.0.0.1', 'localhost', '::1'])
 
+interface WebSocketPeer {
+  send(data: string): void
+  close(): void
+}
+
+export interface WebSocketGateway {
+  setReceiver(receiver: (peer: WebSocketPeer, data: string) => void): void
+  broadcast(data: string): void
+  add(peer: WebSocketPeer): void
+  remove(peer: WebSocketPeer): void
+  receive(peer: WebSocketPeer, data: string): void
+}
+
 export interface HttpConversationTarget {
   transport: Transport
 }
@@ -19,6 +32,7 @@ export interface AppServerDeps {
   staticIndexPath?: string
   secureCookie?: boolean
   now?: () => number
+  webSocketGateway?: WebSocketGateway
 }
 
 export interface AppServer {
@@ -26,7 +40,10 @@ export interface AppServer {
   stop(): Promise<void>
 }
 
-export type ServerRequestHandler = (request: Request) => Promise<Response>
+export type ServerRequestHandler = (
+  request: Request,
+  upgradeWebSocket?: (request: Request) => boolean,
+) => Promise<Response>
 
 interface MessageRequest {
   platform?: unknown
@@ -37,6 +54,7 @@ interface MessageRequest {
 
 export function createServer(deps: AppServerDeps): AppServer {
   let server: ReturnType<typeof Bun.serve> | null = null
+  const websocketGateway = deps.webSocketGateway
 
   return {
     async start() {
@@ -44,10 +62,23 @@ export function createServer(deps: AppServerDeps): AppServer {
         throw new Error(`HTTP server host must be one of 0.0.0.0, 127.0.0.1, localhost, or ::1; received: ${deps.host}`)
       }
       if (server) return
+      const handler = createServerRequestHandler(deps)
       server = Bun.serve({
         hostname: deps.host,
         port: deps.port,
-        fetch: createServerRequestHandler(deps),
+        fetch: (request, bunServer) =>
+          handler(request, upgradeRequest => bunServer.upgrade(upgradeRequest, { data: {} })),
+        websocket: {
+          open(ws) {
+            websocketGateway?.add(ws as unknown as WebSocketPeer)
+          },
+          message(ws, message) {
+            websocketGateway?.receive(ws as unknown as WebSocketPeer, String(message))
+          },
+          close(ws) {
+            websocketGateway?.remove(ws as unknown as WebSocketPeer)
+          },
+        },
       })
     },
     async stop() {
@@ -58,17 +89,40 @@ export function createServer(deps: AppServerDeps): AppServer {
   }
 }
 
+export function createWebSocketGateway(): WebSocketGateway {
+  const peers = new Set<WebSocketPeer>()
+  let receiver: ((peer: WebSocketPeer, data: string) => void) | null = null
+  return {
+    setReceiver(next) {
+      receiver = next
+    },
+    broadcast(data) {
+      for (const peer of peers) peer.send(data)
+    },
+    add(peer: WebSocketPeer) {
+      peers.add(peer)
+    },
+    remove(peer: WebSocketPeer) {
+      peers.delete(peer)
+    },
+    receive(peer: WebSocketPeer, data: string) {
+      receiver?.(peer, data)
+    },
+  }
+}
+
 export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHandler {
   const sessions = new Map<string, number>()
   const now = deps.now ?? Date.now
 
-  return async function handle(request: Request): Promise<Response> {
+  return async function handle(request: Request, upgradeWebSocket?: (request: Request) => boolean): Promise<Response> {
     const url = new URL(request.url)
 
     if (request.method === 'GET' && url.pathname === '/health') return json({ status: 'ok' })
     if (url.pathname === '/api/auth/session') return handleSessionRequest(request, deps, sessions, now)
     if (url.pathname === '/ws') {
       if (!isAuthorized(request, deps.authToken, sessions, now())) return json({ error: 'Unauthorized' }, 401)
+      if (upgradeWebSocket?.(request)) return undefined as unknown as Response
       return json({ error: 'WebSocket transport is not configured' }, 501)
     }
 

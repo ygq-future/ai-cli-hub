@@ -44,8 +44,8 @@ import {
 } from './ops'
 import { createSessionOrchestrator } from './orchestrator'
 import { createUserPreferences } from './preferences'
-import { createQQTransport, createTelegramTransport } from './transport'
-import { createServer } from './server'
+import { createQQTransport, createTelegramTransport, createWebSocketTransport } from './transport'
+import { createServer, createWebSocketGateway } from './server'
 import type { ConversationId, Transport } from './shared'
 
 async function main() {
@@ -153,6 +153,13 @@ async function main() {
     mediaDirectory: config.MEDIA_DOWNLOAD_DIR,
   })
   const transports: Transport[] = []
+  const webSocketGateway = createWebSocketGateway()
+  const webSocketTransport = createWebSocketTransport({
+    bus,
+    gateway: webSocketGateway,
+    userId: config.WHITELIST_USER_IDS[0] ?? '',
+  })
+  transports.push(webSocketTransport)
   if (config.TELEGRAM_BOT_TOKEN) {
     transports.push(
       createTelegramTransport({ bus, config, mediaPreprocessor, resolveUserLanguage: userPreferences.getLanguage }),
@@ -179,6 +186,7 @@ async function main() {
       return transport ? { transport } : null
     },
     secureCookie: config.HTTP_SECURE_COOKIE,
+    webSocketGateway,
   })
   const getUserLanguage = userPreferences.getLanguage
   const claudeExecutablePath = resolveSystemClaudeExecutable(config.CLAUDE_EXECUTABLE_PATH)

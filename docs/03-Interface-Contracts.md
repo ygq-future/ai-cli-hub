@@ -386,6 +386,10 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 
 `GET /api/auth/session` 用 Bearer 或会话 Cookie 查询登录状态；`DELETE /api/auth/session` 使当前 Cookie 对应的会话失效。除健康检查外，配置了 Token 的 `/api/*` 接口均接受 Bearer 或该会话 Cookie。
 
+### `GET /ws`
+
+浏览器在已登录 Cookie 下升级 WebSocket。JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`）与 `approve`/`reject`（`conversationId`、`approvalId`）；下行 `output`、`approval`、`error`。浏览器断线使用指数退避重连。
+
 ### `POST /api/platform-msg`
 
 按平台原生 Chat ID 发送。`chatId` 必须存在于 `transport.whitelistUserIds`，且 `platform` 对应的 Transport 必须已装配。

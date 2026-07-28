@@ -9,6 +9,9 @@ import {
 const PREFERENCES_KEY = 'ai-cli-hub.webui.preferences'
 const ACCENTS: WebUiAccent[] = ['cyan', 'emerald', 'amber', 'rose', 'violet']
 
+type WebMessage = { role: 'user' | 'assistant'; content: string }
+type PendingApproval = { conversationId: string; approvalId: string; command: string; detail: string }
+
 const copy = {
   'zh-CN': {
     signIn: '进入控制台',
@@ -95,6 +98,12 @@ class HubConsole extends HTMLElement {
   private authenticated = false
   private currentView: 'chat' | 'settings' = 'chat'
   private mobilePanel: 'sessions' | 'inspector' | null = null
+  private socket: WebSocket | null = null
+  private loginError = ''
+  private messages: WebMessage[] = []
+  private approvals: PendingApproval[] = []
+  private connectionState: 'connecting' | 'connected' | 'disconnected' = 'disconnected'
+  private reconnectAttempts = 0
 
   connectedCallback(): void {
     this.applyPreferences()
@@ -153,7 +162,25 @@ class HubConsole extends HTMLElement {
 
   private chatTemplate(): string {
     const t = copy[this.preferences.locale]
-    return `<div class="scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-5 sm:px-7 sm:py-8"><div class="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5"><div class="mx-auto rounded-full border px-3 py-1 text-xs text-muted" style="border-color:var(--line)">${t.demo}</div><article class="message-in max-w-[92%] border p-4 leading-7 sm:max-w-[78%]" style="border-color:var(--line);background:var(--surface)"><p class="mb-2 text-xs font-medium accent">CLAUDE · 10:42</p><p>我已检查 webhook 服务。当前分支为 <code class="code rounded px-1.5 py-0.5" style="background:var(--surface-muted)">main</code>，工作区干净。</p></article><article class="message-out ml-auto max-w-[92%] p-4 leading-7 sm:max-w-[78%]" style="background:var(--accent-soft)"><p class="mb-2 text-xs font-medium accent">YOU · 10:43</p><p>拉取最新代码并告诉我有哪些变化。</p></article><article class="message-in max-w-[92%] border p-4 sm:max-w-[78%]" style="border-color:var(--line);background:var(--surface)"><p class="mb-3 text-xs font-medium accent">APPROVAL REQUIRED</p><p class="font-medium">Bash</p><code class="code mt-3 block overflow-x-auto rounded-xl p-3 text-sm" style="background:var(--surface-muted)">git pull --ff-only</code><div class="mt-4 flex gap-2"><button class="accent-bg rounded-lg px-3 py-2 text-sm">Approve</button><button class="rounded-lg border px-3 py-2 text-sm" style="border-color:var(--line)">Reject</button></div></article></div></div><form class="border-t p-3 sm:p-5" style="border-color:var(--line)"><div class="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border p-2" style="border-color:var(--line);background:var(--surface)"><textarea class="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 outline-none" rows="1" placeholder="${t.command}"></textarea><button class="accent-bg rounded-xl px-4 py-2.5 text-sm font-medium">${t.send}</button></div></form>`
+    const state =
+      this.connectionState === 'connected'
+        ? t.connected
+        : this.connectionState === 'connecting'
+          ? 'Connecting…'
+          : 'Disconnected'
+    const messages = this.messages
+      .map(
+        message =>
+          `<article class="${message.role === 'user' ? 'message-out ml-auto' : 'message-in'} max-w-[92%] border p-4 leading-7 sm:max-w-[78%]" style="border-color:var(--line);background:${message.role === 'user' ? 'var(--accent-soft)' : 'var(--surface)'}"><p class="mb-2 text-xs font-medium accent">${message.role === 'user' ? 'YOU' : 'AI CLI'}</p><p>${escapeHtml(message.content)}</p></article>`,
+      )
+      .join('')
+    const approvals = this.approvals
+      .map(
+        approval =>
+          `<article class="message-in max-w-[92%] border p-4 sm:max-w-[78%]" style="border-color:var(--warning)"><p class="mb-2 text-xs font-medium" style="color:var(--warning)">${t.approvals}</p><p class="font-medium">${escapeHtml(approval.command)}</p><p class="mt-2 text-sm text-muted">${escapeHtml(approval.detail)}</p><div class="mt-4 flex gap-2"><button data-approval="approve" data-approval-id="${approval.approvalId}" data-conversation-id="${approval.conversationId}" class="accent-bg rounded-lg px-3 py-2 text-sm">Approve</button><button data-approval="reject" data-approval-id="${approval.approvalId}" data-conversation-id="${approval.conversationId}" class="rounded-lg border px-3 py-2 text-sm" style="border-color:var(--line)">Reject</button></div></article>`,
+      )
+      .join('')
+    return `<div class="scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-5 sm:px-7 sm:py-8"><div class="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5"><div class="mx-auto rounded-full border px-3 py-1 text-xs text-muted" style="border-color:var(--line)">${state}</div>${messages || `<p class="my-auto text-center text-sm text-muted">${t.demo}</p>`}${approvals}</div></div><form data-chat-form class="border-t p-3 sm:p-5" style="border-color:var(--line)"><div class="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border p-2" style="border-color:var(--line);background:var(--surface)"><textarea data-chat-input class="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 outline-none" rows="1" placeholder="${t.command}"></textarea><button class="accent-bg rounded-xl px-4 py-2.5 text-sm font-medium">${t.send}</button></div></form>`
   }
 
   private inspectorTemplate(): string {
@@ -175,9 +202,42 @@ class HubConsole extends HTMLElement {
   private bindEvents(): void {
     this.querySelector<HTMLFormElement>('[data-login-form]')?.addEventListener('submit', event => {
       event.preventDefault()
-      this.authenticated = true
+      const token = this.querySelector<HTMLInputElement>('#token')?.value ?? ''
+      void fetch('/api/auth/session', { method: 'POST', headers: { authorization: `Bearer ${token}` } })
+        .then(response => {
+          if (!response.ok) throw new Error('login_failed')
+          this.authenticated = true
+          this.loginError = ''
+          this.connectWebSocket()
+          this.render()
+        })
+        .catch(() => {
+          this.loginError =
+            this.preferences.locale === 'zh-CN' ? '登录失败，请检查 Token。' : 'Sign-in failed. Check the token.'
+          this.render()
+        })
+    })
+    this.querySelector<HTMLFormElement>('[data-chat-form]')?.addEventListener('submit', event => {
+      event.preventDefault()
+      const input = this.querySelector<HTMLTextAreaElement>('[data-chat-input]')
+      const text = input?.value.trim()
+      if (!text || this.socket?.readyState !== WebSocket.OPEN) return
+      this.socket.send(JSON.stringify({ v: 1, type: 'message', text }))
+      this.messages.push({ role: 'user', content: text })
+      if (input) input.value = ''
       this.render()
     })
+    this.querySelectorAll<HTMLButtonElement>('[data-approval]').forEach(button =>
+      button.addEventListener('click', () => {
+        const approvalId = button.dataset.approvalId
+        const conversationId = button.dataset.conversationId
+        const type = button.dataset.approval
+        if (!approvalId || !conversationId || (type !== 'approve' && type !== 'reject')) return
+        this.socket?.send(JSON.stringify({ v: 1, type, approvalId, conversationId }))
+        this.approvals = this.approvals.filter(item => item.approvalId !== approvalId)
+        this.render()
+      }),
+    )
     this.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(button =>
       button.addEventListener('click', () => {
         this.currentView = button.dataset.view === 'settings' ? 'settings' : 'chat'
@@ -206,6 +266,66 @@ class HubConsole extends HTMLElement {
       button.addEventListener('click', () => this.setPreference('accent', button.dataset.accent ?? 'cyan')),
     )
   }
+
+  private connectWebSocket(): void {
+    this.socket?.close()
+    const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    this.socket = new WebSocket(`${scheme}//${location.host}/ws`)
+    this.connectionState = 'connecting'
+    this.socket.onopen = () => {
+      this.connectionState = 'connected'
+      this.reconnectAttempts = 0
+      this.render()
+    }
+    this.socket.onclose = () => {
+      this.connectionState = 'disconnected'
+      this.render()
+      if (!this.authenticated) return
+      const delay = Math.min(10_000, 500 * 2 ** this.reconnectAttempts++)
+      setTimeout(() => this.connectWebSocket(), delay)
+    }
+    this.socket.onmessage = event => {
+      try {
+        const payload = JSON.parse(String(event.data)) as {
+          type?: string
+          content?: string
+          final?: boolean
+          conversationId?: string
+          approvalId?: string
+          command?: string
+          detail?: string
+        }
+        if (payload.type === 'output' && typeof payload.content === 'string') {
+          const last = this.messages.at(-1)
+          if (last?.role === 'assistant') last.content = payload.content
+          else this.messages.push({ role: 'assistant', content: payload.content })
+        }
+        if (
+          payload.type === 'approval' &&
+          payload.conversationId &&
+          payload.approvalId &&
+          payload.command &&
+          payload.detail
+        )
+          this.approvals.push({
+            conversationId: payload.conversationId,
+            approvalId: payload.approvalId,
+            command: payload.command,
+            detail: payload.detail,
+          })
+        this.render()
+      } catch {
+        /* malformed server message is ignored */
+      }
+    }
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>'"]/g,
+    character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character] ?? character,
+  )
 }
 
 customElements.define('hub-console', HubConsole)
