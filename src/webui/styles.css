@@ -47,6 +47,27 @@
     border-color 0.3s ease,
     box-shadow 0.3s ease;
 }
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink) 24%, transparent) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 23%, transparent);
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--ink) 38%, transparent);
+  background-clip: padding-box;
+}
 html,
 body {
   margin: 0;
@@ -64,6 +85,9 @@ button,
 input,
 textarea {
   font: inherit;
+}
+textarea:focus-visible {
+  outline: 0;
 }
 button {
   cursor: pointer;
@@ -249,8 +273,8 @@ textarea:focus-visible {
   box-shadow: 0 6px 20px color-mix(in srgb, #000 4%, transparent);
 }
 .composer-box:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
+  box-shadow: 0 8px 25px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 textarea {
   min-width: 0;
@@ -459,6 +483,19 @@ textarea {
   display: flex;
   justify-content: space-between;
 }
+.select-trigger b {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--muted);
+  font-size: 0.7rem;
+  transition: transform 0.2s ease;
+}
+.select-trigger[aria-expanded='true'] b {
+  transform: rotate(180deg);
+}
 .select-menu {
   position: absolute;
   z-index: 8;
@@ -506,6 +543,12 @@ textarea {
 .config-group {
   border-top: 1px solid var(--line);
 }
+.config-group-tip {
+  margin: -3px 0 12px;
+  color: var(--dim);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
 .config-group summary {
   display: flex;
   justify-content: space-between;
@@ -528,6 +571,41 @@ textarea {
 }
 .config-field {
   min-width: 0;
+}
+.config-field small {
+  display: block;
+  min-height: 1.3em;
+  margin: -2px 0 6px;
+  color: var(--dim);
+  font-size: 0.69rem;
+  line-height: 1.35;
+}
+.array-field {
+  grid-column: 1 / -1;
+}
+.array-items {
+  display: grid;
+  gap: 7px;
+}
+.array-items > div {
+  display: flex;
+  gap: 7px;
+}
+.array-items button {
+  width: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 1.1rem;
+}
+.add-array {
+  margin-top: 8px;
+  padding: 7px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 650;
 }
 .switch-field {
   display: flex;
@@ -600,8 +678,8 @@ textarea {
   padding: 20px;
 }
 .login-card {
-  width: min(100%, 430px);
-  padding: 32px;
+  width: min(100%, 500px);
+  padding: 38px;
   border: 1px solid var(--line);
   border-radius: 24px;
   background: var(--surface);
@@ -609,10 +687,11 @@ textarea {
   animation: panel-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .login-card h1 {
-  margin: 28px 0 12px;
-  font-size: 2.15rem;
-  line-height: 1.04;
-  letter-spacing: -0.05em;
+  max-width: 10em;
+  margin: 22px 0 12px;
+  font-size: clamp(2rem, 5vw, 2.7rem);
+  line-height: 1.12;
+  letter-spacing: -0.045em;
 }
 .login-card > p {
   color: var(--dim);
@@ -638,6 +717,21 @@ textarea {
 .login-card .button {
   width: 100%;
   margin-top: 8px;
+}
+.login-appearance {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+.login-appearance .settings-section {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.login-appearance .section-title {
+  margin-bottom: 12px;
 }
 .error {
   color: var(--danger);
@@ -719,6 +813,25 @@ textarea {
   }
   .settings-section {
     padding: 14px;
+  }
+  .login-card {
+    padding: 28px 23px;
+    border-radius: 20px;
+  }
+  .login-shell {
+    align-items: start;
+    padding-top: clamp(32px, 10vh, 90px);
+    overflow: auto;
+  }
+  .attach {
+    align-self: stretch;
+    width: 42px;
+    height: auto;
+  }
+  .attach span {
+    display: block;
+    line-height: 1;
+    transform: translateY(-1px);
   }
 }
 @media (prefers-reduced-motion: reduce) {

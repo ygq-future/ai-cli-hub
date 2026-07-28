@@ -23,6 +23,7 @@ type WebStatus = {
 const copy = {
   'zh-CN': {
     signIn: '进入控制台',
+    loginTitle: '你的私有 AI 控制台。',
     token: '管理 Token',
     tokenHint: '使用 settings.json 中的 http.authToken',
     secure: 'Token 仅用于建立安全会话，不会保存到浏览器。',
@@ -67,9 +68,15 @@ const copy = {
     approve: '同意',
     reject: '拒绝',
     pendingApproval: '需要授权',
+    configuration: '服务配置',
+    configurationHint: '修改前请确认字段用途；敏感值不会在页面中回显。',
+    replaceSecret: '输入新值以替换',
+    keepSecret: '当前已配置；留空则保持原值',
+    addItem: '添加一项',
   },
   en: {
     signIn: 'Enter console',
+    loginTitle: 'Your private AI control plane.',
     token: 'Admin token',
     tokenHint: 'Use http.authToken from settings.json',
     secure: 'The token only establishes a secure session and is never stored in this browser.',
@@ -114,6 +121,11 @@ const copy = {
     approve: 'Approve',
     reject: 'Reject',
     pendingApproval: 'Authorization required',
+    configuration: 'Service configuration',
+    configurationHint: 'Review each field before saving. Sensitive values are never shown again.',
+    replaceSecret: 'Enter a replacement value',
+    keepSecret: 'Configured. Leave blank to keep the current value.',
+    addItem: 'Add item',
   },
 } as const
 
@@ -148,11 +160,13 @@ class HubConsole extends HTMLElement {
     this.applyPreferences()
     this.render()
     void this.restoreSession()
+    document.addEventListener('pointerdown', this.closeDropdownOnOutsideClick)
   }
   disconnectedCallback(): void {
     this.authenticated = false
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.socket?.close()
+    document.removeEventListener('pointerdown', this.closeDropdownOnOutsideClick)
   }
 
   private applyPreferences(): void {
@@ -189,7 +203,7 @@ class HubConsole extends HTMLElement {
   }
   private loginTemplate(): string {
     const t = copy[this.preferences.locale]
-    return `<main class="login-shell"><section class="login-card"><span class="brand">AI CLI HUB</span><h1>Remote control,<br>without the noise.</h1><p>${t.secure}</p><form data-login-form><label>${t.token}<input class="field-control" id="token" type="password" required autocomplete="current-password" placeholder="••••••••••••"></label><small>${t.tokenHint}</small>${this.loginError ? `<output class="error">${this.loginError}</output>` : ''}<button class="button primary" type="submit">${t.signIn}<span>→</span></button></form>${this.appearanceTemplate()}</section></main>`
+    return `<main class="login-shell"><section class="login-card"><header><span class="brand">AI CLI HUB</span><h1>${t.loginTitle}</h1><p>${t.secure}</p></header><form data-login-form><label>${t.token}<input class="field-control" id="token" type="password" required autocomplete="current-password" placeholder="••••••••••••"></label><small>${t.tokenHint}</small>${this.loginError ? `<output class="error">${this.loginError}</output>` : ''}<button class="button primary" type="submit">${t.signIn}<span>→</span></button></form><div class="login-appearance">${this.appearanceTemplate()}</div></section></main>`
   }
   private consoleTemplate(): string {
     const t = copy[this.preferences.locale]
@@ -217,7 +231,7 @@ class HubConsole extends HTMLElement {
     const uploadList = this.uploads.length
       ? `<div class="upload-list">${this.uploads.map(file => `<div class="upload-chip">${file.preview ? `<img src="${file.preview}" alt="">` : '<span>FILE</span>'}<b>${escapeHtml(file.name)}</b><small>${file.state === 'uploading' ? t.uploading : '✓'}</small><button data-remove-upload="${file.id}" aria-label="remove">×</button></div>`).join('')}</div>`
       : ''
-    return `<div class="message-scroll" data-message-scroll><div class="message-stack">${messages || `<p class="empty-state">${t.empty}</p>`}${approvals}</div></div><form class="composer" data-chat-form>${uploadList}<div class="composer-box"><input hidden data-file-input type="file" multiple><button type="button" class="icon-button attach" data-select-files aria-label="${t.upload}">＋</button><textarea data-chat-input rows="1" placeholder="${t.command}" ${this.connectionState === 'connected' ? '' : 'disabled'}></textarea><button class="button primary send" ${this.connectionState === 'connected' ? '' : 'disabled'}>${t.send}<span>↑</span></button></div></form>`
+    return `<div class="message-scroll" data-message-scroll><div class="message-stack">${messages || `<p class="empty-state">${t.empty}</p>`}${approvals}</div></div><form class="composer" data-chat-form>${uploadList}<div class="composer-box"><input hidden data-file-input type="file" multiple accept="*/*"><button type="button" class="icon-button attach" data-select-files aria-label="${t.upload}" title="${t.upload}"><span>＋</span></button><textarea data-chat-input rows="1" placeholder="${t.command}" ${this.connectionState === 'connected' ? '' : 'disabled'}></textarea><button class="button primary send" ${this.connectionState === 'connected' ? '' : 'disabled'}>${t.send}<span>↑</span></button></div></form>`
   }
   private statusTemplate(): string {
     const t = copy[this.preferences.locale],
@@ -239,7 +253,7 @@ class HubConsole extends HTMLElement {
   }
   private settingsTemplate(): string {
     const t = copy[this.preferences.locale]
-    return `<section class="settings-layer"><div class="settings-panel"><header><div><p class="eyebrow">CONTROL PLANE</p><h2>${t.settings}</h2></div><button class="icon-button" data-close-settings aria-label="${t.close}">×</button></header><div class="settings-scroll">${this.appearanceTemplate()}<section class="settings-section"><div class="section-title"><h3>settings.json</h3><p>Configuration fields are validated before saving.</p></div>${this.settingsData ? this.settingsForm(this.settingsData) : '<p class="empty-state">Loading…</p>'}</section>${this.settingsStatus ? `<output class="settings-result">${escapeHtml(this.settingsStatus)}</output>` : ''}<div class="settings-actions"><button class="button secondary" data-save-settings>${t.save}</button><button class="button primary" data-restart>${t.restart}</button></div>${this.restartPreview ? `<section class="restart-card"><p>${t.restartPreview}</p><pre>${escapeHtml(this.restartPreview)}</pre><small>${t.restartHint}</small><button class="button primary" data-confirm-restart>${t.confirmRestart}</button></section>` : ''}</div></div></section>`
+    return `<section class="settings-layer"><div class="settings-panel"><header><div><p class="eyebrow">CONTROL PLANE</p><h2>${t.settings}</h2></div><button class="icon-button" data-close-settings aria-label="${t.close}">×</button></header><div class="settings-scroll">${this.appearanceTemplate()}<section class="settings-section"><div class="section-title"><h3>${t.configuration}</h3><p>${t.configurationHint}</p></div>${this.settingsData ? this.settingsForm(this.settingsData) : '<p class="empty-state">Loading…</p>'}</section>${this.settingsStatus ? `<output class="settings-result">${escapeHtml(this.settingsStatus)}</output>` : ''}<div class="settings-actions"><button class="button secondary" data-save-settings>${t.save}</button><button class="button primary" data-restart>${t.restart}</button></div>${this.restartPreview ? `<section class="restart-card"><p>${t.restartPreview}</p><pre>${escapeHtml(this.restartPreview)}</pre><small>${t.restartHint}</small><button class="button primary" data-confirm-restart>${t.confirmRestart}</button></section>` : ''}</div></div></section>`
   }
   private appearanceTemplate(): string {
     const t = copy[this.preferences.locale]
@@ -269,7 +283,7 @@ class HubConsole extends HTMLElement {
     return Object.entries(data)
       .map(
         ([key, value]) =>
-          `<details class="config-group" open><summary>${escapeHtml(key)}<span>⌄</span></summary><div>${this.configFields(value, [key])}</div></details>`,
+          `<details class="config-group" open><summary>${escapeHtml(configMeta([key], this.preferences.locale).label)}<span>⌄</span></summary><p class="config-group-tip">${escapeHtml(configMeta([key], this.preferences.locale).hint)}</p><div>${this.configFields(value, [key])}</div></details>`,
       )
       .join('')
   }
@@ -278,13 +292,17 @@ class HubConsole extends HTMLElement {
       return Object.entries(value)
         .map(([key, item]) => this.configFields(item, [...path, key]))
         .join('')
-    const label = path.at(-1) ?? '',
-      key = path.join('.')
+    const key = path.join('.'),
+      meta = configMeta(path, this.preferences.locale),
+      label = meta.label,
+      t = copy[this.preferences.locale]
     if (typeof value === 'boolean')
       return `<label class="config-field switch-field"><span>${escapeHtml(label)}</span><button type="button" data-setting-toggle="${key}" class="switch ${value ? 'on' : ''}" role="switch" aria-checked="${value}"><i></i></button></label>`
+    if (Array.isArray(value))
+      return `<section class="config-field array-field"><span>${escapeHtml(label)}</span><small>${escapeHtml(meta.hint)}</small><div class="array-items">${value.map((item, index) => `<div><input class="field-control" data-array-item="${key}" data-array-index="${index}" value="${escapeHtml(String(item))}"><button type="button" data-remove-array="${key}" data-array-index="${index}" aria-label="remove">×</button></div>`).join('')}</div><button type="button" class="add-array" data-add-array="${key}">＋ ${t.addItem}</button></section>`
     const configured = isRecord(value) && value.configured === true
-    const raw = Array.isArray(value) ? value.join(', ') : configured ? '' : String(value ?? '')
-    return `<label class="config-field"><span>${escapeHtml(label)}</span><input class="field-control" data-setting="${key}" data-kind="${configured ? 'configured' : Array.isArray(value) ? 'array' : typeof value}" ${configured ? 'type="password" placeholder="已配置（留空保持不变）"' : ''} value="${escapeHtml(raw)}"></label>`
+    const raw = configured ? '' : String(value ?? '')
+    return `<label class="config-field"><span>${escapeHtml(label)}</span><small>${escapeHtml(configured ? t.keepSecret : meta.hint)}</small><input class="field-control" data-setting="${key}" data-kind="${configured ? 'configured' : typeof value}" ${configured ? `type="password" placeholder="${t.replaceSecret}"` : ''} value="${escapeHtml(raw)}"></label>`
   }
   private bindEvents(): void {
     this.querySelector<HTMLFormElement>('[data-login-form]')?.addEventListener('submit', event => {
@@ -382,6 +400,33 @@ class HubConsole extends HTMLElement {
         this.updateSetting(input.dataset.setting ?? '', input.value, input.dataset.kind ?? 'string'),
       ),
     )
+    this.querySelectorAll<HTMLInputElement>('[data-array-item]').forEach(input =>
+      input.addEventListener('input', () => {
+        const key = input.dataset.arrayItem ?? '',
+          index = Number(input.dataset.arrayIndex)
+        const items = getPath(this.settingsData ?? {}, key)
+        if (Array.isArray(items) && Number.isInteger(index)) items[index] = input.value
+      }),
+    )
+    this.querySelectorAll<HTMLButtonElement>('[data-add-array]').forEach(button =>
+      button.addEventListener('click', () => {
+        const key = button.dataset.addArray ?? '',
+          items = getPath(this.settingsData ?? {}, key)
+        if (!Array.isArray(items)) return
+        items.push('')
+        this.refreshSettingsPanel()
+      }),
+    )
+    this.querySelectorAll<HTMLButtonElement>('[data-remove-array]').forEach(button =>
+      button.addEventListener('click', () => {
+        const key = button.dataset.removeArray ?? '',
+          index = Number(button.dataset.arrayIndex),
+          items = getPath(this.settingsData ?? {}, key)
+        if (!Array.isArray(items) || !Number.isInteger(index)) return
+        items.splice(index, 1)
+        this.refreshSettingsPanel()
+      }),
+    )
     this.querySelectorAll<HTMLButtonElement>('[data-setting-toggle]').forEach(button =>
       button.addEventListener('click', () => {
         const path = button.dataset.settingToggle ?? ''
@@ -432,6 +477,25 @@ class HubConsole extends HTMLElement {
                 .filter(Boolean)
             : raw
     setPath(this.settingsData, path, value)
+  }
+  private refreshSettingsPanel(): void {
+    const layer = this.querySelector('.settings-layer')
+    if (!layer || !this.settingsOpen) return
+    const scrollTop = this.querySelector<HTMLElement>('.settings-scroll')?.scrollTop ?? 0
+    layer.outerHTML = this.settingsTemplate()
+    this.bindEvents()
+    const scroll = this.querySelector<HTMLElement>('.settings-scroll')
+    if (scroll) scroll.scrollTop = scrollTop
+  }
+  private closeDropdownOnOutsideClick = (event: PointerEvent): void => {
+    if (
+      !this.dropdown ||
+      !(event.target instanceof Node) ||
+      (this.contains(event.target) && (event.target as Element).closest?.('.custom-select'))
+    )
+      return
+    this.dropdown = null
+    this.render()
   }
   private async saveSettings(): Promise<void> {
     try {
@@ -564,6 +628,48 @@ function setPath(value: Record<string, unknown>, path: string, next: unknown): v
     current = current[key] as Record<string, unknown>
   }
   current[keys.at(-1) ?? ''] = next
+}
+function configMeta(path: string[], locale: WebUiPreferences['locale']): { label: string; hint: string } {
+  const key = path.join('.')
+  const zh: Record<string, [string, string]> = {
+    transport: ['客户端接入', '机器人、代理与允许访问的管理员。'],
+    'transport.whitelistUserIds': ['管理员白名单', '允许向 Hub 发送消息的用户 ID；每行一项。'],
+    http: ['HTTP 与 Web 控制台', 'Web 服务监听、认证和 Cookie 安全策略。'],
+    'http.authToken': ['管理 Token', '用于 HTTP API 与 Web 控制台登录。输入新值才会替换当前 Token。'],
+    'transport.telegramBotToken': ['Telegram Bot Token', 'Telegram 机器人凭据；输入新值才会替换。'],
+    'transport.qqBotAppSecret': ['QQ Bot App Secret', 'QQ 机器人密钥；输入新值才会替换。'],
+    database: ['数据库', 'Postgres 连接信息。'],
+    memory: ['长期记忆', '嵌入、召回和摘要服务。'],
+    lifecycle: ['生命周期', '会话与服务超时策略。'],
+    session: ['会话', '默认 CLI 与上下文限制。'],
+    aggregator: ['输出聚合', '流式输出的合并与刷新频率。'],
+    media: ['媒体处理', '上传文件、OCR 与解析限制。'],
+    ocr: ['图像识别', 'OCR 服务地址与超时。'],
+    envProbe: ['环境检查', '健康检查的超时时间。'],
+    ops: ['运维', '更新与重启策略。'],
+    logging: ['日志', '服务端日志级别。'],
+    debug: ['调试', '仅用于排查问题的开关。'],
+  }
+  const en: Record<string, [string, string]> = {
+    transport: ['Transports', 'Bots, proxies, and permitted administrators.'],
+    http: ['HTTP & Web Console', 'Listener, authentication, and cookie security.'],
+    database: ['Database', 'Postgres connection settings.'],
+    memory: ['Long-term memory', 'Embedding, recall, and summary services.'],
+    lifecycle: ['Lifecycle', 'Session and service timeouts.'],
+    session: ['Session', 'Default CLI and context limits.'],
+    aggregator: ['Output aggregation', 'Streaming merge and refresh policy.'],
+    media: ['Media', 'Upload, OCR, and parsing limits.'],
+    ocr: ['OCR', 'Image recognition endpoint and timeout.'],
+    envProbe: ['Environment checks', 'Health-check timeout.'],
+    ops: ['Operations', 'Update and restart policy.'],
+    logging: ['Logging', 'Server log level.'],
+    debug: ['Debug', 'Troubleshooting-only switches.'],
+  }
+  const fallback = path.at(-1) ?? key
+  const matched = (locale === 'zh-CN' ? zh : en)[key]
+  return matched
+    ? { label: matched[0], hint: matched[1] }
+    : { label: fallback, hint: locale === 'zh-CN' ? '修改后将在保存时进行校验。' : 'Validated when you save.' }
 }
 function accentValue(value: WebUiAccent): string {
   return { cyan: '#18a7a2', emerald: '#28a36d', amber: '#da9027', rose: '#d95b71', violet: '#8772d7' }[value]
