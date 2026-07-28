@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V4 Web Control Plane（W3 已完成，准备 W4）** |
+| 当前里程碑 | **V4 Web Control Plane（W4 实现已完成，等待可启动环境做真实浏览器回归）** |
 | 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID、自动审批状态/倒计时且无重复目标字段；新增 `/chatid` 查看平台原生 Chat ID；新增默认监听本机 `127.0.0.1:8787`、同时支持 `0.0.0.0` 的 HTTP `/api/platform-msg` 与 `/api/session-msg` 出站消息接口。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 14 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
-| 下一步 | 实施 W4：真实数据下的体验收口与跨端回归。 |
+| 下一步 | 在可正常解析 `https-proxy-agent` 的本机或 VPS 环境完成 320/768/1280 的真实浏览器回归；再实施 W5 文档与部署收口。 |
 
 ---
 
@@ -295,6 +295,7 @@
 | 2026-07-28 | **V4 W1 Server Foundation 与认证完成**：将旧 `transport/http` 兼容接口迁入 `server/`，由 `main.ts` 注入会话解析与 Transport 抽象；新增 WebUI 静态资源、SPA fallback、8 小时内存会话、Bearer/Cookie 双认证和 `http.secureCookie` 配置。`/api/platform-msg`、`/api/session-msg` 在配置 Token 时可使用 Bearer 或 Web Cookie；未配置 Token 保留旧自动化接口的开放兼容行为，Web 登录明确拒绝。新增 server 依赖矩阵规则与回归测试。 |
 | 2026-07-28 | **V4 W2 WebSocket 聊天闭环完成**：新增 `transport/websocket`，通过 server 注入网关并经 EventBus 收发浏览器消息、流式输出与审批决策；WebUI 登录建立 Cookie 会话后连接 `/ws`，渲染输出/审批并使用指数退避重连。浏览器使用单管理员白名单首项作为身份，但固定 `websocket` 平台，和 Telegram/QQ 会话隔离。 |
 | 2026-07-28 | **V4 W3 Settings 与受控重启完成**：新增 config 内的原子 `settings.json` 读写服务，读取脱敏、敏感字段显式覆盖、保存前 schema 校验；server 以注入接口提供 `/api/settings` 与 `/api/restart`。WebUI 设置页读取脱敏 JSON、保存后提示重启、可请求受控重启。 |
+| 2026-07-28 | **V4 W4 体验收口实现完成**：WebUI 补齐登录/设置错误可见反馈、连接状态 `aria-live`、禁用断线输入、Enter 发送与 Shift+Enter 换行、textarea 焦点和禁用态，并修复 WebSocket 旧连接 close 事件重复安排重连以及组件卸载后继续重连的问题；中文/English 的核心操作、状态和抽屉 aria 标签同步。自动验收：`webui:build`、typecheck、lint、format check 与 15 项相关测试通过。真实浏览器跨视口回归待本机修复 `https-proxy-agent/dist/index.js` 的 EPERM 后执行，服务在加载 QQ transport 前即受此环境问题阻断。 |
 
 ## 6. 开放问题（Open Questions）
 

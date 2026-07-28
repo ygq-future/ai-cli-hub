@@ -15,12 +15,21 @@ type PendingApproval = { conversationId: string; approvalId: string; command: st
 const copy = {
   'zh-CN': {
     signIn: '进入控制台',
+    consoleTitle: '安静而专注的远程控制。',
+    controlPlane: '控制台',
+    openSessions: '打开会话面板',
+    openInspector: '打开检查器',
+    closePanel: '关闭面板',
     token: '管理 Token',
     tokenHint: '使用 settings.json 中的 http.authToken',
     secure: 'Token 仅用于建立安全会话，不会保存到浏览器。',
     chat: '会话',
     settings: '配置',
     connected: '已连接',
+    loginFailed: '登录失败，请检查 Token。',
+    settingsLoadFailed: '配置读取失败。',
+    saveFailed: '保存失败。',
+    savedRestartRequired: '已保存，等待重启。',
     command: '输入消息或 /help',
     send: '发送',
     sessions: '活动会话',
@@ -58,12 +67,21 @@ const copy = {
   },
   en: {
     signIn: 'Enter console',
+    consoleTitle: 'Remote control, without noise.',
+    controlPlane: 'CONTROL PLANE',
+    openSessions: 'Open sessions panel',
+    openInspector: 'Open inspector',
+    closePanel: 'Close panel',
     token: 'Admin token',
     tokenHint: 'Use http.authToken from settings.json',
     secure: 'The token only establishes a secure session and is never stored in this browser.',
     chat: 'Sessions',
     settings: 'Settings',
     connected: 'Connected',
+    loginFailed: 'Sign-in failed. Check the token.',
+    settingsLoadFailed: 'Could not load settings.',
+    saveFailed: 'Save failed.',
+    savedRestartRequired: 'Saved. Restart required.',
     command: 'Write a message or /help',
     send: 'Send',
     sessions: 'Active sessions',
@@ -120,6 +138,7 @@ class HubConsole extends HTMLElement {
   private approvals: PendingApproval[] = []
   private connectionState: 'connecting' | 'connected' | 'disconnected' = 'disconnected'
   private reconnectAttempts = 0
+  private reconnectTimer: number | null = null
   private settingsData: Record<string, unknown> | null = null
   private settingsStatus = ''
   private restartPreview = ''
@@ -127,6 +146,14 @@ class HubConsole extends HTMLElement {
   connectedCallback(): void {
     this.applyPreferences()
     this.render()
+  }
+
+  disconnectedCallback(): void {
+    this.authenticated = false
+    if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
+    this.socket?.close()
+    this.socket = null
   }
 
   private applyPreferences(): void {
@@ -155,9 +182,9 @@ class HubConsole extends HTMLElement {
     return `<main class="grid min-h-dvh place-items-center p-4 sm:p-8">
       <section class="surface w-full max-w-md overflow-hidden rounded-[2rem] border shadow-2xl shadow-black/10">
         <div class="relative overflow-hidden px-6 pb-8 pt-10 sm:px-10"><div class="absolute -right-10 -top-12 h-44 w-44 rounded-full opacity-45 blur-3xl" style="background:var(--accent)"></div><div class="relative">
-          <div class="mb-8 flex items-center justify-between"><span class="code text-xs tracking-[.22em] text-muted">AI CLI HUB</span><span class="accent-soft rounded-full px-3 py-1 text-xs">CONTROL PLANE</span></div>
-          <h1 class="max-w-xs text-4xl font-semibold tracking-tight">Remote control,<br><span class="accent">without noise.</span></h1><p class="mt-4 leading-7 text-muted">${t.secure}</p>
-          <form class="mt-8 space-y-3" data-login-form><label class="block text-sm font-medium" for="token">${t.token}</label><input id="token" class="w-full rounded-xl border bg-transparent px-4 py-3 outline-none" style="border-color:var(--line)" type="password" autocomplete="current-password" placeholder="••••••••••••" required><p class="text-xs text-muted">${t.tokenHint}</p><button class="accent-bg mt-3 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 font-medium shadow-lg transition hover:brightness-110" type="submit">${t.signIn} <span aria-hidden="true">→</span></button></form>
+          <div class="mb-8 flex items-center justify-between"><span class="code text-xs tracking-[.22em] text-muted">AI CLI HUB</span><span class="accent-soft rounded-full px-3 py-1 text-xs">${t.controlPlane}</span></div>
+          <h1 class="max-w-xs text-4xl font-semibold tracking-tight">${t.consoleTitle}</h1><p class="mt-4 leading-7 text-muted">${t.secure}</p>
+          <form class="mt-8 space-y-3" data-login-form><label class="block text-sm font-medium" for="token">${t.token}</label><input id="token" class="w-full rounded-xl border bg-transparent px-4 py-3 outline-none" style="border-color:var(--line)" type="password" autocomplete="current-password" placeholder="••••••••••••" required aria-describedby="token-hint login-error"><p id="token-hint" class="text-xs text-muted">${t.tokenHint}</p>${this.loginError ? `<p id="login-error" class="text-sm" role="alert" style="color:var(--danger)">${this.loginError}</p>` : ''}<button class="accent-bg mt-3 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 font-medium shadow-lg transition hover:brightness-110" type="submit">${t.signIn} <span aria-hidden="true">→</span></button></form>
           ${this.appearanceTemplate(true)}</div></div>
       </section></main>`
   }
@@ -165,18 +192,18 @@ class HubConsole extends HTMLElement {
   private consoleTemplate(): string {
     const t = copy[this.preferences.locale]
     const overlay = this.mobilePanel
-      ? '<button class="absolute inset-0 z-20 bg-black/35 lg:hidden" data-close-panel aria-label="Close panel"></button>'
+      ? `<button class="absolute inset-0 z-20 bg-black/35 lg:hidden" data-close-panel aria-label="${t.closePanel}"></button>`
       : ''
     return `<main class="min-h-dvh p-2 sm:p-3"><div class="surface relative mx-auto grid min-h-[calc(100dvh-1rem)] max-w-[1800px] grid-cols-1 overflow-hidden rounded-[1.4rem] border lg:grid-cols-[17rem_minmax(0,1fr)_19rem] sm:min-h-[calc(100dvh-1.5rem)]">
       <aside class="drawer absolute inset-y-0 left-0 z-30 w-[min(86vw,19rem)] border-r p-4 lg:static lg:w-auto ${this.mobilePanel === 'sessions' ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}" style="background:var(--surface);border-color:var(--line)">${this.sessionsTemplate()}</aside>${overlay}
-      <section class="flex min-w-0 flex-col" style="background:color-mix(in srgb,var(--surface-raised) 76%,transparent)"><header class="flex items-center gap-2 border-b px-3 py-3 sm:px-5" style="border-color:var(--line)"><button class="rounded-lg p-2 lg:hidden" data-panel="sessions" aria-label="Open sessions">☰</button><div class="min-w-0 flex-1"><p class="truncate text-sm font-semibold">Webhook backend · Claude</p><p class="code truncate text-xs text-muted">/home/ubuntu/softs/webhook</p></div><span class="hidden rounded-full px-2.5 py-1 text-xs sm:block accent-soft">● ${t.connected}</span><button class="rounded-lg p-2 lg:hidden" data-panel="inspector" aria-label="Open inspector">◫</button></header>${this.currentView === 'chat' ? this.chatTemplate() : this.settingsTemplate()}</section>
+      <section class="flex min-w-0 flex-col" style="background:color-mix(in srgb,var(--surface-raised) 76%,transparent)"><header class="flex items-center gap-2 border-b px-3 py-3 sm:px-5" style="border-color:var(--line)"><button class="rounded-lg p-2 lg:hidden" data-panel="sessions" aria-label="${t.openSessions}">☰</button><div class="min-w-0 flex-1"><p class="truncate text-sm font-semibold">Webhook backend · Claude</p><p class="code truncate text-xs text-muted">/home/ubuntu/softs/webhook</p></div><span class="hidden rounded-full px-2.5 py-1 text-xs sm:block accent-soft">● ${t.connected}</span><button class="rounded-lg p-2 lg:hidden" data-panel="inspector" aria-label="${t.openInspector}">◫</button></header>${this.currentView === 'chat' ? this.chatTemplate() : this.settingsTemplate()}</section>
       <aside class="drawer absolute inset-y-0 right-0 z-30 w-[min(90vw,22rem)] border-l p-4 lg:static lg:w-auto ${this.mobilePanel === 'inspector' ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}" style="background:var(--surface);border-color:var(--line)">${this.inspectorTemplate()}</aside>
     </div></main>`
   }
 
   private sessionsTemplate(): string {
     const t = copy[this.preferences.locale]
-    return `<div class="flex h-full flex-col"><div class="mb-7 flex items-center justify-between"><span class="code text-xs tracking-[.18em] accent">AI CLI HUB</span><button class="rounded-md p-1.5 lg:hidden" data-close-panel>×</button></div><div class="mb-4 flex gap-1 rounded-xl p-1" style="background:var(--surface-muted)"><button data-view="chat" class="flex-1 rounded-lg px-3 py-2 text-sm ${this.currentView === 'chat' ? 'accent-bg' : 'text-muted'}">${t.chat}</button><button data-view="settings" class="flex-1 rounded-lg px-3 py-2 text-sm ${this.currentView === 'settings' ? 'accent-bg' : 'text-muted'}">${t.settings}</button></div><p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted">${t.sessions}</p><button class="mb-2 w-full rounded-xl border p-3 text-left" style="border-color:var(--accent);background:var(--accent-soft)"><span class="block text-sm font-medium">Webhook backend</span><span class="code mt-1 block text-xs text-muted">claude · running</span></button><button class="w-full rounded-xl p-3 text-left hover:bg-black/5"><span class="block text-sm">AI CLI Hub</span><span class="code mt-1 block text-xs text-muted">opencode · idle</span></button><div class="mt-auto border-t pt-4" style="border-color:var(--line)">${this.appearanceTemplate(false)}</div></div>`
+    return `<div class="flex h-full flex-col"><div class="mb-7 flex items-center justify-between"><span class="code text-xs tracking-[.18em] accent">AI CLI HUB</span><button class="rounded-md p-1.5 lg:hidden" data-close-panel aria-label="${t.closePanel}">×</button></div><div class="mb-4 flex gap-1 rounded-xl p-1" style="background:var(--surface-muted)"><button data-view="chat" class="flex-1 rounded-lg px-3 py-2 text-sm ${this.currentView === 'chat' ? 'accent-bg' : 'text-muted'}">${t.chat}</button><button data-view="settings" class="flex-1 rounded-lg px-3 py-2 text-sm ${this.currentView === 'settings' ? 'accent-bg' : 'text-muted'}">${t.settings}</button></div><p class="mb-2 text-xs font-medium uppercase tracking-wider text-muted">${t.sessions}</p><button class="mb-2 w-full rounded-xl border p-3 text-left" style="border-color:var(--accent);background:var(--accent-soft)"><span class="block text-sm font-medium">Webhook backend</span><span class="code mt-1 block text-xs text-muted">claude · running</span></button><button class="w-full rounded-xl p-3 text-left hover:bg-black/5"><span class="block text-sm">AI CLI Hub</span><span class="code mt-1 block text-xs text-muted">opencode · idle</span></button><div class="mt-auto border-t pt-4" style="border-color:var(--line)">${this.appearanceTemplate(false)}</div></div>`
   }
 
   private chatTemplate(): string {
@@ -199,12 +226,12 @@ class HubConsole extends HTMLElement {
           `<article class="message-in max-w-[92%] border p-4 sm:max-w-[78%]" style="border-color:var(--warning)"><p class="mb-2 text-xs font-medium" style="color:var(--warning)">${t.approvals}</p><p class="font-medium">${escapeHtml(approval.command)}</p><p class="mt-2 text-sm text-muted">${escapeHtml(approval.detail)}</p><div class="mt-4 flex gap-2"><button data-approval="approve" data-approval-id="${approval.approvalId}" data-conversation-id="${approval.conversationId}" class="accent-bg rounded-lg px-3 py-2 text-sm">${t.approve}</button><button data-approval="reject" data-approval-id="${approval.approvalId}" data-conversation-id="${approval.conversationId}" class="rounded-lg border px-3 py-2 text-sm" style="border-color:var(--line)">${t.reject}</button></div></article>`,
       )
       .join('')
-    return `<div class="scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-5 sm:px-7 sm:py-8"><div class="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5"><div class="mx-auto rounded-full border px-3 py-1 text-xs text-muted" style="border-color:var(--line)">${state}</div>${messages || `<p class="my-auto text-center text-sm text-muted">${t.demo}</p>`}${approvals}</div></div><form data-chat-form class="border-t p-3 sm:p-5" style="border-color:var(--line)"><div class="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border p-2" style="border-color:var(--line);background:var(--surface)"><textarea data-chat-input class="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 outline-none" rows="1" placeholder="${t.command}"></textarea><button class="accent-bg rounded-xl px-4 py-2.5 text-sm font-medium">${t.send}</button></div></form>`
+    return `<div class="scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-5 sm:px-7 sm:py-8" aria-live="polite"><div class="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-5"><div class="mx-auto rounded-full border px-3 py-1 text-xs text-muted" style="border-color:var(--line)" role="status">${state}</div>${messages || `<p class="my-auto text-center text-sm text-muted">${t.demo}</p>`}${approvals}</div></div><form data-chat-form class="border-t p-3 sm:p-5" style="border-color:var(--line)"><div class="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border p-2" style="border-color:var(--line);background:var(--surface)"><textarea data-chat-input class="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 outline-none" rows="1" placeholder="${t.command}" aria-label="${t.command}" ${this.connectionState === 'connected' ? '' : 'disabled'}></textarea><button class="accent-bg rounded-xl px-4 py-2.5 text-sm font-medium" ${this.connectionState === 'connected' ? '' : 'disabled'}>${t.send}</button></div></form>`
   }
 
   private inspectorTemplate(): string {
     const t = copy[this.preferences.locale]
-    return `<div class="flex h-full flex-col gap-6"><div class="flex items-center justify-between"><h2 class="text-sm font-semibold">${t.inspector}</h2><button class="rounded-md p-1.5 lg:hidden" data-close-panel>×</button></div><section><p class="mb-3 text-xs font-medium uppercase tracking-wider text-muted">${t.runtime}</p><dl class="space-y-3 text-sm"><div class="flex justify-between gap-4"><dt class="text-muted">${t.model}</dt><dd class="code">claude-sonnet-4</dd></div><div class="flex justify-between gap-4"><dt class="text-muted">${t.autoApprove}</dt><dd class="accent">ON · 5s</dd></div><div class="flex justify-between gap-4"><dt class="text-muted">${t.status}</dt><dd>● ${t.running}</dd></div></dl></section><section class="rounded-2xl border p-4" style="border-color:color-mix(in srgb,var(--warning) 48%,transparent);background:color-mix(in srgb,var(--warning) 9%,transparent)"><p class="mb-1 text-sm font-semibold" style="color:var(--warning)">${t.approvals}</p><p class="text-sm text-muted">git pull --ff-only</p><div class="mt-3 h-1.5 overflow-hidden rounded-full" style="background:var(--line)"><div class="h-full w-3/5 rounded-full" style="background:var(--warning)"></div></div></section><div class="mt-auto rounded-2xl p-4" style="background:var(--accent-soft)"><p class="text-sm font-medium">${t.connected}</p><p class="mt-1 text-xs text-muted">WebSocket · 24 ms</p></div></div>`
+    return `<div class="flex h-full flex-col gap-6"><div class="flex items-center justify-between"><h2 class="text-sm font-semibold">${t.inspector}</h2><button class="rounded-md p-1.5 lg:hidden" data-close-panel aria-label="${t.closePanel}">×</button></div><section><p class="mb-3 text-xs font-medium uppercase tracking-wider text-muted">${t.runtime}</p><dl class="space-y-3 text-sm"><div class="flex justify-between gap-4"><dt class="text-muted">${t.model}</dt><dd class="code">claude-sonnet-4</dd></div><div class="flex justify-between gap-4"><dt class="text-muted">${t.autoApprove}</dt><dd class="accent">ON · 5s</dd></div><div class="flex justify-between gap-4"><dt class="text-muted">${t.status}</dt><dd>● ${t.running}</dd></div></dl></section><section class="rounded-2xl border p-4" style="border-color:color-mix(in srgb,var(--warning) 48%,transparent);background:color-mix(in srgb,var(--warning) 9%,transparent)"><p class="mb-1 text-sm font-semibold" style="color:var(--warning)">${t.approvals}</p><p class="text-sm text-muted">git pull --ff-only</p><div class="mt-3 h-1.5 overflow-hidden rounded-full" style="background:var(--line)"><div class="h-full w-3/5 rounded-full" style="background:var(--warning)"></div></div></section><div class="mt-auto rounded-2xl p-4" style="background:var(--accent-soft)"><p class="text-sm font-medium">${t.connected}</p><p class="mt-1 text-xs text-muted">WebSocket · 24 ms</p></div></div>`
   }
 
   private settingsTemplate(): string {
@@ -236,8 +263,7 @@ class HubConsole extends HTMLElement {
           this.render()
         })
         .catch(() => {
-          this.loginError =
-            this.preferences.locale === 'zh-CN' ? '登录失败，请检查 Token。' : 'Sign-in failed. Check the token.'
+          this.loginError = copy[this.preferences.locale].loginFailed
           this.render()
         })
     })
@@ -250,6 +276,11 @@ class HubConsole extends HTMLElement {
       this.messages.push({ role: 'user', content: text })
       if (input) input.value = ''
       this.render()
+    })
+    this.querySelector<HTMLTextAreaElement>('[data-chat-input]')?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+      event.preventDefault()
+      this.querySelector<HTMLFormElement>('[data-chat-form]')?.requestSubmit()
     })
     this.querySelectorAll<HTMLButtonElement>('[data-approval]').forEach(button =>
       button.addEventListener('click', () => {
@@ -267,11 +298,11 @@ class HubConsole extends HTMLElement {
       void fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: raw })
         .then(response => {
           if (!response.ok) throw new Error()
-          this.settingsStatus = this.preferences.locale === 'zh-CN' ? '已保存，等待重启。' : 'Saved. Restart required.'
+          this.settingsStatus = copy[this.preferences.locale].savedRestartRequired
           this.render()
         })
         .catch(() => {
-          this.settingsStatus = this.preferences.locale === 'zh-CN' ? '保存失败。' : 'Save failed.'
+          this.settingsStatus = copy[this.preferences.locale].saveFailed
           this.render()
         })
     })
@@ -338,23 +369,28 @@ class HubConsole extends HTMLElement {
   }
 
   private connectWebSocket(): void {
+    if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
     this.socket?.close()
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    this.socket = new WebSocket(`${scheme}//${location.host}/ws`)
+    const socket = new WebSocket(`${scheme}//${location.host}/ws`)
+    this.socket = socket
     this.connectionState = 'connecting'
-    this.socket.onopen = () => {
+    socket.onopen = () => {
+      if (this.socket !== socket) return
       this.connectionState = 'connected'
       this.reconnectAttempts = 0
       this.render()
     }
-    this.socket.onclose = () => {
+    socket.onclose = () => {
+      if (this.socket !== socket) return
       this.connectionState = 'disconnected'
       this.render()
       if (!this.authenticated) return
       const delay = Math.min(10_000, 500 * 2 ** this.reconnectAttempts++)
-      setTimeout(() => this.connectWebSocket(), delay)
+      this.reconnectTimer = window.setTimeout(() => this.connectWebSocket(), delay)
     }
-    this.socket.onmessage = event => {
+    socket.onmessage = event => {
       try {
         const payload = JSON.parse(String(event.data)) as {
           type?: string
@@ -399,7 +435,7 @@ class HubConsole extends HTMLElement {
       this.settingsStatus = ''
       this.render()
     } catch {
-      this.settingsStatus = this.preferences.locale === 'zh-CN' ? '配置读取失败。' : 'Could not load settings.'
+      this.settingsStatus = copy[this.preferences.locale].settingsLoadFailed
       this.render()
     }
   }
