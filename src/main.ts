@@ -33,6 +33,7 @@ import {
   createFileContentReader,
   createLightOcrProvider,
   createMediaPreprocessor,
+  createWebUploadStager,
 } from './media'
 import {
   createHealthReporter,
@@ -142,6 +143,10 @@ async function main() {
     maxTextChars: config.MEDIA_MAX_TEXT_CHARS,
     ocrProvider,
   })
+  const webUploads = createWebUploadStager({
+    directory: config.MEDIA_DOWNLOAD_DIR,
+    maxBytes: config.MEDIA_MAX_FILE_BYTES,
+  })
   const fileContentReader = createFileContentReader({
     maxTextChars: config.MEDIA_MAX_TEXT_CHARS,
     maxPdfPages: config.MEDIA_PDF_MAX_PAGES,
@@ -159,6 +164,8 @@ async function main() {
     bus,
     gateway: webSocketGateway,
     userId: config.WHITELIST_USER_IDS[0] ?? '',
+    resolveUploads: webUploads.consume,
+    mediaPreprocessor,
   })
   transports.push(webSocketTransport)
   if (config.TELEGRAM_BOT_TOKEN) {
@@ -198,6 +205,27 @@ async function main() {
           nativeId: crypto.randomUUID(),
         }),
     },
+    webStatus: {
+      async get() {
+        const userId = config.WHITELIST_USER_IDS[0] ?? ''
+        const target = await userPreferences.getTarget('websocket', userId)
+        const conversation = await repos.conversations.findLatestOpen('websocket', userId, target.cli)
+        const [model, autoApprove] = await Promise.all([
+          userPreferences.getModel('websocket', userId, target.cli),
+          userPreferences.getAutoApprove('websocket', userId),
+        ])
+        return {
+          platform: 'websocket' as const,
+          conversationId: conversation?.id ?? null,
+          cli: target.cli,
+          cwd: target.cwd,
+          sessionStatus: conversation?.status ?? 'idle',
+          model: model ? { id: model.modelId, name: model.modelName } : null,
+          autoApprove,
+        }
+      },
+    },
+    uploads: webUploads,
   })
   const getUserLanguage = userPreferences.getLanguage
   const claudeExecutablePath = resolveSystemClaudeExecutable(config.CLAUDE_EXECUTABLE_PATH)

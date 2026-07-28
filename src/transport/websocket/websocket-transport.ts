@@ -1,5 +1,13 @@
 import type { EventBus } from '../../event'
-import type { ApprovalCard, CliType, ConversationId, Transport, Unsubscribe } from '../../shared'
+import type {
+  ApprovalCard,
+  CliType,
+  ConversationId,
+  InboundAttachment,
+  MediaPreprocessor,
+  Transport,
+  Unsubscribe,
+} from '../../shared'
 
 export interface WebSocketPeer {
   send(data: string): void
@@ -20,6 +28,8 @@ export interface WebSocketTransportDeps {
   userId: string
   cli?: CliType
   cwd?: string
+  resolveUploads?: (ids: readonly string[]) => Promise<InboundAttachment[]>
+  mediaPreprocessor?: MediaPreprocessor
 }
 
 interface ClientEnvelope {
@@ -28,6 +38,7 @@ interface ClientEnvelope {
   text?: unknown
   approvalId?: unknown
   conversationId?: unknown
+  uploadIds?: unknown
 }
 
 export function createWebSocketTransport(deps: WebSocketTransportDeps): Transport {
@@ -38,7 +49,7 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
 
   const send = (type: string, payload: Record<string, unknown>) =>
     deps.gateway.broadcast(JSON.stringify({ v: 1, type, ...payload }))
-  const receive = (peer: WebSocketPeer, raw: string) => {
+  const receive = async (peer: WebSocketPeer, raw: string) => {
     let message: ClientEnvelope
     try {
       message = JSON.parse(raw) as ClientEnvelope
@@ -50,13 +61,28 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
       peer.send(JSON.stringify({ v: 1, type: 'error', code: 'invalid_envelope' }))
       return
     }
-    if (message.type === 'message' && typeof message.text === 'string' && message.text.trim()) {
+    const uploadIds =
+      Array.isArray(message.uploadIds) && message.uploadIds.every(item => typeof item === 'string')
+        ? message.uploadIds
+        : []
+    if (message.type === 'message' && typeof message.text === 'string' && (message.text.trim() || uploadIds.length)) {
+      let attachments: InboundAttachment[] = []
+      try {
+        attachments = uploadIds.length ? ((await deps.resolveUploads?.(uploadIds)) ?? []) : []
+      } catch {
+        peer.send(JSON.stringify({ v: 1, type: 'error', code: 'upload_unavailable' }))
+        return
+      }
+      const prepared = deps.mediaPreprocessor
+        ? await deps.mediaPreprocessor.preprocess({ text: message.text.trim(), attachments })
+        : { text: message.text.trim(), warnings: [] }
       deps.bus.emit('MessageReceived', {
         userId: deps.userId,
         platform: 'websocket',
         cli,
         cwd,
-        text: message.text.trim(),
+        text: prepared.text,
+        attachments,
         ref: { platform: 'websocket', chatId: deps.userId, nativeId: crypto.randomUUID() },
       })
       return
@@ -80,7 +106,9 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
   return {
     platform: 'websocket',
     async start() {
-      deps.gateway.setReceiver(receive)
+      deps.gateway.setReceiver((peer, data) => {
+        void receive(peer, data)
+      })
       const rememberConversation = (event: { platform: string; userId: string; conversationId: ConversationId }) => {
         if (event.platform === 'websocket' && event.userId === deps.userId) conversations.add(event.conversationId)
       }
@@ -89,6 +117,12 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
       unsubs.push(
         deps.bus.on('MessageGenerated', event => {
           if (conversations.has(event.conversationId)) send('output', event)
+        }),
+      )
+      unsubs.push(
+        deps.bus.on('CommandReply', event => {
+          if (event.ref.platform !== 'websocket' || event.ref.chatId !== deps.userId) return
+          send('output', { content: event.content, final: true })
         }),
       )
       unsubs.push(

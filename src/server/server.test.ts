@@ -178,4 +178,40 @@ describe('app server', () => {
     expect(saved).toBeNull()
     expect((await handler(request('/api/restart', { headers: { authorization: 'Bearer secret' } }))).status).toBe(200)
   })
+
+  test('Web 状态 API 仅返回 websocket 当前会话的真实状态', async () => {
+    const fake = createFakeTransport()
+    const handler = createServerRequestHandler({
+      host: '127.0.0.1',
+      port: 8787,
+      authToken: 'secret',
+      whitelistUserIds: ['chat-1'],
+      transports: [fake.transport],
+      resolveConversation: async () => null,
+      webStatus: {
+        get: async () => ({
+          platform: 'websocket',
+          conversationId: 'web-conversation',
+          cli: 'claude',
+          cwd: '/workspace',
+          sessionStatus: 'running',
+          model: { id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
+          autoApprove: { enabled: true, seconds: 5 },
+        }),
+      },
+    })
+    const response = await handler(request('/api/web/status', { headers: { authorization: 'Bearer secret' } }))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      status: {
+        platform: 'websocket',
+        conversationId: 'web-conversation',
+        cli: 'claude',
+        cwd: '/workspace',
+        sessionStatus: 'running',
+        model: { id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
+        autoApprove: { enabled: true, seconds: 5 },
+      },
+    })
+  })
 })

@@ -299,6 +299,9 @@
 | 2026-07-28 | **Web 启动隔离修复**：QQ WebSocket 代理改为仅在 `wsProxy` 已配置且 QQ 真正建立连接时动态加载；未启用 QQ 代理时，不再因为可选代理实现的本机读取异常阻断服务模块加载。QQ Gateway 回归测试通过。完整 Hub 随后暴露 `unbash` 的同类解析异常，确认当前工作区存在更广泛的 Bun `node_modules` 读取问题，非本次 WebUI 代码回归。 |
 | 2026-07-28 | **W4 平板断点修复**：真实 768px 浏览器回归发现原布局在 `lg`（1024px）前仍为单栏，未满足任务书的 768–1279 两栏要求；左侧会话栏现从 `md`（768px）起常驻，检查器继续保持抽屉。实测网格为 240px + 主区、无横向溢出。 |
 | 2026-07-28 | **W4 跨端回归完成**：最小真实 server（复用实际 `server/`、认证 Cookie、WebSocket 与 WebUI 静态资源）完成浏览器回归：320px 单栏与抽屉、768px 两栏与检查器抽屉、1280px 三栏均无横向溢出。回归同时发现并修复刷新后不恢复 HttpOnly Cookie 会话的问题；刷新现在自动恢复控制台与 WebSocket。中文/English、system/light/dark 中的 light、五种强调色中的 rose 均验证即时切换并在刷新后保存。 |
+| 2026-07-28 | **WebSocket 命令回传修复**：真机截图显示 `/help` 仅有浏览器上行帧、没有下行帧。根因是 WebSocket transport 漏订 `CommandReply`，只转发 `MessageGenerated`；现已按 `ref.platform/ref.chatId` 精确回传命令输出，并在连接建立时发送 `connected` 确认。新增命令回传和流式输出两条回归测试。 |
+| 2026-07-28 | **Web 专属状态接口**：新增受认证 `GET /api/web/status`，由 Composition Root 注入仓储与偏好查询，仅暴露 WebSocket 平台管理员的当前会话、CLI、CWD、状态、模型与自动审批，供右侧状态栏使用；不会展示其他平台会话。服务端回归测试通过。 |
+| 2026-07-28 | **W4 Web 控制台重构完成**：移除伪造的跨平台会话栏，主界面收敛为消息流、支持粘贴图片/添加文件的组合输入框和 WebSocket 当前会话状态；审批只在消息流中显示，消息取消人称标签。设置收为齿轮覆盖层且仅内容区滚动，配置由字段化表单编辑；主题、强调色、自定义下拉、消息、状态与面板均有动效。新增受认证上传 API：文件在 `MEDIA_DOWNLOAD_DIR` 暂存，以一次性 ID 经 WebSocket 转为 `InboundAttachment`，再进入既有媒体预处理链路，支持文字与附件同时发送。自动验收：format、typecheck、lint、server/WebSocket 定向测试通过。 |
 
 ## 6. 开放问题（Open Questions）
 

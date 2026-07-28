@@ -21,6 +21,16 @@ export interface HttpConversationTarget {
   transport: Transport
 }
 
+export interface WebSessionStatus {
+  platform: 'websocket'
+  conversationId: string | null
+  cli: string
+  cwd: string
+  sessionStatus: string
+  model: { id: string; name: string } | null
+  autoApprove: { enabled: boolean; seconds: number }
+}
+
 export interface AppServerDeps {
   host: string
   port: number
@@ -35,6 +45,8 @@ export interface AppServerDeps {
   webSocketGateway?: WebSocketGateway
   settings?: { read(): Promise<Record<string, unknown>>; save(input: Record<string, unknown>): Promise<void> }
   restart?: { preview(): string; run(): Promise<string> }
+  webStatus?: { get(): Promise<WebSessionStatus> }
+  uploads?: { stage(file: File): Promise<{ id: string; name: string; mimeType: string; size: number }> }
 }
 
 export interface AppServer {
@@ -103,6 +115,7 @@ export function createWebSocketGateway(): WebSocketGateway {
     },
     add(peer: WebSocketPeer) {
       peers.add(peer)
+      peer.send(JSON.stringify({ v: 1, type: 'connected' }))
     },
     remove(peer: WebSocketPeer) {
       peers.delete(peer)
@@ -129,6 +142,8 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
     }
 
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/web/status') return handleWebStatusRequest(request, deps, sessions, now())
+      if (url.pathname === '/api/web/uploads') return handleUploadRequest(request, deps, sessions, now())
       if (url.pathname === '/api/settings') return handleSettingsRequest(request, deps, sessions, now())
       if (url.pathname === '/api/restart') return handleRestartRequest(request, deps, sessions, now())
       if (request.method !== 'POST' || (url.pathname !== '/api/platform-msg' && url.pathname !== '/api/session-msg')) {
@@ -141,6 +156,36 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
     if (request.method !== 'GET' && request.method !== 'HEAD') return json({ error: 'Not found' }, 404)
     return serveWebUi(url.pathname, request.method, deps)
   }
+}
+
+async function handleUploadRequest(
+  request: Request,
+  deps: AppServerDeps,
+  sessions: Map<string, number>,
+  now: number,
+): Promise<Response> {
+  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+  if (!deps.uploads) return json({ error: 'Upload API is not configured' }, 501)
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, { allow: 'POST' })
+  try {
+    const file = (await request.formData()).get('file')
+    if (!(file instanceof File)) return json({ error: 'file is required' }, 400)
+    return json({ upload: await deps.uploads.stage(file) })
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : String(error) }, 400)
+  }
+}
+
+async function handleWebStatusRequest(
+  request: Request,
+  deps: AppServerDeps,
+  sessions: Map<string, number>,
+  now: number,
+): Promise<Response> {
+  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+  if (!deps.webStatus) return json({ error: 'Web status is not configured' }, 501)
+  if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, { allow: 'GET' })
+  return json({ status: await deps.webStatus.get() })
 }
 
 async function handleSettingsRequest(
