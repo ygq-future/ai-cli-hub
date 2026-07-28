@@ -154,6 +154,7 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
     }
 
     if (request.method !== 'GET' && request.method !== 'HEAD') return json({ error: 'Not found' }, 404)
+    if (looksLikeFileRequest(url.pathname)) return json({ error: 'Not found' }, 404)
     return serveWebUi(url.pathname, request.method, deps)
   }
 }
@@ -294,11 +295,16 @@ async function handleMessageRequest(request: Request, pathname: string, deps: Ap
 async function serveWebUi(pathname: string, method: string, deps: AppServerDeps): Promise<Response> {
   const assetPath = toAssetPath(pathname, deps.staticAssetsRoot ?? 'public/webui')
   if (pathname.startsWith('/webui/assets/') && !assetPath) return json({ error: 'Not found' }, 404)
-  const file = Bun.file(assetPath ?? deps.staticIndexPath ?? 'src/webui/index.html')
+  const file = Bun.file(assetPath ?? deps.staticIndexPath ?? 'public/webui/index.html')
   if (!(await file.exists())) return json({ error: 'Not found' }, 404)
   return new Response(method === 'HEAD' ? null : file, {
     headers: { 'content-type': contentType(assetPath ?? 'index.html') },
   })
+}
+
+function looksLikeFileRequest(pathname: string): boolean {
+  const segment = pathname.split('/').at(-1) ?? ''
+  return segment.includes('.')
 }
 
 function toAssetPath(pathname: string, root: string): string | null {

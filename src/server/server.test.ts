@@ -37,6 +37,7 @@ function createHandler(authToken = '') {
     whitelistUserIds: ['chat-1'],
     transports: [fake.transport],
     resolveConversation: async conversationId => (conversationId === CID ? { transport: fake.transport } : null),
+    staticIndexPath: 'src/webui/index.html',
   })
   return { handler, fake }
 }
@@ -134,6 +135,12 @@ describe('app server', () => {
     const { handler } = createHandler('secret')
     expect((await handler(request('/webui/assets/missing.js'))).status).toBe(404)
     expect((await handler(request('/webui/assets/..%2Findex.html'))).status).toBe(404)
+  })
+
+  test('模块脚本请求不回退到 SPA 入口', async () => {
+    const { handler } = createHandler('secret')
+    const response = await handler(request('/main.tsx'))
+    expect(response.status).toBe(404)
   })
 
   test('未配置 Token 时 Web 登录不可用，保持旧 HTTP 接口兼容', async () => {

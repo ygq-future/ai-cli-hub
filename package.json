@@ -4,8 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun run webui:build && bun --watch src/main.ts",
-    "start": "bun run webui:build && bun src/main.ts",
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . && bun run lint:deps",
     "lint:deps": "depcruise src --config .dependency-cruiser.cjs",
