@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V4 Web Control Plane（W4 实现已完成，等待可启动环境做真实浏览器回归）** |
+| 当前里程碑 | **V4 Web Control Plane（W4 已完成）** |
 | 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID、自动审批状态/倒计时且无重复目标字段；新增 `/chatid` 查看平台原生 Chat ID；新增默认监听本机 `127.0.0.1:8787`、同时支持 `0.0.0.0` 的 HTTP `/api/platform-msg` 与 `/api/session-msg` 出站消息接口。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 14 分类），`loadConfig` 不再读 process.env。** |
 | 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
 | 阻塞项 | 无 |
-| 下一步 | 用最小真实 server 完成 320/768/1280 的浏览器回归；完整 Hub 启动仍待本机恢复 Bun 对 `node_modules` 的读取后复验，再实施 W5 文档与部署收口。 |
+| 下一步 | 实施 W5 文档、部署与 VPS HTTPS 真机回归；完整 Hub 启动仍待本机恢复 Bun 对 `node_modules` 的读取后复验。 |
 
 ---
 
@@ -298,6 +298,7 @@
 | 2026-07-28 | **V4 W4 体验收口实现完成**：WebUI 补齐登录/设置错误可见反馈、连接状态 `aria-live`、禁用断线输入、Enter 发送与 Shift+Enter 换行、textarea 焦点和禁用态，并修复 WebSocket 旧连接 close 事件重复安排重连以及组件卸载后继续重连的问题；中文/English 的核心操作、状态和抽屉 aria 标签同步。自动验收：`webui:build`、typecheck、lint、format check 与 15 项相关测试通过。真实浏览器跨视口回归待本机修复 `https-proxy-agent/dist/index.js` 的 EPERM 后执行，服务在加载 QQ transport 前即受此环境问题阻断。 |
 | 2026-07-28 | **Web 启动隔离修复**：QQ WebSocket 代理改为仅在 `wsProxy` 已配置且 QQ 真正建立连接时动态加载；未启用 QQ 代理时，不再因为可选代理实现的本机读取异常阻断服务模块加载。QQ Gateway 回归测试通过。完整 Hub 随后暴露 `unbash` 的同类解析异常，确认当前工作区存在更广泛的 Bun `node_modules` 读取问题，非本次 WebUI 代码回归。 |
 | 2026-07-28 | **W4 平板断点修复**：真实 768px 浏览器回归发现原布局在 `lg`（1024px）前仍为单栏，未满足任务书的 768–1279 两栏要求；左侧会话栏现从 `md`（768px）起常驻，检查器继续保持抽屉。实测网格为 240px + 主区、无横向溢出。 |
+| 2026-07-28 | **W4 跨端回归完成**：最小真实 server（复用实际 `server/`、认证 Cookie、WebSocket 与 WebUI 静态资源）完成浏览器回归：320px 单栏与抽屉、768px 两栏与检查器抽屉、1280px 三栏均无横向溢出。回归同时发现并修复刷新后不恢复 HttpOnly Cookie 会话的问题；刷新现在自动恢复控制台与 WebSocket。中文/English、system/light/dark 中的 light、五种强调色中的 rose 均验证即时切换并在刷新后保存。 |
 
 ## 6. 开放问题（Open Questions）
 

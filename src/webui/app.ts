@@ -146,6 +146,7 @@ class HubConsole extends HTMLElement {
   connectedCallback(): void {
     this.applyPreferences()
     this.render()
+    void this.restoreSession()
   }
 
   disconnectedCallback(): void {
@@ -170,6 +171,21 @@ class HubConsole extends HTMLElement {
     localStorage.setItem(PREFERENCES_KEY, JSON.stringify(this.preferences))
     this.applyPreferences()
     this.render()
+  }
+
+  private async restoreSession(): Promise<void> {
+    try {
+      const response = await fetch('/api/auth/session')
+      if (!response.ok) return
+      const payload = (await response.json()) as { authenticated?: boolean }
+      if (!payload.authenticated) return
+      this.authenticated = true
+      this.connectWebSocket()
+      void this.loadSettings()
+      this.render()
+    } catch {
+      // 网络暂不可用时保持登录页，用户仍可手动登录。
+    }
   }
 
   private render(): void {
