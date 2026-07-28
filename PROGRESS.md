@@ -297,6 +297,7 @@
 | 2026-07-28 | **V4 W3 Settings 与受控重启完成**：新增 config 内的原子 `settings.json` 读写服务，读取脱敏、敏感字段显式覆盖、保存前 schema 校验；server 以注入接口提供 `/api/settings` 与 `/api/restart`。WebUI 设置页读取脱敏 JSON、保存后提示重启、可请求受控重启。 |
 | 2026-07-28 | **V4 W4 体验收口实现完成**：WebUI 补齐登录/设置错误可见反馈、连接状态 `aria-live`、禁用断线输入、Enter 发送与 Shift+Enter 换行、textarea 焦点和禁用态，并修复 WebSocket 旧连接 close 事件重复安排重连以及组件卸载后继续重连的问题；中文/English 的核心操作、状态和抽屉 aria 标签同步。自动验收：`webui:build`、typecheck、lint、format check 与 15 项相关测试通过。真实浏览器跨视口回归待本机修复 `https-proxy-agent/dist/index.js` 的 EPERM 后执行，服务在加载 QQ transport 前即受此环境问题阻断。 |
 | 2026-07-28 | **Web 启动隔离修复**：QQ WebSocket 代理改为仅在 `wsProxy` 已配置且 QQ 真正建立连接时动态加载；未启用 QQ 代理时，不再因为可选代理实现的本机读取异常阻断服务模块加载。QQ Gateway 回归测试通过。完整 Hub 随后暴露 `unbash` 的同类解析异常，确认当前工作区存在更广泛的 Bun `node_modules` 读取问题，非本次 WebUI 代码回归。 |
+| 2026-07-28 | **W4 平板断点修复**：真实 768px 浏览器回归发现原布局在 `lg`（1024px）前仍为单栏，未满足任务书的 768–1279 两栏要求；左侧会话栏现从 `md`（768px）起常驻，检查器继续保持抽屉。实测网格为 240px + 主区、无横向溢出。 |
 
 ## 6. 开放问题（Open Questions）
 
