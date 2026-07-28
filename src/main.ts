@@ -49,6 +49,8 @@ import { createQQTransport, createTelegramTransport, createWebSocketTransport } 
 import { createServer, createWebSocketGateway } from './server'
 import type { ConversationId, Transport } from './shared'
 
+const APP_ROOT = path.resolve(import.meta.dir, '..')
+
 async function main() {
   await buildWebUi()
 
@@ -187,7 +189,8 @@ async function main() {
     host: config.HTTP_HOST,
     port: config.HTTP_PORT,
     authToken: config.HTTP_AUTH_TOKEN,
-    staticIndexPath: 'public/webui/index.html',
+    staticAssetsRoot: path.join(APP_ROOT, 'public', 'webui'),
+    staticIndexPath: path.join(APP_ROOT, 'public', 'webui', 'index.html'),
     whitelistUserIds: config.WHITELIST_USER_IDS,
     transports,
     resolveConversation: async (conversationId: ConversationId) => {
@@ -376,7 +379,7 @@ async function main() {
 
 async function buildWebUi(): Promise<void> {
   const build = Bun.spawn(['bun', 'run', 'webui:build'], {
-    cwd: process.cwd(),
+    cwd: APP_ROOT,
     stdout: 'pipe',
     stderr: 'pipe',
   })
