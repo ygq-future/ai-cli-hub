@@ -41,6 +41,21 @@ test('WebUI 使用稳定的清晰系统字体栈', async () => {
   expect(styles).not.toContain('font-family: Inter,')
 })
 
+test('WebUI 使用中性黑白 Glass 基底与冷蓝默认强调色', async () => {
+  const [styles, source, icon] = await Promise.all([
+    readFile('src/webui/react.css', 'utf8'),
+    readFile('src/webui/main.tsx', 'utf8'),
+    readFile('src/webui/public/assets/icon.svg', 'utf8'),
+  ])
+  expect(styles).toContain('--bg: #08090d')
+  expect(styles).toContain('--glass:')
+  expect(styles).toContain("data-accent='blue'")
+  expect(styles).not.toContain('--bg: #07110e')
+  expect(source).toContain("accent: 'blue'")
+  expect(source).not.toContain("accent: 'emerald'")
+  expect(icon).not.toContain('#42e0a3')
+})
+
 test('WebSocket 断开后区分服务重启与认证过期', async () => {
   const source = await readFile('src/webui/main.tsx', 'utf8')
   expect(source).toContain("fetch('/api/auth/session')")

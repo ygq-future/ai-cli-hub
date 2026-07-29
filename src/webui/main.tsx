@@ -72,7 +72,7 @@ type Status = {
 type Preferences = {
   locale: 'zh-CN' | 'en'
   theme: 'system' | 'light' | 'dark'
-  accent: 'cyan' | 'emerald' | 'amber' | 'rose' | 'violet'
+  accent: 'blue' | 'cyan' | 'amber' | 'rose' | 'violet'
   enterToSend: boolean
 }
 type ServerEvent = {
@@ -91,7 +91,7 @@ type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string
 type SettingsData = Record<string, JsonValue>
 
 const preferenceKey = 'ai-cli-hub.webui.preferences'
-const accents: Preferences['accent'][] = ['cyan', 'emerald', 'amber', 'rose', 'violet']
+const accents: Preferences['accent'][] = ['blue', 'cyan', 'amber', 'rose', 'violet']
 const groupMeta: Record<string, [string, string, string, string]> = {
   http: ['HTTP 服务', 'HTTP service', '监听与管理接口的访问控制。', 'Listener and administrator access control.'],
   transport: [
@@ -1276,15 +1276,18 @@ function setAtPath(value: JsonValue, path: string[], next: JsonValue): JsonValue
 }
 function readPreferences(): Preferences {
   try {
+    const stored = JSON.parse(localStorage.getItem(preferenceKey) ?? '{}') as Partial<Omit<Preferences, 'accent'>> & {
+      accent?: string
+    }
     return {
       locale: 'zh-CN',
       theme: 'system',
-      accent: 'emerald',
       enterToSend: true,
-      ...(JSON.parse(localStorage.getItem(preferenceKey) ?? '{}') as Partial<Preferences>),
+      ...stored,
+      accent: accents.find(accent => accent === stored.accent) ?? 'blue',
     }
   } catch {
-    return { locale: 'zh-CN', theme: 'system', accent: 'emerald', enterToSend: true }
+    return { locale: 'zh-CN', theme: 'system', accent: 'blue', enterToSend: true }
   }
 }
 

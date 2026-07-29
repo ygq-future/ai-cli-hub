@@ -1,14 +1,21 @@
 @import 'tailwindcss';
 
 :root {
-  --bg: #07110e;
-  --panel: #0d1c17;
-  --panel-raised: #12251f;
-  --line: #294139;
-  --ink: #ecf5f0;
-  --dim: #8fa69b;
-  --accent: #31b881;
-  --danger: #e86d81;
+  --bg: #08090d;
+  --panel: #111319;
+  --panel-raised: #191c24;
+  --glass: rgb(17 19 25 / 0.78);
+  --glass-raised: rgb(25 28 36 / 0.7);
+  --line: #2b303b;
+  --line-bright: #3b4351;
+  --ink: #f3f5f8;
+  --dim: #969daa;
+  --accent: #7c9dff;
+  --accent-contrast: #080b14;
+  --danger: #f07d91;
+  --ambient-a: rgb(92 124 220 / 0.16);
+  --ambient-b: rgb(184 195 222 / 0.08);
+  --surface-shadow: 0 28px 90px rgb(0 0 0 / 0.46);
   --font-sans: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
   --font-mono:
     'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', Consolas, 'Liberation Mono', 'Microsoft YaHei UI',
@@ -16,25 +23,52 @@
   color-scheme: dark;
 }
 :root[data-theme='light'] {
-  --bg: #edf5f1;
-  --panel: #fff;
-  --panel-raised: #f6fbf8;
-  --line: #ceddd5;
-  --ink: #11271d;
-  --dim: #5b7468;
+  --bg: #eef0f4;
+  --panel: #fafbfc;
+  --panel-raised: #f2f4f7;
+  --glass: rgb(255 255 255 / 0.76);
+  --glass-raised: rgb(248 250 253 / 0.72);
+  --line: #d5d9e1;
+  --line-bright: #c5cad4;
+  --ink: #17191e;
+  --dim: #69717e;
+  --accent: #4e73d8;
+  --accent-contrast: #fff;
+  --danger: #c94f68;
+  --ambient-a: rgb(76 112 208 / 0.13);
+  --ambient-b: rgb(255 255 255 / 0.88);
+  --surface-shadow: 0 26px 80px rgb(43 50 64 / 0.14);
   color-scheme: light;
 }
+:root[data-accent='blue'] {
+  --accent: #7c9dff;
+}
+:root[data-theme='light'][data-accent='blue'] {
+  --accent: #4e73d8;
+}
 :root[data-accent='cyan'] {
-  --accent: #25b8c4;
+  --accent: #55c2d4;
+}
+:root[data-theme='light'][data-accent='cyan'] {
+  --accent: #16889b;
 }
 :root[data-accent='amber'] {
-  --accent: #e7a12e;
+  --accent: #e5aa52;
+}
+:root[data-theme='light'][data-accent='amber'] {
+  --accent: #ae7015;
 }
 :root[data-accent='rose'] {
-  --accent: #df6781;
+  --accent: #e77b93;
+}
+:root[data-theme='light'][data-accent='rose'] {
+  --accent: #bd4e68;
 }
 :root[data-accent='violet'] {
-  --accent: #9075df;
+  --accent: #a68bea;
+}
+:root[data-theme='light'][data-accent='violet'] {
+  --accent: #795bc8;
 }
 * {
   box-sizing: border-box;
@@ -46,7 +80,10 @@ body,
 }
 body {
   margin: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(circle at 12% 0%, var(--ambient-a), transparent 34rem),
+    radial-gradient(circle at 92% 100%, var(--ambient-b), transparent 31rem), var(--bg);
+  background-attachment: fixed;
   color: var(--ink);
   font-family: var(--font-sans);
   font-optical-sizing: auto;
@@ -55,8 +92,8 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition:
-    background-color 0.32s ease,
-    color 0.32s ease;
+    background 0.45s ease,
+    color 0.36s ease;
 }
 button,
 input,
@@ -142,7 +179,7 @@ button:disabled {
 .ui-button-default {
   padding: 11px 14px;
   background: var(--accent);
-  color: #061d14;
+  color: var(--accent-contrast);
   font-weight: 800;
   box-shadow: 0 9px 22px color-mix(in srgb, var(--accent) 17%, transparent);
 }
@@ -157,7 +194,7 @@ button:disabled {
 .ui-button-secondary {
   padding: 10px 12px;
   border-color: var(--line);
-  background: transparent;
+  background: color-mix(in srgb, var(--glass-raised) 72%, transparent);
   color: var(--ink);
 }
 .ui-button-secondary:hover:not(:disabled) {
@@ -169,7 +206,8 @@ button:disabled {
   padding: 11px 12px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--bg) 60%, var(--panel));
+  background: color-mix(in srgb, var(--glass-raised) 82%, transparent);
+  backdrop-filter: blur(18px) saturate(125%);
   color: var(--ink);
   outline: 0;
   transition:
@@ -183,8 +221,8 @@ button:disabled {
 .ui-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: #0009;
-  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--bg) 68%, transparent);
+  backdrop-filter: blur(14px) saturate(110%);
   animation: fade-in 0.18s ease;
 }
 .ui-dialog-content {
@@ -197,8 +235,9 @@ button:disabled {
   transform: translate(-50%, -50%);
   border: 1px solid var(--line);
   border-radius: 22px;
-  background: var(--panel);
-  box-shadow: 0 24px 90px #0008;
+  background: var(--glass);
+  box-shadow: var(--surface-shadow);
+  backdrop-filter: blur(30px) saturate(145%);
   animation: dialog-in 0.23s cubic-bezier(0.2, 0.8, 0.2, 1);
   overflow: hidden;
 }
@@ -246,7 +285,8 @@ button:disabled {
   padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: 11px;
-  background: var(--panel-raised);
+  background: var(--glass-raised);
+  backdrop-filter: blur(16px) saturate(125%);
   color: var(--ink);
   transition:
     border-color 0.18s ease,
@@ -262,8 +302,9 @@ button:disabled {
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--panel-raised);
-  box-shadow: 0 14px 35px #0005;
+  background: var(--glass);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.28);
+  backdrop-filter: blur(24px) saturate(140%);
   animation: popover-in 0.16s ease;
 }
 .ui-select-item {
@@ -286,16 +327,20 @@ button:disabled {
   place-items: center;
   padding: 24px;
   background:
-    radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 29rem), var(--bg);
-  transition: background-color 0.32s ease;
+    radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 29rem),
+    radial-gradient(circle at 88% 90%, var(--ambient-b), transparent 25rem);
+  transition: background 0.45s ease;
 }
 .login section {
   width: min(100%, 510px);
   padding: clamp(27px, 7vw, 52px);
   border: 1px solid var(--line);
   border-radius: 28px;
-  background: color-mix(in srgb, var(--panel) 93%, transparent);
-  box-shadow: 0 30px 90px #0006;
+  background: var(--glass);
+  box-shadow:
+    var(--surface-shadow),
+    inset 0 1px 0 color-mix(in srgb, #fff 9%, transparent);
+  backdrop-filter: blur(32px) saturate(145%);
   animation: dialog-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .login h1 {
@@ -354,19 +399,19 @@ small {
   transform: scale(1.1);
 }
 .accent[data-accent='cyan'] {
-  background: #25b8c4;
+  background: #55c2d4;
 }
-.accent[data-accent='emerald'] {
-  background: #31b881;
+.accent[data-accent='blue'] {
+  background: #7c9dff;
 }
 .accent[data-accent='amber'] {
-  background: #e7a12e;
+  background: #e5aa52;
 }
 .accent[data-accent='rose'] {
-  background: #df6781;
+  background: #e77b93;
 }
 .accent[data-accent='violet'] {
-  background: #9075df;
+  background: #a68bea;
 }
 .accent.active {
   border-color: var(--ink);
@@ -375,6 +420,9 @@ small {
 .app {
   height: 100dvh;
   padding: 12px;
+  background:
+    radial-gradient(circle at 6% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 25rem),
+    radial-gradient(circle at 100% 100%, var(--ambient-b), transparent 28rem);
 }
 .app-header {
   display: flex;
@@ -384,7 +432,9 @@ small {
   border: 1px solid var(--line);
   border-bottom: 0;
   border-radius: 22px 22px 0 0;
-  background: var(--panel);
+  background: var(--glass);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 7%, transparent);
+  backdrop-filter: blur(28px) saturate(140%);
 }
 .connection {
   display: inline-flex;
@@ -417,7 +467,9 @@ small {
   border: 1px solid var(--line);
   border-radius: 0 0 22px 22px;
   overflow: hidden;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--glass) 94%, transparent);
+  box-shadow: var(--surface-shadow);
+  backdrop-filter: blur(28px) saturate(135%);
 }
 .chat {
   display: flex;
@@ -478,7 +530,11 @@ small {
   padding: 14px 17px;
   border: 1px solid var(--line);
   border-radius: 18px 18px 18px 5px;
-  background: color-mix(in srgb, var(--panel-raised) 72%, transparent);
+  background: color-mix(in srgb, var(--glass-raised) 88%, transparent);
+  box-shadow:
+    0 10px 30px rgb(0 0 0 / 0.08),
+    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
+  backdrop-filter: blur(16px) saturate(125%);
   overflow-wrap: anywhere;
   line-height: 1.65;
   animation: message-in 0.23s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -652,7 +708,7 @@ small {
   --file-tone: #25b8c4;
 }
 .message-file.text {
-  --file-tone: #31b881;
+  --file-tone: #6f91d8;
 }
 .file-icon {
   display: grid;
@@ -735,7 +791,8 @@ small {
 .composer-wrap {
   padding: 13px clamp(18px, 8vw, 130px) 17px;
   border-top: 1px solid var(--line);
-  background: var(--panel);
+  background: color-mix(in srgb, var(--glass) 94%, transparent);
+  backdrop-filter: blur(24px) saturate(135%);
 }
 .compose {
   display: flex;
@@ -744,7 +801,9 @@ small {
   padding: 7px;
   border: 1px solid var(--line);
   border-radius: 17px;
-  background: color-mix(in srgb, var(--panel-raised) 75%, var(--bg));
+  background: var(--glass-raised);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
+  backdrop-filter: blur(20px) saturate(130%);
   transition:
     border-color 0.18s ease,
     box-shadow 0.18s ease,
@@ -808,8 +867,8 @@ small {
   overflow: hidden;
   padding: 2px 4px;
   border-radius: 5px;
-  background: #06110dcc;
-  color: #f4fff9;
+  background: rgb(8 9 13 / 0.82);
+  color: #f5f6f8;
   font-size: 0.6rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -825,7 +884,7 @@ small {
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: #07130fe6;
+  background: rgb(8 9 13 / 0.9);
   color: #fff;
 }
 .compose:focus-within {
@@ -857,7 +916,8 @@ small {
 .status-panel {
   padding: 25px 18px;
   border-left: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel-raised) 46%, var(--panel));
+  background: color-mix(in srgb, var(--glass-raised) 62%, transparent);
+  backdrop-filter: blur(22px) saturate(125%);
   overflow: auto;
 }
 .status-panel h2 {
@@ -938,7 +998,9 @@ small {
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 15px;
-  background: color-mix(in srgb, var(--panel-raised) 48%, transparent);
+  background: color-mix(in srgb, var(--glass-raised) 78%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
+  backdrop-filter: blur(16px) saturate(120%);
 }
 .settings-masonry {
   columns: 2 380px;
@@ -1053,7 +1115,9 @@ small {
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 15px;
-  background: color-mix(in srgb, var(--panel-raised) 48%, transparent);
+  background: color-mix(in srgb, var(--glass-raised) 78%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
+  backdrop-filter: blur(16px) saturate(120%);
 }
 .preference-section h3 {
   margin: 0 0 8px;
@@ -1237,7 +1301,8 @@ small {
     position: sticky;
     bottom: -16px;
     padding: 13px 0;
-    background: var(--panel);
+    background: var(--glass);
+    backdrop-filter: blur(18px) saturate(125%);
   }
   .settings-actions small {
     display: none;
