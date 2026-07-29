@@ -66,10 +66,11 @@ export interface EventMap {
   ConversationContextReset: { conversationId: ConversationId }; // 持久内容清除后停止当前 adapter
 
   // —— 消息 ——
-  MessageReceived:  { userId: string; platform: Platform; cli: CliType; cwd: string; text: string; ref: MessageRef; attachments?: InboundAttachment[] };
-  // 图片 OCR 文本折入 text；附件结构交给 Core 建立 conversation 内编号，非图片不会自动进入 AI。
-  MessageGenerated: { conversationId: ConversationId; content: string; final: boolean }; // final=false 为流式增量
-  CommandReply:     { ref: MessageRef; content: string; copyActions?: CopyAction[] };
+  MessageReceived:  { userId: string; platform: Platform; cli: CliType; cwd: string; text: string; promptText?: string; ref: MessageRef; attachments?: InboundAttachment[] };
+  // text 始终是用户可见原文并用于落库；图片 OCR/文件上下文只进入 promptText。
+  MessageGenerated: { conversationId: ConversationId; content: string; final: boolean; attachments?: StoredMessageAttachment[] }; // final=false 为流式增量
+  MessagePersisted: { conversationId: ConversationId; ref: MessageRef; message: { id: string; role: 'user'; content: string; attachments: StoredMessageAttachment[]; createdAt: number } };
+  CommandReply:     { ref: MessageRef; content: string; copyActions?: CopyAction[]; attachments?: StoredMessageAttachment[] };
   UserLanguageChanged: { userId: string; platform: Platform; language: 'zh' | 'en' };
   UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }; // /switch 更新当前选中 CLI/cwd
   UserPreferencesReset: { userId: string; platform: Platform }; // /reset 后停止该用户 adapter
@@ -295,7 +296,8 @@ export interface ConversationRepository {
 
 export interface MessageRepository {
   append(m: NewMessage): Promise<Message>;
-  listByConversation(id: ConversationId, limit?: number): Promise<Message[]>;
+  // limit 存在时返回 before 游标之前最新 N 条，结果仍按时间正序。
+  listByConversation(id: ConversationId, limit?: number, before?: { createdAt: number; id: string }): Promise<Message[]>;
 }
 
 export interface AuditRepository {
@@ -337,6 +339,7 @@ export interface UserPreferenceRepository {
 export interface ConversationFileRepository {
   createNext(input: NewConversationFile): Promise<ConversationFile>;
   findBySequence(conversationId: ConversationId, sequence: number): Promise<ConversationFile | null>;
+  findById(conversationId: ConversationId, id: string): Promise<ConversationFile | null>;
   listByConversation(conversationId: ConversationId, limit: number, keyword?: string): Promise<ConversationFile[]>;
   deleteByConversation(conversationId: ConversationId): Promise<ConversationFile[]>;
 }
@@ -388,7 +391,7 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 
 ### `GET /ws`
 
-浏览器在已登录 Cookie 下升级 WebSocket。JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`）与 `approve`/`reject`（`conversationId`、`approvalId`）；下行 `connected`、`output`、`approval`、`error`。`output` 同时承载会话流式输出和 `/help` 等命令回复。浏览器断线使用指数退避重连。
+浏览器在已登录 Cookie 下升级 WebSocket。JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`、`clientMessageId`、可选 `uploadIds`）与 `approve`/`reject`（`conversationId`、`approvalId`）；下行 `connected`、`user_message`、`output`、`approval`、`error`。`user_message` 将服务端规范化消息 ID 和持久化附件回执给浏览器，用于替换乐观消息；`output` 同时承载会话流式输出、持久化预览附件和 `/help` 等命令回复。浏览器断线使用指数退避重连。
 
 ### `GET` / `PUT /api/settings` 与 `/api/restart`
 
@@ -400,11 +403,11 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 
 ### `GET /api/web/history`
 
-要求已认证会话。按当前 Web 管理员选中的 CLI 查询最新未关闭会话，并按时间正序返回其中的 user/assistant 消息及持久化附件元数据，供 WebUI 刷新后恢复文字与图片气泡；没有当前会话时返回空数组。
+要求已认证会话。查询参数 `limit` 默认 10、范围 1–50，`before` 使用上一页返回的 opaque cursor。按当前 Web 管理员选中的 CLI 查询最新未关闭会话，返回该游标之前最新一页 user/assistant 消息、持久化附件元数据和 `nextCursor`；单页内部按时间正序。WebUI 滚动到顶部时按游标加载更早消息并保持当前阅读位置；没有当前会话时返回 `{ messages: [], nextCursor: null }`。
 
 ### `GET /api/web/files/:id`
 
-要求已认证会话。仅当文件属于当前 Web 会话且受控文件仍存在时返回内容，默认使用 `inline`；不能借此读取其他平台、其他会话或任意本地路径。
+要求已认证会话。仅当文件属于当前 Web 会话且受控文件仍存在时返回内容，默认使用 `inline`；不能借此读取其他平台、其他会话或任意本地路径。图片附件在气泡内直接显示并支持双击放大；其他附件按类型显示卡片并支持双击下载。
 
 ### `POST /api/platform-msg`
 

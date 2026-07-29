@@ -438,7 +438,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   ): Promise<string> {
     try {
       const messages = await repos.messages.listByConversation(conversationId)
-      const previousMessages = dropCurrentUserMessage(messages, currentText)
+      const previousMessages = dropCurrentUserMessage(messages.filter(message => message.contextEligible !== false))
         .sort((a, b) => a.createdAt - b.createdAt)
         .slice(-recentContextLimit)
       if (previousMessages.length === 0) return ''
@@ -671,13 +671,13 @@ function roleDescriptionHint(description: string | undefined): string {
   return ['[Agent 职责定位]', trimmed].join('\n')
 }
 
-function dropCurrentUserMessage(
-  messages: Awaited<ReturnType<Repositories['messages']['listByConversation']>>,
-  currentText: string,
-) {
+function dropCurrentUserMessage(messages: Awaited<ReturnType<Repositories['messages']['listByConversation']>>) {
   const copy = [...messages]
   const last = copy[copy.length - 1]
-  if (last?.role === 'user' && last.content === currentText) copy.pop()
+  // MessageRouter guarantees the current user message is persisted immediately before
+  // invoking the adapter. Its visible content can differ from the expanded prompt text
+  // (`@readN`, OCR context), so identity cannot rely on content equality.
+  if (last?.role === 'user') copy.pop()
   return copy
 }
 

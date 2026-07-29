@@ -114,7 +114,7 @@ describe('TelegramTransport 入站', () => {
         },
       },
     })
-    const received: Array<{ text: string; attachments?: unknown[] }> = []
+    const received: Array<{ text: string; promptText?: string; attachments?: unknown[] }> = []
     bus.on('MessageReceived', payload => received.push(payload))
 
     mock.handlers.text!({
@@ -142,7 +142,10 @@ describe('TelegramTransport 入站', () => {
 
     expect(batches).toEqual([['p1', 'p2']])
     expect(received).toHaveLength(1)
-    expect(received[0]?.text).toBe('ocr:2')
+    expect(received[0]).toMatchObject({
+      text: '两张图',
+      promptText: 'ocr:2',
+    })
     expect(received[0]?.attachments).toHaveLength(2)
   })
 
@@ -326,7 +329,10 @@ describe('TelegramTransport 入站', () => {
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 1000 }, message: { text: '今天好累 😭', message_id: 5 } })
     await tick()
 
-    expect((received[0] as Record<string, unknown>).text).toBe('今天好累 😭\nemoji-context')
+    expect(received[0]).toMatchObject({
+      text: '今天好累 😭',
+      promptText: '今天好累 😭\nemoji-context',
+    })
   })
 
   test('Sticker metadata 经媒体预处理进入 MessageReceived', async () => {
@@ -375,7 +381,10 @@ describe('TelegramTransport 入站', () => {
       isAnimated: true,
       isVideo: false,
     })
-    expect((received[0] as Record<string, unknown>).text).toBe('sticker context')
+    expect(received[0]).toMatchObject({
+      text: '',
+      promptText: 'sticker context',
+    })
   })
 
   test('Photo 下载到受控路径后作为附件上下文传入预处理', async () => {
@@ -419,7 +428,10 @@ describe('TelegramTransport 入站', () => {
       mimeType: 'image/jpeg',
       localPath: 'D:/media/large.jpg',
     })
-    expect((received[0] as Record<string, unknown>).text).toBe('photo context')
+    expect(received[0]).toMatchObject({
+      text: '识别这张图',
+      promptText: 'photo context',
+    })
   })
 
   test('Audio 作为可下载附件保存并传入预处理', async () => {
@@ -469,7 +481,10 @@ describe('TelegramTransport 入站', () => {
       fileSize: 2048,
       localPath: 'D:/media/稳稳的幸福（DJ）.mp3',
     })
-    expect((received[0] as Record<string, unknown>).text).toBe('audio context')
+    expect(received[0]).toMatchObject({
+      text: '',
+      promptText: 'audio context',
+    })
   })
 
   test('非白名单媒体消息不会触发下载', async () => {

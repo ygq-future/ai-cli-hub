@@ -60,7 +60,12 @@ export interface AppServerDeps {
   settings?: { read(): Promise<Record<string, unknown>>; save(input: Record<string, unknown>): Promise<void> }
   restart?: { preview(): string; run(): Promise<string> }
   webStatus?: { get(): Promise<WebSessionStatus> }
-  webHistory?: { get(): Promise<WebHistoryMessage[]> }
+  webHistory?: {
+    get(input: { limit: number; before: string | null }): Promise<{
+      messages: WebHistoryMessage[]
+      nextCursor: string | null
+    }>
+  }
   webFiles?: {
     get(id: string): Promise<{ body: Blob; fileName: string | null; mimeType: string | null } | null>
   }
@@ -161,7 +166,7 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
 
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname === '/api/web/status') return handleWebStatusRequest(request, deps, sessions, now())
-      if (url.pathname === '/api/web/history') return handleWebHistoryRequest(request, deps, sessions, now())
+      if (url.pathname === '/api/web/history') return handleWebHistoryRequest(request, url, deps, sessions, now())
       if (url.pathname.startsWith('/api/web/files/'))
         return handleWebFileRequest(request, url.pathname, deps, sessions, now())
       if (url.pathname === '/api/web/uploads') return handleUploadRequest(request, deps, sessions, now())
@@ -209,6 +214,7 @@ async function handleWebFileRequest(
 
 async function handleWebHistoryRequest(
   request: Request,
+  url: URL,
   deps: AppServerDeps,
   sessions: Map<string, number>,
   now: number,
@@ -216,7 +222,12 @@ async function handleWebHistoryRequest(
   if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
   if (!deps.webHistory) return json({ error: 'Web history is not configured' }, 501)
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, { allow: 'GET' })
-  return json({ messages: await deps.webHistory.get() })
+  const rawLimit = url.searchParams.get('limit')
+  const limit = rawLimit === null ? 10 : Number(rawLimit)
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) return json({ error: 'limit must be between 1 and 50' }, 400)
+  const before = url.searchParams.get('before')
+  if (before !== null && !/^\d+:[A-Za-z0-9_-]+$/.test(before)) return json({ error: 'Invalid history cursor' }, 400)
+  return json(await deps.webHistory.get({ limit, before }))
 }
 
 async function handleUploadRequest(

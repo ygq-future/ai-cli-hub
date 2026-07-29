@@ -408,7 +408,7 @@ describe('QQTransport 媒体入站', () => {
       },
     })
     await transport.start()
-    const received: Array<{ text: string }> = []
+    const received: Array<{ text: string; promptText?: string }> = []
     bus.on('MessageReceived', p => received.push(p))
 
     fake.emit(
@@ -425,7 +425,10 @@ describe('QQTransport 媒体入站', () => {
     ])
     expect(preprocessor.calls[0]?.attachments?.[0]?.fileId).toBeUndefined()
     expect(received.length).toBe(1)
-    expect(received[0]?.text).toContain('[attachments: photo]')
+    expect(received[0]).toMatchObject({
+      text: '看看这张图',
+      promptText: expect.stringContaining('[attachments: photo]'),
+    })
   })
 
   test('GIF 表情包按 image/gif → kind=photo 归类', async () => {

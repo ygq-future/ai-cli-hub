@@ -74,7 +74,7 @@ export type NewConversation = typeof conversations.$inferInsert;
 
 ```typescript
 // storage/schema/messages.ts
-import { pgTable, text, bigint, index, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, index, jsonb, boolean } from 'drizzle-orm/pg-core';
 import { roleEnum } from './enums';
 
 export const messages = pgTable('messages', {
@@ -84,6 +84,7 @@ export const messages = pgTable('messages', {
   role:           roleEnum('role').notNull(),
   content:        text('content').notNull(),
   attachments:    jsonb('attachments').$type<StoredMessageAttachment[]>().notNull().default([]),
+  contextEligible: boolean('context_eligible').notNull().default(true),
   createdAt:      bigint('created_at', { mode: 'number' }).notNull(),
 }, (t) => ({
   byConv: index('idx_msg_conv').on(t.conversationId, t.createdAt),
@@ -92,6 +93,8 @@ export const messages = pgTable('messages', {
 export type Message    = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 ```
+
+> `content` 只保存用户可见原文或助手可见回复，不保存 OCR、`@readN` 展开内容和本地路径等内部 prompt 注入文本。`attachments` 保存受控 `conversation_files.id` 及展示元数据，使上传、`@readN`/`@fileN` 引用和 `@viewN` 预览都可在历史气泡中恢复。除 `/help` 外，本地命令的用户输入与回复同样写入当前消息历史，但其 `context_eligible=false`，不会污染后续 CLI 上下文或长期记忆摘要。
 
 ---
 

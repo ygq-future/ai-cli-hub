@@ -692,7 +692,12 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     return attachments
   }
 
-  async function emitIncoming(ctx: TgCtx, text: string, attachments?: InboundAttachment[]): Promise<void> {
+  async function emitIncoming(
+    ctx: TgCtx,
+    text: string,
+    attachments?: InboundAttachment[],
+    promptText?: string,
+  ): Promise<void> {
     const userId = String(ctx.from?.id ?? '')
     const chatId = String(ctx.chat?.id ?? '')
     if (!userId || !chatId) return
@@ -727,6 +732,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       text,
       ref: { platform: 'telegram', chatId, nativeId: String(ctx.message?.message_id ?? '') },
       ...(attachments?.length ? { attachments } : {}),
+      ...(promptText && promptText !== text ? { promptText } : {}),
     })
   }
 
@@ -751,7 +757,7 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       config.MEDIA_PARSE_TIMEOUT_MS,
       'Media preprocessing',
     )
-    await emitIncoming(firstContext, result.text, attachments)
+    await emitIncoming(firstContext, text, attachments, result.text)
   }
 
   async function onIncoming(ctx: TgCtx): Promise<void> {

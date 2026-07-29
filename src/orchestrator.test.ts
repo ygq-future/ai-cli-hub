@@ -300,9 +300,23 @@ describe('SessionOrchestrator', () => {
     })
     const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
 
+    messages.push({
+      id: 'first-question',
+      conversationId: CID,
+      role: 'user',
+      content: 'read file',
+      createdAt: 2,
+    })
     await orch.handler.onMessage('read file', CID)
     bus.emit('ApprovalRejected', { conversationId: CID, approvalId: 'a1', operator: 'u1' })
     await tick()
+    messages.push({
+      id: 'second-question',
+      conversationId: CID,
+      role: 'user',
+      content: '直接告诉我最新文件内容',
+      createdAt: 3,
+    })
     await orch.handler.onMessage('直接告诉我最新文件内容', CID)
 
     expect(fake.calls.stop).toBe(1)
@@ -825,12 +839,12 @@ describe('SessionOrchestrator', () => {
       id: 'current',
       conversationId: CID,
       role: 'user',
-      content: 'current question',
+      content: '@read2 current question',
       createdAt: 13,
     })
     const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
 
-    await orch.handler.onMessage('current question', CID)
+    await orch.handler.onMessage('expanded file content\ncurrent question', CID)
     await orch.handler.onMessage('follow up', CID)
 
     const firstInput = fake.calls.sendUserInput[0]!
@@ -839,7 +853,8 @@ describe('SessionOrchestrator', () => {
     expect(firstInput).not.toMatch(/：history-2(\n|$)/)
     expect(firstInput).toContain('history-3')
     expect(firstInput).toContain('history-12')
-    expect(firstInput).toContain('[本次用户输入]\ncurrent question')
+    expect(firstInput).toContain('[本次用户输入]\nexpanded file content\ncurrent question')
+    expect(firstInput).not.toContain('@read2 current question')
     expect(firstInput.match(/current question/g)?.length).toBe(1)
     expect(fake.calls.sendUserInput[1]).toBe('follow up')
 

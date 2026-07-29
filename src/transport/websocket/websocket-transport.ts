@@ -43,6 +43,7 @@ interface ClientEnvelope {
   approvalId?: unknown
   conversationId?: unknown
   uploadIds?: unknown
+  clientMessageId?: unknown
 }
 
 export function createWebSocketTransport(deps: WebSocketTransportDeps): Transport {
@@ -91,9 +92,17 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
         platform: 'web',
         cli,
         cwd,
-        text: prepared.text,
+        text,
+        ...(prepared.text === text ? {} : { promptText: prepared.text }),
         attachments,
-        ref: { platform: 'web', chatId: deps.userId, nativeId: crypto.randomUUID() },
+        ref: {
+          platform: 'web',
+          chatId: deps.userId,
+          nativeId:
+            typeof message.clientMessageId === 'string' && message.clientMessageId.trim()
+              ? message.clientMessageId
+              : crypto.randomUUID(),
+        },
       })
       return
     }
@@ -130,9 +139,15 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
         }),
       )
       unsubs.push(
+        deps.bus.on('MessagePersisted', event => {
+          if (event.ref.platform !== 'web' || event.ref.chatId !== deps.userId) return
+          send('user_message', { clientMessageId: event.ref.nativeId, message: event.message })
+        }),
+      )
+      unsubs.push(
         deps.bus.on('CommandReply', event => {
           if (event.ref.platform !== 'web' || event.ref.chatId !== deps.userId) return
-          send('output', { content: event.content, final: true })
+          send('output', { content: event.content, final: true, attachments: event.attachments })
         }),
       )
       unsubs.push(

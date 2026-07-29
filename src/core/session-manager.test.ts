@@ -158,6 +158,9 @@ function createMockRepos() {
           conversationFiles.find(file => file.conversationId === conversationId && file.sequence === sequence) ?? null
         )
       },
+      async findById(conversationId: ConversationId, id: string) {
+        return conversationFiles.find(file => file.conversationId === conversationId && file.id === id) ?? null
+      },
       async listByConversation(conversationId: ConversationId, limit: number, keyword?: string) {
         return conversationFiles
           .filter(file => file.conversationId === conversationId && (!keyword || file.fileName?.includes(keyword)))
@@ -639,7 +642,14 @@ describe('MessageRouter with MockHandler', () => {
     expect(replies[0]?.content).toContain('文件 1')
     const cid = await sm.findCurrent({ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/project' })
     expect(cid).not.toBeNull()
-    expect(await repos.messages.listByConversation(cid!)).toEqual([])
+    expect(await repos.messages.listByConversation(cid!)).toEqual([
+      expect.objectContaining({
+        role: 'user',
+        content: '仅保存',
+        attachments: [expect.objectContaining({ fileName: 'notes.docx' })],
+      }),
+      expect.objectContaining({ role: 'assistant', content: expect.stringContaining('文件已暂存') }),
+    ])
   })
 
   test('图片附件元数据随用户消息持久化，供 Web 历史气泡回显', async () => {
@@ -687,7 +697,7 @@ describe('MessageRouter with MockHandler', () => {
     expect((userMessage as { attachments: Array<{ id: string }> }).attachments[0]?.id).toBeString()
   })
 
-  test('@readN 注入提取内容，@fileN 只注入本地路径', async () => {
+  test('@readN 保留用户原文、绑定引用文件，并只把展开内容注入 handler', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()
     const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
@@ -740,6 +750,76 @@ describe('MessageRouter with MockHandler', () => {
     expect(seen[0]).toContain('按需读取内容')
     expect(seen[1]).toContain('local_path=D:/tmp/notes.txt')
     expect(seen[1]).not.toContain('按需读取内容')
+    const cid = await sm.findCurrent(base)
+    const messages = await repos.messages.listByConversation(cid!)
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'user',
+          content: '总结 @read1',
+          attachments: [expect.objectContaining({ fileName: 'notes.txt' })],
+        }),
+        expect.objectContaining({
+          role: 'user',
+          content: '处理 @file1',
+          attachments: [expect.objectContaining({ fileName: 'notes.txt' })],
+        }),
+      ]),
+    )
+    expect(messages.some(message => String(message.content).includes('[File 1 extracted content'))).toBe(false)
+  })
+
+  test('@viewN 持久化用户指令和带附件的预览消息，不进入 handler', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    let handlerCalls = 0
+    createMessageRouter(bus as unknown as EventBus, repos, sm, undefined, {
+      async onMessage() {
+        handlerCalls++
+        return ''
+      },
+    })
+    const base = {
+      userId: 'u1',
+      platform: 'web' as const,
+      cli: 'claude' as const,
+      cwd: '/project',
+      ref: { platform: 'web' as const, chatId: 'c', nativeId: 'view-1' },
+    }
+    bus.emit('MessageReceived', {
+      ...base,
+      text: '',
+      attachments: [
+        {
+          kind: 'photo',
+          fileName: 'screen.png',
+          mimeType: 'image/png',
+          fileSize: 2048,
+          localPath: '/tmp/screen.png',
+        },
+      ],
+    })
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    const replies: Array<{ content: string; attachments?: unknown[] }> = []
+    bus.on('CommandReply', reply => replies.push(reply))
+    bus.emit('MessageReceived', { ...base, text: '@view1', ref: { ...base.ref, nativeId: 'view-2' } })
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    const cid = await sm.findCurrent(base)
+    const messages = await repos.messages.listByConversation(cid!)
+    expect(handlerCalls).toBe(1)
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'user', content: '@view1' }),
+        expect.objectContaining({
+          role: 'assistant',
+          attachments: [expect.objectContaining({ fileName: 'screen.png' })],
+        }),
+      ]),
+    )
+    expect(replies.at(-1)?.attachments).toEqual([expect.objectContaining({ fileName: 'screen.png' })])
   })
 
   test('自然语言记忆请求触发 MemorySummaryRequested，不进入 handler/SDK', async () => {
@@ -844,7 +924,7 @@ describe('MessageRouter with MockHandler', () => {
     expect((errors[0] as Record<string, unknown>).message).toContain('Mock failure')
   })
 
-  test('斜杠命令先走 CommandRouter：不保存消息、不调用 handler', async () => {
+  test('除 /help 外的斜杠命令持久化用户原文和回复，但不调用 handler', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()
     const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
@@ -888,15 +968,87 @@ describe('MessageRouter with MockHandler', () => {
     await new Promise(r => setTimeout(r, 10))
 
     const msgs = await repos.messages.listByConversation(cid)
-    expect(msgs.length).toBe(0)
+    expect(msgs).toEqual([
+      expect.objectContaining({ role: 'user', content: '/status', contextEligible: false }),
+      expect.objectContaining({
+        role: 'assistant',
+        content: expect.stringContaining('Current session'),
+        contextEligible: false,
+      }),
+    ])
     expect(handledByAdapter).toBe(false)
     expect(replies.length).toBe(1)
     expect((replies[0] as Record<string, unknown>).content).toContain('Current session')
     expect((replies[0] as Record<string, unknown>).content).toContain('**Language**: `en`')
   })
+
+  test('/help 不写入消息历史', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({ bus: bus as unknown as EventBus, repos, sessionManager: sm })
+    const cid = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'hi',
+    })
+    createMessageRouter(bus as unknown as EventBus, repos, sm, commandRouter)
+
+    bus.emit('MessageReceived', {
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: '/help',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: 'help-1' },
+    })
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    expect(await repos.messages.listByConversation(cid)).toEqual([])
+  })
 })
 
 describe('CommandRouter', () => {
+  test('/file 使用智能文件大小并展示 @view 指令', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const cid = await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'web',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'hello',
+    })
+    await repos.conversationFiles.createNext({
+      conversationId: cid,
+      kind: 'document',
+      fileId: null,
+      fileName: 'archive.zip',
+      mimeType: 'application/zip',
+      fileSize: 1_610_612_736,
+      localPath: '/tmp/archive.zip',
+    })
+    const commandRouter = createCommandRouter({ bus: bus as unknown as EventBus, repos, sessionManager: sm })
+    const replies: Array<{ content: string }> = []
+    bus.on('CommandReply', reply => replies.push(reply))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'web',
+      cli: 'claude',
+      cwd: '/project',
+      text: '/file',
+      ref: { platform: 'web', chatId: 'c', nativeId: 'file-1' },
+    })
+
+    expect(replies[0]?.content).toContain('1.50 GB')
+    expect(replies[0]?.content).toContain('@view1')
+    expect(replies[0]?.content).not.toContain('1610612736 bytes')
+  })
+
   test('/chatid 返回平台 Chat ID，并明确区别于 conversationId', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()

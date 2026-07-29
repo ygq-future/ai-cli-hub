@@ -59,7 +59,11 @@ export interface CliCwdDefault {
 
 export interface MessageRepository {
   append(m: NewMessage): Promise<Message>
-  listByConversation(id: ConversationId, limit?: number): Promise<Message[]>
+  /**
+   * 不传 limit 时返回完整正序历史；传 limit 时返回指定游标之前最新的 N 条，
+   * 结果仍按时间正序，供 Web 历史分页使用。
+   */
+  listByConversation(id: ConversationId, limit?: number, before?: { createdAt: number; id: string }): Promise<Message[]>
   deleteByConversation(id: ConversationId): Promise<void>
 }
 
@@ -69,6 +73,7 @@ export interface ConversationFileRepository {
     input: Omit<NewConversationFile, 'id' | 'sequence' | 'createdAt'> & { kind: InboundAttachmentKind },
   ): Promise<ConversationFile>
   findBySequence(conversationId: ConversationId, sequence: number): Promise<ConversationFile | null>
+  findById(conversationId: ConversationId, id: string): Promise<ConversationFile | null>
   listByConversation(conversationId: ConversationId, limit: number, keyword?: string): Promise<ConversationFile[]>
   /** 返回待清理的磁盘路径，供业务层删除实体文件。 */
   deleteByConversation(conversationId: ConversationId): Promise<ConversationFile[]>

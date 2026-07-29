@@ -231,21 +231,27 @@ async function main() {
       },
     },
     webHistory: {
-      async get() {
+      async get({ limit, before }) {
         const userId = config.WHITELIST_USER_IDS[0] ?? ''
         const target = await userPreferences.getTarget('web', userId)
         const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
-        if (!conversation) return []
-        const messages = await repos.messages.listByConversation(conversation.id as ConversationId)
-        return messages
-          .filter(message => message.role === 'user' || message.role === 'assistant')
-          .map(message => ({
-            id: message.id,
-            role: message.role as 'user' | 'assistant',
-            content: message.content,
-            attachments: message.attachments,
-            createdAt: message.createdAt,
-          }))
+        if (!conversation) return { messages: [], nextCursor: null }
+        const cursor = before ? parseMessageCursor(before) : undefined
+        const page = await repos.messages.listByConversation(conversation.id as ConversationId, limit + 1, cursor)
+        const hasMore = page.length > limit
+        const messages = hasMore ? page.slice(-limit) : page
+        return {
+          messages: messages
+            .filter(message => message.role === 'user' || message.role === 'assistant')
+            .map(message => ({
+              id: message.id,
+              role: message.role as 'user' | 'assistant',
+              content: message.content,
+              attachments: message.attachments,
+              createdAt: message.createdAt,
+            })),
+          nextCursor: hasMore && messages[0] ? `${messages[0].createdAt}:${messages[0].id}` : null,
+        }
       },
     },
     webFiles: {
@@ -254,8 +260,7 @@ async function main() {
         const target = await userPreferences.getTarget('web', userId)
         const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
         if (!conversation) return null
-        const files = await repos.conversationFiles.listByConversation(conversation.id as ConversationId, 1000)
-        const record = files.find(file => file.id === id)
+        const record = await repos.conversationFiles.findById(conversation.id as ConversationId, id)
         if (!record) return null
         const body = Bun.file(record.localPath)
         if (!(await body.exists())) return null
@@ -431,6 +436,14 @@ function resolveCwd(raw: string): { ok: true; cwd: string } | { ok: false; messa
   if (!existsSync(cwd)) return { ok: false, message: `目录不存在：${cwd}` }
   if (!statSync(cwd).isDirectory()) return { ok: false, message: `路径不是目录：${cwd}` }
   return { ok: true, cwd }
+}
+
+function parseMessageCursor(cursor: string): { createdAt: number; id: string } {
+  const separator = cursor.indexOf(':')
+  const createdAt = Number(cursor.slice(0, separator))
+  const id = cursor.slice(separator + 1)
+  if (!Number.isSafeInteger(createdAt) || createdAt < 0 || !id) throw new Error('Invalid Web history cursor')
+  return { createdAt, id }
 }
 
 async function withHealthTimeout(

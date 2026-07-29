@@ -32,6 +32,7 @@ describe('schema — 表结构与契约', () => {
     const t = getTableConfig(messages)
     expect(t.name).toBe('messages')
     expect(t.columns.map(column => column.name)).toContain('attachments')
+    expect(t.columns.map(column => column.name)).toContain('context_eligible')
     expect(t.foreignKeys).toHaveLength(1)
     expect(t.foreignKeys[0]!.onDelete).toBe('cascade')
   })

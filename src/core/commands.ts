@@ -2,7 +2,7 @@
  * CommandRouter —— 系统命令路由。
  *
  * 只处理以 "/" 开头、不会进入 CLI 的命令；普通文本返回 false 交还 MessageRouter。
- * 回复经 CommandReply 事件发回原始 MessageRef，避免为 /status 等只读命令创建会话。
+ * 回复经 CommandReply 事件发回原始 MessageRef；是否创建会话并持久化由 MessageRouter 统一决定。
  */
 import type { EventBus, EventMap } from '../event'
 import {
@@ -781,11 +781,24 @@ function formatConversationFiles(
       [
         `- **${file.sequence}**：${file.fileName ?? '未命名文件'}`,
         `  - 类型：\`${file.mimeType ?? 'unknown'}\``,
-        `  - 大小：${file.fileSize ?? 0} bytes`,
-        `  - 使用：\`@read${file.sequence}\` 读取；\`@file${file.sequence}\` 引用路径`,
+        `  - 大小：${formatFileSize(file.fileSize)}`,
+        `  - 使用：\`@read${file.sequence}\` 读取；\`@file${file.sequence}\` 引用路径；\`@view${file.sequence}\` 预览`,
       ].join('\n'),
     ),
   ].join('\n')
+}
+
+function formatFileSize(bytes: number | null): string {
+  if (bytes === null || !Number.isFinite(bytes) || bytes < 0) return '未知'
+  const units = ['B', 'KB', 'MB', 'GB'] as const
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit++
+  }
+  const digits = unit === 0 || value >= 100 ? 0 : value >= 10 ? 1 : 2
+  return `${value.toFixed(digits)} ${units[unit]}`
 }
 
 function formatMemories(memories: Memory[]): string {

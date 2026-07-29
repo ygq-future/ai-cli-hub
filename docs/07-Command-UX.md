@@ -136,7 +136,7 @@ Markdown 卡片 + 内联按钮：
 | 音频/语音/video/animation | 下载到受控目录，记录 metadata；暂不做转写或内容理解 | 否 |
 | 动态/video sticker | 第一版只记录 metadata；Vision/抽帧暂不实现 | 否，属于后续 Vision |
 
-> 上传文件不等于处理文件。图片（含 Telegram 同一 `media_group_id` 相册中的多图）会循环 OCR；其他文件只暂存并返回会话内编号，不进入 AI prompt。后续用 `@readN` 显式读取并注入正文，或用 `@fileN` 只把本地路径交给 AI。`/clear`、`/reset`、`SessionClosed` 都会删除该会话映射与受控临时文件并重置编号。动态 sticker 的画面含义仍属于后续 Vision。
+> 上传文件不等于处理文件。图片（含 Telegram 同一 `media_group_id` 相册中的多图）会循环 OCR；其他文件只暂存并返回会话内编号，不进入 AI prompt。后续用 `@readN` 显式读取并注入正文，用 `@fileN` 只把本地路径交给 AI，或用 `@viewN` 在聊天气泡中预览（图片双击放大，其他文件双击下载）。用户可见原文与内部文件/OCR 注入文本分离持久化。`/clear`、`/reset`、`SessionClosed` 都会删除该会话映射与受控临时文件并重置编号。动态 sticker 的画面含义仍属于后续 Vision。
 
 文件映射不保存平台临时下载 URL。Telegram 仅保存稳定的 `file_unique_id` 到统一 `file_id` 字段；QQ 没有
 等价稳定标识时该字段为空。Telegram long polling 意外断开后由 Transport 以 2–60 秒指数退避自动重连，

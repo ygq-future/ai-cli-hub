@@ -241,6 +241,7 @@ describe('app server', () => {
 
   test('Web 历史 API 返回当前 Web 会话消息且需要认证', async () => {
     const fake = createFakeTransport()
+    const historyInputs: Array<{ limit: number; before: string | null }> = []
     const handler = createServerRequestHandler({
       host: '127.0.0.1',
       port: 8787,
@@ -249,24 +250,30 @@ describe('app server', () => {
       transports: [fake.transport],
       resolveConversation: async () => null,
       webHistory: {
-        get: async () => [
-          { id: 'message-1', role: 'user', content: 'hello', createdAt: 1 },
-          {
-            id: 'message-2',
-            role: 'assistant',
-            content: '**world**',
-            attachments: [
+        get: async input => {
+          historyInputs.push(input)
+          return {
+            messages: [
+              { id: 'message-1', role: 'user', content: 'hello', createdAt: 1 },
               {
-                id: 'file-1',
-                kind: 'photo',
-                fileName: 'screen.png',
-                mimeType: 'image/png',
-                fileSize: 4,
+                id: 'message-2',
+                role: 'assistant',
+                content: '**world**',
+                attachments: [
+                  {
+                    id: 'file-1',
+                    kind: 'photo',
+                    fileName: 'screen.png',
+                    mimeType: 'image/png',
+                    fileSize: 4,
+                  },
+                ],
+                createdAt: 2,
               },
             ],
-            createdAt: 2,
-          },
-        ],
+            nextCursor: input.limit === 10 && input.before === null ? '1:message-1' : null,
+          }
+        },
       },
     })
 
@@ -292,7 +299,12 @@ describe('app server', () => {
           createdAt: 2,
         },
       ],
+      nextCursor: '1:message-1',
     })
+    expect(historyInputs).toEqual([{ limit: 10, before: null }])
+    expect(
+      (await handler(request('/api/web/history?limit=51', { headers: { authorization: 'Bearer secret' } }))).status,
+    ).toBe(400)
   })
 
   test('Web 文件 API 只向已认证会话返回受控文件', async () => {

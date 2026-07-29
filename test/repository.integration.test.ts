@@ -99,15 +99,17 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
   })
 
   test('MessageRepository：append → listByConversation（时间正序）', async () => {
+    const firstId = crypto.randomUUID()
+    const secondId = crypto.randomUUID()
     await repos.messages.append({
-      id: crypto.randomUUID(),
+      id: firstId,
       conversationId: cid,
       role: 'user',
       content: '第一条',
       createdAt: now,
     })
     await repos.messages.append({
-      id: crypto.randomUUID(),
+      id: secondId,
       conversationId: cid,
       role: 'assistant',
       content: '第二条',
@@ -115,7 +117,10 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     })
     const list = await repos.messages.listByConversation(cid)
     expect(list.map(m => m.content)).toEqual(['第一条', '第二条'])
-    expect(await repos.messages.listByConversation(cid, 1)).toHaveLength(1)
+    expect((await repos.messages.listByConversation(cid, 1)).map(m => m.content)).toEqual(['第二条'])
+    expect(
+      (await repos.messages.listByConversation(cid, 1, { createdAt: now + 10, id: secondId })).map(m => m.content),
+    ).toEqual(['第一条'])
   })
 
   test('AuditRepository：record → listByConversation（永久留痕）', async () => {

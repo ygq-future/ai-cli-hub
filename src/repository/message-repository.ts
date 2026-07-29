@@ -1,7 +1,7 @@
 /**
  * MessageRepository —— Drizzle 实现（docs/03 §5 / docs/04 §4）。
  */
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, lt, or } from 'drizzle-orm'
 import type { Db } from '../storage'
 import { messages } from '../storage/schema'
 import type { MessageRepository, Message, NewMessage, ConversationId } from './types'
@@ -14,10 +14,31 @@ export function createMessageRepository(db: Db): MessageRepository {
       return row
     },
 
-    listByConversation(id: ConversationId, limit?: number): Promise<Message[]> {
-      // 按时间正序读取历史消息（idx_msg_conv 覆盖）；当前不做完整上下文回放。
-      const q = db.select().from(messages).where(eq(messages.conversationId, id)).orderBy(asc(messages.createdAt))
-      return limit === undefined ? q : q.limit(limit)
+    async listByConversation(
+      id: ConversationId,
+      limit?: number,
+      before?: { createdAt: number; id: string },
+    ): Promise<Message[]> {
+      if (limit === undefined) {
+        return db
+          .select()
+          .from(messages)
+          .where(eq(messages.conversationId, id))
+          .orderBy(asc(messages.createdAt), asc(messages.id))
+      }
+      const cursorCondition = before
+        ? or(
+            lt(messages.createdAt, before.createdAt),
+            and(eq(messages.createdAt, before.createdAt), lt(messages.id, before.id)),
+          )
+        : undefined
+      const rows = await db
+        .select()
+        .from(messages)
+        .where(and(eq(messages.conversationId, id), cursorCondition))
+        .orderBy(desc(messages.createdAt), desc(messages.id))
+        .limit(limit)
+      return rows.reverse()
     },
 
     async deleteByConversation(id: ConversationId): Promise<void> {

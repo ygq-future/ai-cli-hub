@@ -10,6 +10,7 @@ import type {
   MemoryType,
   MessageRef,
   Platform,
+  StoredMessageAttachment,
   Unsubscribe,
   UserLanguage,
 } from '../shared'
@@ -42,13 +43,37 @@ export interface EventMap {
     cli: CliType
     cwd: string
     text: string
+    /** 仅供 CLI/业务处理的增强文本；`text` 始终保留用户可见原文并用于持久化。 */
+    promptText?: string
     ref: MessageRef
     attachments?: InboundAttachment[]
   }
   /** final=false 为流式增量。 */
-  MessageGenerated: { conversationId: ConversationId; content: string; final: boolean }
+  MessageGenerated: {
+    conversationId: ConversationId
+    content: string
+    final: boolean
+    attachments?: StoredMessageAttachment[]
+  }
+  /** 用户消息完成规范化和持久化，供 Web 客户端以服务端文件 ID 替换乐观消息。 */
+  MessagePersisted: {
+    conversationId: ConversationId
+    ref: MessageRef
+    message: {
+      id: string
+      role: 'user'
+      content: string
+      attachments: StoredMessageAttachment[]
+      createdAt: number
+    }
+  }
   /** 命令类回复：不绑定 conversation，直接回到原始客户端消息所在 chat。 */
-  CommandReply: { ref: MessageRef; content: string; copyActions?: CopyAction[] }
+  CommandReply: {
+    ref: MessageRef
+    content: string
+    copyActions?: CopyAction[]
+    attachments?: StoredMessageAttachment[]
+  }
   UserLanguageChanged: { userId: string; platform: Platform; language: 'zh' | 'en' }
   /** 用户当前选中的 CLI/cwd 发生变化，例如执行 /switch。 */
   UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }
@@ -128,6 +153,7 @@ const EVENT_TYPE_REGISTRY: Record<EventType, true> = {
   ConversationContextReset: true,
   MessageReceived: true,
   MessageGenerated: true,
+  MessagePersisted: true,
   CommandReply: true,
   UserLanguageChanged: true,
   UserTargetChanged: true,

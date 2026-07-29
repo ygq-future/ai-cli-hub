@@ -39,6 +39,15 @@ export function createConversationFileRepository(db: Db): ConversationFileReposi
       return row ?? null
     },
 
+    async findById(conversationId, id): Promise<ConversationFile | null> {
+      const [row] = await db
+        .select()
+        .from(conversationFiles)
+        .where(and(eq(conversationFiles.conversationId, conversationId), eq(conversationFiles.id, id)))
+        .limit(1)
+      return row ?? null
+    },
+
     listByConversation(conversationId, limit, keyword): Promise<ConversationFile[]> {
       const where = keyword
         ? and(eq(conversationFiles.conversationId, conversationId), ilike(conversationFiles.fileName, `%${keyword}%`))

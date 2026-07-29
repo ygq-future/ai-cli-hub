@@ -38,7 +38,7 @@ export function getHelpText(language: UserLanguage): string {
       '> You can also say “remember this” naturally. The hub summarizes recent user/assistant messages with the configured memory model and saves a session-derived memory; it does not send that request to the CLI.',
       '> A path passed to `/switch` is used only when that CLI has no open session. To change an existing CLI directory, run `/close`, then `/switch <cli> <path>`.',
       '> Shell pipelines and command lists run without approval only when every AST node is confirmed read-only. Mutating or unknown commands still require approval.',
-      '> Images are OCRed automatically. Other files are stored without being sent to the AI; use `@read1` to read file 1 or `@file1` to pass only its local path.',
+      '> Images are OCRed automatically. Other files are stored without being sent to the AI; use `@read1` to read file 1, `@file1` to pass its path, or `@view1` to preview it in chat.',
     ].join('\n')
   }
 
@@ -71,7 +71,7 @@ export function getHelpText(language: UserLanguage): string {
     '> 也可自然地说“记住这个/记一下”。系统会用记忆模型总结当前会话最近的用户与助手消息，写入会话派生记忆；该请求不会发送给 CLI。',
     '> `/switch` 的 path 仅在目标 CLI 没有未关闭会话时生效。若要更换已有 CLI 的目录，请先执行 `/close`，再执行 `/switch <cli> <path>`。',
     '> Shell 管道和组合命令仅在 AST 的每个节点都确认只读时免审批；写操作及无法确认安全性的命令仍会请求审批。',
-    '> 图片会自动 OCR；其他文件只暂存且不会告知 AI。使用 `@read1` 读取文件 1，或用 `@file1` 仅把本地路径交给 AI。',
+    '> 图片会自动 OCR；其他文件只暂存且不会告知 AI。使用 `@read1` 读取文件、`@file1` 引用路径，或用 `@view1` 在聊天中预览。',
   ].join('\n')
 }
 

@@ -134,7 +134,7 @@ async function createRequestedSummaryMemory(
   try {
     const messages = await deps.repos.messages.listByConversation(conversationId)
     const recentMessages = messages
-      .filter(m => (m.role === 'user' || m.role === 'assistant') && m.content.trim())
+      .filter(m => m.contextEligible !== false && (m.role === 'user' || m.role === 'assistant') && m.content.trim())
       .slice(-deps.config.MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT)
     if (recentMessages.length === 0) return
 
