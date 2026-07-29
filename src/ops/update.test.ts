@@ -34,6 +34,7 @@ describe('update runner', () => {
     expect(preview).toContain('git status --short')
     expect(preview).toContain('git pull --ff-only')
     expect(preview).toContain('bun install --frozen-lockfile')
+    expect(preview).toContain('bun run webui:build')
     expect(preview).toContain('bun run setting:migrate')
     expect(preview).toContain('bun run db:migrate')
     expect(preview).toContain('`pm2 restart ai-cli-hub after 1500ms`')
@@ -113,6 +114,7 @@ describe('update runner', () => {
       'git status --short',
       'git pull --ff-only',
       'bun install --frozen-lockfile',
+      'bun run webui:build',
       'bun run setting:migrate',
       'bun run db:migrate',
       'bun run format:check',
@@ -122,7 +124,7 @@ describe('update runner', () => {
     expect(notices).toEqual(['chat-1/msg-1'])
     expect(restarts).toEqual(['pm2 restart ai-cli-hub | /app/ai-cli-hub | 1500'])
     expect(report).toContain('自更新完成')
-    expect(report).toContain('已完成 **8** 项检查与更新')
+    expect(report).toContain('已完成 **9** 项检查与更新')
     expect(report).toContain('**命令**: `pm2 restart ai-cli-hub`')
   })
 

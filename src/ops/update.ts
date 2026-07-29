@@ -110,6 +110,7 @@ function createUpdateSteps(): CommandSpec[] {
   return [
     { label: 'git pull', command: 'git', args: ['pull', '--ff-only'], critical: true },
     { label: 'install dependencies', command: 'bun', args: ['install', '--frozen-lockfile'], critical: true },
+    { label: 'build webui', command: 'bun', args: ['run', 'webui:build'], critical: true },
     { label: 'settings migration', command: 'bun', args: ['run', 'setting:migrate'], critical: true },
     { label: 'database migration', command: 'bun', args: ['run', 'db:migrate'], critical: true },
     { label: 'format check', command: 'bun', args: ['run', 'format:check'], critical: true },
@@ -220,6 +221,7 @@ function formatStepLabel(label: string): string {
     'check clean worktree': '工作树检查',
     'git pull': '拉取最新代码',
     'install dependencies': '同步依赖',
+    'build webui': '构建 WebUI',
     'settings migration': '同步配置模板',
     'database migration': '数据库迁移',
     'format check': '代码格式检查',

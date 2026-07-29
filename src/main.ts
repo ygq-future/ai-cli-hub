@@ -52,8 +52,6 @@ import type { ConversationId, Transport } from './shared'
 const APP_ROOT = path.resolve(import.meta.dir, '..')
 
 async function main() {
-  await buildWebUi()
-
   // —— 1. Config ——
   const config = loadConfig()
   const settings = createSettingsService()
@@ -408,18 +406,6 @@ async function main() {
 
   // 主进程保持存活（Transport start() 只建立入站连接，不阻塞；此处挂起防 main 退出）
   await new Promise(() => {})
-}
-
-async function buildWebUi(): Promise<void> {
-  const build = Bun.spawn(['bun', 'run', 'webui:build'], {
-    cwd: APP_ROOT,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const code = await build.exited
-  if (code === 0) return
-  const [stdout, stderr] = await Promise.all([new Response(build.stdout).text(), new Response(build.stderr).text()])
-  throw new Error(`WebUI build failed (exit ${code}): ${(stderr || stdout).trim()}`)
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
