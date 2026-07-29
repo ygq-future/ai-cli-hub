@@ -9,6 +9,10 @@
   --dim: #8fa69b;
   --accent: #31b881;
   --danger: #e86d81;
+  --font-sans: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
+  --font-mono:
+    'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', Consolas, 'Liberation Mono', 'Microsoft YaHei UI',
+    'PingFang SC', monospace;
   color-scheme: dark;
 }
 :root[data-theme='light'] {
@@ -44,7 +48,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font-family: Inter, 'IBM Plex Sans', 'PingFang SC', system-ui, sans-serif;
+  font-family: var(--font-sans);
+  font-optical-sizing: auto;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transition:
     background-color 0.32s ease,
     color 0.32s ease;
@@ -95,10 +104,10 @@ button:disabled {
   align-items: center;
   gap: 9px;
   color: var(--ink);
-  font:
-    800 0.75rem ui-monospace,
-    monospace;
-  letter-spacing: 0.16em;
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.13em;
   text-decoration: none;
 }
 .brand img {
@@ -519,10 +528,8 @@ small {
   border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
   border-radius: 6px;
   background: color-mix(in srgb, var(--accent) 9%, var(--bg));
-  font:
-    0.88em ui-monospace,
-    'Cascadia Code',
-    monospace;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
 }
 .markdown pre {
   max-width: 100%;
@@ -873,21 +880,50 @@ small {
 .mobile-status-content dt {
   color: var(--dim);
   font-size: 0.72rem;
+  font-weight: 500;
 }
 .status-panel dd,
 .mobile-status-content dd {
   margin: 6px 0 0;
   overflow: hidden;
   color: var(--ink);
-  font:
-    0.74rem ui-monospace,
-    monospace;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+  line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .settings-body {
   overflow: auto;
   padding: 16px 18px 18px;
+}
+.system-preferences {
+  margin-bottom: 20px;
+}
+.settings-section-heading {
+  margin: 0 0 10px;
+}
+.settings-section-heading span {
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+.settings-section-heading p {
+  margin: 3px 0 0;
+  color: var(--dim);
+  font-size: 0.75rem;
+}
+.system-preference-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.settings-json-heading {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
 }
 .loading {
   display: flex;
@@ -1187,6 +1223,9 @@ small {
   }
   .settings-masonry {
     columns: 1;
+  }
+  .system-preference-grid {
+    grid-template-columns: 1fr;
   }
   .field > span {
     padding: 0;

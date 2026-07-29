@@ -926,36 +926,50 @@ function Settings({
   return (
     <div className="settings-body">
       {data ? (
-        <div className="settings-masonry">
-          {Object.entries(data).map(([group, value]) => (
-            <ConfigGroup key={group} group={group} value={value} setData={setData} t={t} />
-          ))}
-          <section className="preference-section">
-            <h3>{t('消息输入', 'Message input')}</h3>
-            <label className="field switch-field">
-              <span>
-                <b>{t('回车发送', 'Enter to send')}</b>
-                <small>
-                  {preferences.enterToSend
-                    ? t('Enter 发送，Shift + Enter 换行。', 'Enter sends; Shift + Enter adds a new line.')
-                    : t('Enter 换行，Ctrl/Cmd + Enter 发送。', 'Enter adds a new line; Ctrl/Cmd + Enter sends.')}
-                </small>
-              </span>
-              <button
-                className={`switch ${preferences.enterToSend ? 'on' : ''}`}
-                type="button"
-                role="switch"
-                aria-checked={preferences.enterToSend}
-                onClick={() => setPreferences(current => ({ ...current, enterToSend: !current.enterToSend }))}>
-                <i />
-              </button>
-            </label>
+        <>
+          <section className="system-preferences">
+            <header className="settings-section-heading">
+              <span>{t('Web 系统设置', 'Web preferences')}</span>
+              <p>{t('立即生效并保存在当前浏览器中。', 'Applied immediately and stored in this browser.')}</p>
+            </header>
+            <div className="system-preference-grid">
+              <section className="preference-section">
+                <h3>{t('外观', 'Appearance')}</h3>
+                <Appearance preferences={preferences} setPreferences={setPreferences} t={t} />
+              </section>
+              <section className="preference-section">
+                <h3>{t('消息输入', 'Message input')}</h3>
+                <label className="field switch-field">
+                  <span>
+                    <b>{t('回车发送', 'Enter to send')}</b>
+                    <small>
+                      {preferences.enterToSend
+                        ? t('Enter 发送，Shift + Enter 换行。', 'Enter sends; Shift + Enter adds a new line.')
+                        : t('Enter 换行，Ctrl/Cmd + Enter 发送。', 'Enter adds a new line; Ctrl/Cmd + Enter sends.')}
+                    </small>
+                  </span>
+                  <button
+                    className={`switch ${preferences.enterToSend ? 'on' : ''}`}
+                    type="button"
+                    role="switch"
+                    aria-checked={preferences.enterToSend}
+                    onClick={() => setPreferences(current => ({ ...current, enterToSend: !current.enterToSend }))}>
+                    <i />
+                  </button>
+                </label>
+              </section>
+            </div>
           </section>
-          <section className="preference-section">
-            <h3>{t('外观', 'Appearance')}</h3>
-            <Appearance preferences={preferences} setPreferences={setPreferences} t={t} />
-          </section>
-        </div>
+          <header className="settings-section-heading settings-json-heading">
+            <span>settings.json</span>
+            <p>{t('服务端配置，保存后重启生效。', 'Server configuration; restart after saving.')}</p>
+          </header>
+          <div className="settings-masonry">
+            {Object.entries(data).map(([group, value]) => (
+              <ConfigGroup key={group} group={group} value={value} setData={setData} t={t} />
+            ))}
+          </div>
+        </>
       ) : (
         <p className="loading">
           <LoaderCircle />
