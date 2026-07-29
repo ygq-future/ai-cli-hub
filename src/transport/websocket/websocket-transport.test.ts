@@ -3,7 +3,7 @@ import { createEventBus } from '../../event'
 import type { ConversationId } from '../../shared'
 import { createWebSocketTransport, type WebSocketGateway, type WebSocketPeer } from './websocket-transport'
 
-function createGateway() {
+function createGateway(connected = true) {
   let receiver: ((peer: WebSocketPeer, data: string) => void) | null = null
   const sent: string[] = []
   const peer: WebSocketPeer = { send: data => sent.push(data), close: () => undefined }
@@ -12,8 +12,11 @@ function createGateway() {
       receiver = next
     },
     broadcast(data) {
+      if (!connected) return 0
       sent.push(data)
+      return 1
     },
+    waitForPeer: async () => undefined,
     add() {},
     remove() {},
     receive(nextPeer, data) {
@@ -22,6 +25,25 @@ function createGateway() {
   }
   return { gateway, peer, sent }
 }
+
+test('WebSocket transport 只在客户端在线时用 output 事件发送服务通知', async () => {
+  const bus = createEventBus()
+  const online = createGateway()
+  const transport = createWebSocketTransport({ bus, gateway: online.gateway, userId: 'web-admin' })
+  await transport.start()
+
+  await transport.sendMessage('web-admin', '服务已恢复')
+  expect(online.sent.map(data => JSON.parse(data))).toEqual([
+    { v: 1, type: 'output', content: '服务已恢复', final: true },
+  ])
+  await transport.stop()
+
+  const offline = createGateway(false)
+  const offlineTransport = createWebSocketTransport({ bus, gateway: offline.gateway, userId: 'web-admin' })
+  await offlineTransport.start()
+  expect(offlineTransport.sendMessage('web-admin', '不会丢失')).rejects.toThrow('No WebSocket client connected')
+  await offlineTransport.stop()
+})
 
 test('WebSocket transport 将 CommandReply 回传给触发命令的浏览器', async () => {
   const bus = createEventBus()

@@ -45,7 +45,7 @@ flowchart LR
 
 ### 4.1 认证与安全
 
-- `POST /api/auth/session` 校验 Bearer Token，建立短期内存会话，返回 `HttpOnly`、`SameSite=Strict` Cookie；Token 不写入 `localStorage`。
+- `POST /api/auth/session` 校验 Bearer Token，建立由管理 Token 签名的 8 小时会话，返回 `HttpOnly`、`SameSite=Strict` Cookie；会话可跨服务重启，访问认证会话接口时续期，Token 不写入 `localStorage`。
 - `DELETE /api/auth/session` 登出并失效会话。
 - `/api/*`（健康检查除外）和 `/ws` 均要求认证；兼容接口保留 Bearer Token 支持。
 - 对外绑定必须置于 HTTPS 反向代理之后；生产 Cookie 使用 `Secure`。

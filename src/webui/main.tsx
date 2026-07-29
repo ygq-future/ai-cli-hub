@@ -243,7 +243,28 @@ function App() {
   useEffect(() => {
     if (!ready) return
     let disposed = false
-    const connect = () => {
+    const scheduleReconnect = () => {
+      attempts.current += 1
+      setConnection('reconnecting')
+      const delay = Math.min(10_000, 500 * 2 ** Math.min(attempts.current, 4))
+      retryTimer.current = window.setTimeout(connect, delay)
+    }
+    const verifySessionAndReconnect = async () => {
+      try {
+        const response = await fetch('/api/auth/session')
+        if (disposed) return
+        if (response.status === 401) {
+          socket.current = null
+          setError(t('登录会话已过期，请重新输入管理 Token。', 'Session expired. Enter the admin token again.'))
+          setReady(false)
+          return
+        }
+      } catch {
+        // 服务重启期间请求失败属于正常情况，继续指数退避重连。
+      }
+      if (!disposed) scheduleReconnect()
+    }
+    function connect() {
       setConnection(attempts.current ? 'reconnecting' : 'connecting')
       const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`)
       socket.current = ws
@@ -310,9 +331,7 @@ function App() {
       }
       ws.onclose = () => {
         if (disposed) return
-        attempts.current += 1
-        const delay = Math.min(10_000, 500 * 2 ** Math.min(attempts.current, 4))
-        retryTimer.current = window.setTimeout(connect, delay)
+        void verifySessionAndReconnect()
       }
     }
     void historyLoad()

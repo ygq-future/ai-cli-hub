@@ -407,7 +407,7 @@ async function main() {
   }
   await appServer.start()
   logger.info({ host: config.HTTP_HOST, port: config.HTTP_PORT }, 'Web 服务已就绪')
-  await notifyRestartComplete(restartNotices, transports, logger)
+  await notifyRestartComplete(restartNotices, transports, logger, () => webSocketGateway.waitForPeer())
 
   // 主进程保持存活（Transport start() 只建立入站连接，不阻塞；此处挂起防 main 退出）
   await new Promise(() => {})
@@ -542,6 +542,7 @@ async function notifyRestartComplete(
   store: ReturnType<typeof createRestartNoticeStore>,
   transports: Transport[],
   logger: ReturnType<typeof createLogger>,
+  waitForWebClient: () => Promise<void>,
 ): Promise<void> {
   try {
     const notice = await store.read()
@@ -551,9 +552,10 @@ async function notifyRestartComplete(
       logger.warn({ platform: notice.ref.platform }, 'Restart notice transport unavailable')
       return
     }
-    await retryRestartNotification(() =>
-      transport.sendMessage(notice.ref.chatId, '## ✅ 服务已重启\n\n服务已恢复，可以继续发送消息。'),
-    )
+    await retryRestartNotification(async () => {
+      if (notice.ref.platform === 'web') await waitForWebClient()
+      return transport.sendMessage(notice.ref.chatId, '## ✅ 服务已重启\n\n服务已恢复，可以继续发送消息。')
+    })
     await store.clear()
     logger.info(
       { platform: notice.ref.platform, chatId: notice.ref.chatId },

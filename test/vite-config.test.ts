@@ -40,3 +40,11 @@ test('WebUI 使用稳定的清晰系统字体栈', async () => {
   expect(styles).toContain("'Cascadia Mono'")
   expect(styles).not.toContain('font-family: Inter,')
 })
+
+test('WebSocket 断开后区分服务重启与认证过期', async () => {
+  const source = await readFile('src/webui/main.tsx', 'utf8')
+  expect(source).toContain("fetch('/api/auth/session')")
+  expect(source).toContain('response.status === 401')
+  expect(source).toContain("setConnection('reconnecting')")
+  expect(source).toContain('setReady(false)')
+})

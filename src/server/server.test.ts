@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createServer, createServerRequestHandler } from './server'
+import { createServer, createServerRequestHandler, createWebSocketGateway } from './server'
 import type { ConversationId, MessageRef, Transport } from '../shared'
 
 const CID = 'conversation-1' as ConversationId
@@ -28,7 +28,7 @@ function createFakeTransport() {
   return { transport, sent }
 }
 
-function createHandler(authToken = '') {
+function createHandler(authToken = '', now?: () => number) {
   const fake = createFakeTransport()
   const handler = createServerRequestHandler({
     host: '127.0.0.1',
@@ -38,6 +38,7 @@ function createHandler(authToken = '') {
     transports: [fake.transport],
     resolveConversation: async conversationId => (conversationId === CID ? { transport: fake.transport } : null),
     staticIndexPath: 'src/webui/index.html',
+    now,
   })
   return { handler, fake }
 }
@@ -121,6 +122,48 @@ describe('app server', () => {
     )
     expect(response.status).toBe(200)
     expect(fake.sent).toEqual([{ mode: 'chat', target: 'chat-1', content: 'through session' }])
+  })
+
+  test('Web 会话 Cookie 跨重启有效、访问时续期，并在到期或 Token 改变后失效', async () => {
+    let currentTime = 1_000
+    const now = () => currentTime
+    const first = createHandler('secret', now)
+    const login = await first.handler(
+      request('/api/auth/session', { method: 'POST', headers: { authorization: 'Bearer secret' } }),
+    )
+    const cookie = login.headers.get('set-cookie') ?? ''
+
+    currentTime += 4 * 60 * 60 * 1000
+    const restarted = createHandler('secret', now)
+    const refreshed = await restarted.handler(request('/api/auth/session', { headers: { cookie } }))
+    const refreshedCookie = refreshed.headers.get('set-cookie') ?? ''
+    expect(refreshed.status).toBe(200)
+
+    const changedToken = createHandler('new-secret', now)
+    expect((await changedToken.handler(request('/api/auth/session', { headers: { cookie } }))).status).toBe(401)
+
+    currentTime += 5 * 60 * 60 * 1000
+    expect((await restarted.handler(request('/api/auth/session', { headers: { cookie } }))).status).toBe(401)
+    expect(
+      (await restarted.handler(request('/api/auth/session', { headers: { cookie: refreshedCookie } }))).status,
+    ).toBe(200)
+  })
+
+  test('WebSocket gateway 等待客户端连接后再继续发送', async () => {
+    const gateway = createWebSocketGateway()
+    let connected = false
+    const waiting = gateway.waitForPeer().then(() => {
+      connected = true
+    })
+    await Promise.resolve()
+    expect(connected).toBe(false)
+
+    const sent: string[] = []
+    gateway.add({ send: data => sent.push(data), close: () => undefined })
+    await waiting
+
+    expect(connected).toBe(true)
+    expect(sent.map(data => JSON.parse(data))).toEqual([{ v: 1, type: 'connected' }])
   })
 
   test('WebUI 静态入口可用，SPA 路由回退到入口', async () => {

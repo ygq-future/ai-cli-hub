@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { ConversationId, Platform, Transport } from '../shared'
 
 const MAX_REQUEST_BYTES = 1_048_576
@@ -11,7 +12,8 @@ interface WebSocketPeer {
 
 export interface WebSocketGateway {
   setReceiver(receiver: (peer: WebSocketPeer, data: string) => void): void
-  broadcast(data: string): void
+  broadcast(data: string): number
+  waitForPeer(): Promise<void>
   add(peer: WebSocketPeer): void
   remove(peer: WebSocketPeer): void
   receive(peer: WebSocketPeer, data: string): void
@@ -128,6 +130,7 @@ export function createServer(deps: AppServerDeps): AppServer {
 
 export function createWebSocketGateway(): WebSocketGateway {
   const peers = new Set<WebSocketPeer>()
+  const peerWaiters = new Set<() => void>()
   let receiver: ((peer: WebSocketPeer, data: string) => void) | null = null
   return {
     setReceiver(next) {
@@ -135,10 +138,17 @@ export function createWebSocketGateway(): WebSocketGateway {
     },
     broadcast(data) {
       for (const peer of peers) peer.send(data)
+      return peers.size
+    },
+    async waitForPeer() {
+      if (peers.size) return
+      await new Promise<void>(resolve => peerWaiters.add(resolve))
     },
     add(peer: WebSocketPeer) {
       peers.add(peer)
       peer.send(JSON.stringify({ v: 1, type: 'connected' }))
+      for (const resolve of peerWaiters) resolve()
+      peerWaiters.clear()
     },
     remove(peer: WebSocketPeer) {
       peers.delete(peer)
@@ -150,32 +160,30 @@ export function createWebSocketGateway(): WebSocketGateway {
 }
 
 export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHandler {
-  const sessions = new Map<string, number>()
   const now = deps.now ?? Date.now
 
   return async function handle(request: Request, upgradeWebSocket?: (request: Request) => boolean): Promise<Response> {
     const url = new URL(request.url)
 
     if (request.method === 'GET' && url.pathname === '/health') return json({ status: 'ok' })
-    if (url.pathname === '/api/auth/session') return handleSessionRequest(request, deps, sessions, now)
+    if (url.pathname === '/api/auth/session') return handleSessionRequest(request, deps, now)
     if (url.pathname === '/ws') {
-      if (!isAuthorized(request, deps.authToken, sessions, now())) return json({ error: 'Unauthorized' }, 401)
+      if (!isAuthorized(request, deps.authToken, now())) return json({ error: 'Unauthorized' }, 401)
       if (upgradeWebSocket?.(request)) return undefined as unknown as Response
       return json({ error: 'WebSocket transport is not configured' }, 501)
     }
 
     if (url.pathname.startsWith('/api/')) {
-      if (url.pathname === '/api/web/status') return handleWebStatusRequest(request, deps, sessions, now())
-      if (url.pathname === '/api/web/history') return handleWebHistoryRequest(request, url, deps, sessions, now())
-      if (url.pathname.startsWith('/api/web/files/'))
-        return handleWebFileRequest(request, url.pathname, deps, sessions, now())
-      if (url.pathname === '/api/web/uploads') return handleUploadRequest(request, deps, sessions, now())
-      if (url.pathname === '/api/settings') return handleSettingsRequest(request, deps, sessions, now())
-      if (url.pathname === '/api/restart') return handleRestartRequest(request, deps, sessions, now())
+      if (url.pathname === '/api/web/status') return handleWebStatusRequest(request, deps, now())
+      if (url.pathname === '/api/web/history') return handleWebHistoryRequest(request, url, deps, now())
+      if (url.pathname.startsWith('/api/web/files/')) return handleWebFileRequest(request, url.pathname, deps, now())
+      if (url.pathname === '/api/web/uploads') return handleUploadRequest(request, deps, now())
+      if (url.pathname === '/api/settings') return handleSettingsRequest(request, deps, now())
+      if (url.pathname === '/api/restart') return handleRestartRequest(request, deps, now())
       if (request.method !== 'POST' || (url.pathname !== '/api/platform-msg' && url.pathname !== '/api/session-msg')) {
         return json({ error: 'Not found' }, 404)
       }
-      if (!isAuthorized(request, deps.authToken, sessions, now())) return json({ error: 'Unauthorized' }, 401)
+      if (!isAuthorized(request, deps.authToken, now())) return json({ error: 'Unauthorized' }, 401)
       return handleMessageRequest(request, url.pathname, deps)
     }
 
@@ -191,10 +199,9 @@ async function handleWebFileRequest(
   request: Request,
   pathname: string,
   deps: AppServerDeps,
-  sessions: Map<string, number>,
   now: number,
 ): Promise<Response> {
-  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+  if (!isAuthorized(request, deps.authToken, now)) return json({ error: 'Unauthorized' }, 401)
   if (!deps.webFiles) return json({ error: 'Web file API is not configured' }, 501)
   if (request.method !== 'GET' && request.method !== 'HEAD')
     return json({ error: 'Method not allowed' }, 405, { allow: 'GET, HEAD' })
@@ -216,10 +223,9 @@ async function handleWebHistoryRequest(
   request: Request,
   url: URL,
   deps: AppServerDeps,
-  sessions: Map<string, number>,
   now: number,
 ): Promise<Response> {
-  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+  if (!isAuthorized(request, deps.authToken, now)) return json({ error: 'Unauthorized' }, 401)
   if (!deps.webHistory) return json({ error: 'Web history is not configured' }, 501)
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, { allow: 'GET' })
   const rawLimit = url.searchParams.get('limit')
@@ -230,13 +236,8 @@ async function handleWebHistoryRequest(
   return json(await deps.webHistory.get({ limit, before }))
 }
 
-async function handleUploadRequest(
-  request: Request,
-  deps: AppServerDeps,
-  sessions: Map<string, number>,
-  now: number,
-): Promise<Response> {
-  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+async function handleUploadRequest(request: Request, deps: AppServerDeps, now: number): Promise<Response> {
+  if (!isAuthorized(request, deps.authToken, now)) return json({ error: 'Unauthorized' }, 401)
   if (!deps.uploads) return json({ error: 'Upload API is not configured' }, 501)
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, { allow: 'POST' })
   try {
@@ -248,25 +249,15 @@ async function handleUploadRequest(
   }
 }
 
-async function handleWebStatusRequest(
-  request: Request,
-  deps: AppServerDeps,
-  sessions: Map<string, number>,
-  now: number,
-): Promise<Response> {
-  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+async function handleWebStatusRequest(request: Request, deps: AppServerDeps, now: number): Promise<Response> {
+  if (!isAuthorized(request, deps.authToken, now)) return json({ error: 'Unauthorized' }, 401)
   if (!deps.webStatus) return json({ error: 'Web status is not configured' }, 501)
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, { allow: 'GET' })
   return json({ status: await deps.webStatus.get() })
 }
 
-async function handleSettingsRequest(
-  request: Request,
-  deps: AppServerDeps,
-  sessions: Map<string, number>,
-  now: number,
-): Promise<Response> {
-  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+async function handleSettingsRequest(request: Request, deps: AppServerDeps, now: number): Promise<Response> {
+  if (!isAuthorized(request, deps.authToken, now)) return json({ error: 'Unauthorized' }, 401)
   if (!deps.settings) return json({ error: 'Settings API is not configured' }, 501)
   if (request.method === 'GET') return json({ settings: await deps.settings.read() })
   if (request.method !== 'PUT') return json({ error: 'Method not allowed' }, 405, { allow: 'GET, PUT' })
@@ -279,43 +270,33 @@ async function handleSettingsRequest(
   }
 }
 
-async function handleRestartRequest(
-  request: Request,
-  deps: AppServerDeps,
-  sessions: Map<string, number>,
-  now: number,
-): Promise<Response> {
-  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+async function handleRestartRequest(request: Request, deps: AppServerDeps, now: number): Promise<Response> {
+  if (!isAuthorized(request, deps.authToken, now)) return json({ error: 'Unauthorized' }, 401)
   if (!deps.restart) return json({ error: 'Restart API is not configured' }, 501)
   if (request.method === 'GET') return json({ preview: deps.restart.preview() })
   if (request.method === 'POST') return json({ result: await deps.restart.run() })
   return json({ error: 'Method not allowed' }, 405, { allow: 'GET, POST' })
 }
 
-async function handleSessionRequest(
-  request: Request,
-  deps: AppServerDeps,
-  sessions: Map<string, number>,
-  now: () => number,
-): Promise<Response> {
+async function handleSessionRequest(request: Request, deps: AppServerDeps, now: () => number): Promise<Response> {
   if (!deps.authToken)
     return json({ error: 'Web authentication is unavailable until http.authToken is configured' }, 503)
 
   if (request.method === 'GET') {
-    if (!isAuthorized(request, deps.authToken, sessions, now())) return json({ authenticated: false }, 401)
-    return json({ authenticated: true })
+    const currentTime = now()
+    if (!isAuthorized(request, deps.authToken, currentTime)) return json({ authenticated: false }, 401)
+    return json({ authenticated: true }, 200, {
+      'set-cookie': createSessionCookie(deps.authToken, currentTime + SESSION_TTL_MS, deps.secureCookie === true),
+    })
   }
   if (request.method === 'POST') {
     if (!hasBearerToken(request, deps.authToken)) return json({ error: 'Unauthorized' }, 401)
-    const sessionId = crypto.randomUUID()
-    sessions.set(sessionId, now() + SESSION_TTL_MS)
+    const expiresAt = now() + SESSION_TTL_MS
     return json({ authenticated: true }, 200, {
-      'set-cookie': createSessionCookie(sessionId, deps.secureCookie === true),
+      'set-cookie': createSessionCookie(deps.authToken, expiresAt, deps.secureCookie === true),
     })
   }
   if (request.method === 'DELETE') {
-    const sessionId = readCookie(request.headers.get('cookie'), 'ai_cli_hub_session')
-    if (sessionId) sessions.delete(sessionId)
     return json({ authenticated: false }, 200, { 'set-cookie': clearSessionCookie(deps.secureCookie === true) })
   }
   return json({ error: 'Method not allowed' }, 405, { allow: 'GET, POST, DELETE' })
@@ -401,16 +382,10 @@ function asNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
-function isAuthorized(request: Request, authToken: string, sessions: Map<string, number>, now: number): boolean {
+function isAuthorized(request: Request, authToken: string, now: number): boolean {
   if (!authToken || hasBearerToken(request, authToken)) return true
-  const sessionId = readCookie(request.headers.get('cookie'), 'ai_cli_hub_session')
-  if (!sessionId) return false
-  const expiresAt = sessions.get(sessionId)
-  if (!expiresAt || expiresAt <= now) {
-    sessions.delete(sessionId)
-    return false
-  }
-  return true
+  const session = readCookie(request.headers.get('cookie'), 'ai_cli_hub_session')
+  return session ? verifySession(session, authToken, now) : false
 }
 
 function hasBearerToken(request: Request, authToken: string): boolean {
@@ -427,12 +402,29 @@ function readCookie(cookieHeader: string | null, name: string): string | null {
   return item ? decodeURIComponent(item.slice(prefix.length)) : null
 }
 
-function createSessionCookie(sessionId: string, secure: boolean): string {
-  return `ai_cli_hub_session=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL_MS / 1000}${secure ? '; Secure' : ''}`
+function createSessionCookie(authToken: string, expiresAt: number, secure: boolean): string {
+  const payload = `v1.${expiresAt}`
+  const signature = createHmac('sha256', authToken).update(payload).digest('base64url')
+  return `ai_cli_hub_session=${encodeURIComponent(`${payload}.${signature}`)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL_MS / 1000}${secure ? '; Secure' : ''}`
 }
 
 function clearSessionCookie(secure: boolean): string {
   return `ai_cli_hub_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? '; Secure' : ''}`
+}
+
+function verifySession(session: string, authToken: string, now: number): boolean {
+  const [version, rawExpiresAt, signature, ...extra] = session.split('.')
+  if (version !== 'v1' || !/^\d+$/.test(rawExpiresAt ?? '') || !signature || extra.length) return false
+  const expiresAt = Number(rawExpiresAt)
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now) return false
+  const expected = createHmac('sha256', authToken).update(`${version}.${rawExpiresAt}`).digest()
+  let received: Buffer
+  try {
+    received = Buffer.from(signature, 'base64url')
+  } catch {
+    return false
+  }
+  return received.length === expected.length && timingSafeEqual(received, expected)
 }
 
 function json(body: Record<string, unknown>, status = 200, headers?: HeadersInit): Response {

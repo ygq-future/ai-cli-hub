@@ -19,7 +19,8 @@ export interface WebSocketPeer {
 
 export interface WebSocketGateway {
   setReceiver(receiver: (peer: WebSocketPeer, data: string) => void): void
-  broadcast(data: string): void
+  broadcast(data: string): number
+  waitForPeer(): Promise<void>
   add(peer: WebSocketPeer): void
   remove(peer: WebSocketPeer): void
   receive(peer: WebSocketPeer, data: string): void
@@ -166,12 +167,13 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
       for (const unsub of unsubs.splice(0)) unsub()
     },
     async sendMessage(chatId, content) {
-      send('message', { chatId, content })
+      if (send('output', { content, final: true }) === 0) throw new Error('No WebSocket client connected')
       return { platform: 'web', chatId, nativeId: crypto.randomUUID() }
     },
     async sendConversationMessage(conversationId, content) {
       if (!conversations.has(conversationId)) return null
-      send('message', { conversationId, content })
+      if (send('output', { conversationId, content, final: true }) === 0)
+        throw new Error('No WebSocket client connected')
       return { platform: 'web', chatId: deps.userId, nativeId: crypto.randomUUID() }
     },
     async editMessage(ref, content) {

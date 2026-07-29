@@ -385,13 +385,13 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 
 ### `POST /api/auth/session`
 
-请求携带 `Authorization: Bearer <http.authToken>`，成功后创建 8 小时的内存会话，并返回 `HttpOnly; SameSite=Strict; Path=/` Cookie。Token 不会写入 Cookie、响应体、浏览器持久化存储或日志。
+请求携带 `Authorization: Bearer <http.authToken>`，成功后创建由当前管理 Token 进行 HMAC 签名的 8 小时会话，并返回 `HttpOnly; SameSite=Strict; Path=/` Cookie。Cookie 只包含版本、到期时间与签名，不包含管理 Token；服务重启后仍可验证，修改 `http.authToken` 会立即使旧 Cookie 失效。Token 不会写入 Cookie、响应体、浏览器持久化存储或日志。
 
-`GET /api/auth/session` 用 Bearer 或会话 Cookie 查询登录状态；`DELETE /api/auth/session` 使当前 Cookie 对应的会话失效。除健康检查外，配置了 Token 的 `/api/*` 接口均接受 Bearer 或该会话 Cookie。
+`GET /api/auth/session` 用 Bearer 或会话 Cookie 查询登录状态，并把有效期续至当前时间后的 8 小时；`DELETE /api/auth/session` 清除浏览器 Cookie。除健康检查外，配置了 Token 的 `/api/*` 接口均接受 Bearer 或该会话 Cookie。
 
 ### `GET /ws`
 
-浏览器在已登录 Cookie 下升级 WebSocket。JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`、`clientMessageId`、可选 `uploadIds`）与 `approve`/`reject`（`conversationId`、`approvalId`）；下行 `connected`、`user_message`、`output`、`approval`、`error`。`user_message` 将服务端规范化消息 ID 和持久化附件回执给浏览器，用于替换乐观消息；`output` 同时承载会话流式输出、持久化预览附件和 `/help` 等命令回复。浏览器断线使用指数退避重连。
+浏览器在已登录 Cookie 下升级 WebSocket。JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`、`clientMessageId`、可选 `uploadIds`）与 `approve`/`reject`（`conversationId`、`approvalId`）；下行 `connected`、`user_message`、`output`、`approval`、`error`。`user_message` 将服务端规范化消息 ID 和持久化附件回执给浏览器，用于替换乐观消息；`output` 同时承载会话流式输出、持久化预览附件、服务重启通知和 `/help` 等命令回复。浏览器断线后先检查认证状态：服务暂时不可达时使用指数退避重连，明确返回 `401` 时停止重连并回到登录页。重启完成通知在 Web 客户端重新连入前保持待发送状态，实际发送成功后才清除持久化通知标记。
 
 ### `GET` / `PUT /api/settings` 与 `/api/restart`
 
