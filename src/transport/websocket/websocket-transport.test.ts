@@ -30,13 +30,34 @@ test('WebSocket transport 将 CommandReply 回传给触发命令的浏览器', a
   await transport.start()
 
   bus.emit('CommandReply', {
-    ref: { platform: 'websocket', chatId: 'web-admin', nativeId: 'request-1' },
+    ref: { platform: 'web', chatId: 'web-admin', nativeId: 'request-1' },
     content: '## Help\n\nAvailable commands',
   })
 
   expect(sent.map(data => JSON.parse(data))).toEqual([
     { v: 1, type: 'output', content: '## Help\n\nAvailable commands', final: true },
   ])
+  await transport.stop()
+})
+
+test('WebSocket transport 在浏览器内直接响应 /help', async () => {
+  const bus = createEventBus()
+  const { gateway, peer, sent } = createGateway()
+  const transport = createWebSocketTransport({
+    bus,
+    gateway,
+    userId: 'web-admin',
+    resolveUserLanguage: () => 'zh',
+  })
+  await transport.start()
+
+  gateway.receive(peer, JSON.stringify({ v: 1, type: 'message', text: '/help' }))
+  await Promise.resolve()
+
+  const reply = JSON.parse(sent[0] ?? '{}') as { type?: string; content?: string; final?: boolean }
+  expect(reply.type).toBe('output')
+  expect(reply.content).toContain('可用命令')
+  expect(reply.final).toBe(true)
   await transport.stop()
 })
 
@@ -48,7 +69,7 @@ test('WebSocket transport 将已知会话的流式输出回传浏览器', async 
   const conversationId = 'web-conversation' as ConversationId
   bus.emit('SessionCreated', {
     conversationId,
-    platform: 'websocket',
+    platform: 'web',
     userId: 'web-admin',
     cli: 'claude',
     cwd: '/',

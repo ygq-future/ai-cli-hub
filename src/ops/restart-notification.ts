@@ -51,7 +51,7 @@ function parseRestartNotice(raw: string): RestartNotice | null {
   const ref = parsed.ref as Partial<MessageRef> | undefined
   if (
     !ref ||
-    (ref.platform !== 'telegram' && ref.platform !== 'qq' && ref.platform !== 'websocket') ||
+    (ref.platform !== 'telegram' && ref.platform !== 'qq' && ref.platform !== 'web') ||
     typeof ref.chatId !== 'string' ||
     typeof ref.nativeId !== 'string' ||
     typeof parsed.requestedAt !== 'number'

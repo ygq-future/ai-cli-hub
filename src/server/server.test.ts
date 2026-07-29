@@ -203,7 +203,7 @@ describe('app server', () => {
     expect((await handler(request('/api/restart', { headers: { authorization: 'Bearer secret' } }))).status).toBe(200)
   })
 
-  test('Web 状态 API 仅返回 websocket 当前会话的真实状态', async () => {
+  test('Web 状态 API 仅返回 web 当前会话的真实状态', async () => {
     const fake = createFakeTransport()
     const handler = createServerRequestHandler({
       host: '127.0.0.1',
@@ -214,7 +214,7 @@ describe('app server', () => {
       resolveConversation: async () => null,
       webStatus: {
         get: async () => ({
-          platform: 'websocket',
+          platform: 'web',
           conversationId: 'web-conversation',
           cli: 'claude',
           cwd: '/workspace',
@@ -228,7 +228,7 @@ describe('app server', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       status: {
-        platform: 'websocket',
+        platform: 'web',
         conversationId: 'web-conversation',
         cli: 'claude',
         cwd: '/workspace',

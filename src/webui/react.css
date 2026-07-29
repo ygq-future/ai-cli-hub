@@ -430,13 +430,14 @@ small {
   animation: float 2.8s ease-in-out infinite;
 }
 .message {
+  width: fit-content;
   max-width: min(760px, 87%);
   margin: 13px 0;
   padding: 14px 17px;
   border: 1px solid var(--line);
   border-radius: 18px 18px 18px 5px;
   background: color-mix(in srgb, var(--panel-raised) 72%, transparent);
-  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   line-height: 1.65;
   animation: message-in 0.23s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -445,6 +446,84 @@ small {
   border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
   border-radius: 18px 18px 5px 18px;
   background: color-mix(in srgb, var(--accent) 13%, var(--panel-raised));
+}
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p {
+  margin: 0.65em 0;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 1em 0 0.45em;
+  line-height: 1.25;
+}
+.markdown h1 {
+  font-size: 1.3rem;
+}
+.markdown h2 {
+  font-size: 1.16rem;
+}
+.markdown h3,
+.markdown h4 {
+  font-size: 1rem;
+}
+.markdown ul,
+.markdown ol {
+  margin: 0.65em 0;
+  padding-left: 1.35em;
+}
+.markdown li + li {
+  margin-top: 0.22em;
+}
+.markdown code {
+  padding: 0.12em 0.38em;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+  font:
+    0.88em ui-monospace,
+    'Cascadia Code',
+    monospace;
+}
+.markdown pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.markdown pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.markdown blockquote {
+  margin: 0.75em 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--accent);
+  color: var(--dim);
+}
+.markdown table {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+}
+.markdown th,
+.markdown td {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.markdown a {
+  color: var(--accent);
 }
 .stream-caret {
   display: inline-block;
@@ -525,7 +604,7 @@ small {
 }
 .compose {
   display: flex;
-  align-items: end;
+  align-items: center;
   gap: 7px;
   padding: 7px;
   border: 1px solid var(--line);
@@ -542,6 +621,7 @@ small {
 }
 .compose textarea {
   width: 100%;
+  height: auto;
   min-height: 42px;
   max-height: 160px;
   padding: 10px 5px;
@@ -550,6 +630,8 @@ small {
   resize: none;
   background: transparent;
   color: var(--ink);
+  field-sizing: content;
+  line-height: 22px;
 }
 .compose textarea::placeholder {
   color: var(--dim);
@@ -596,7 +678,7 @@ small {
 }
 .settings-body {
   overflow: auto;
-  padding: 0 22px 22px;
+  padding: 16px 18px 18px;
 }
 .loading {
   display: flex;
@@ -607,34 +689,41 @@ small {
   color: var(--dim);
 }
 .config-group {
-  padding: 20px 0;
-  border-bottom: 1px solid var(--line);
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--panel-raised) 48%, transparent);
+}
+.settings-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 .config-group header h3,
-.appearance-section h3 {
+.preference-section h3 {
   margin: 0;
   font-size: 0.96rem;
 }
 .config-group header p {
-  margin: 5px 0 16px;
+  margin: 4px 0 10px;
   color: var(--dim);
   font-size: 0.8rem;
 }
 .config-fields {
   display: grid;
-  gap: 10px;
+  gap: 4px;
 }
 .field {
   display: grid;
-  grid-template-columns: minmax(160px, 0.75fr) minmax(0, 1.25fr);
-  align-items: start;
-  gap: 16px;
-  padding: 11px 0;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
 }
 .field > span {
   display: grid;
-  gap: 3px;
-  padding-top: 7px;
+  gap: 2px;
 }
 .field b {
   font-size: 0.85rem;
@@ -645,9 +734,9 @@ small {
 }
 .nested-field {
   display: grid;
-  gap: 8px;
-  margin: 5px 0;
-  padding: 13px;
+  gap: 4px;
+  margin: 4px 0;
+  padding: 10px;
   border: 1px solid var(--line);
   border-radius: 14px;
 }
@@ -711,9 +800,24 @@ small {
 .array-field > .ui-button {
   width: max-content;
 }
-.appearance-section {
-  padding: 20px 0;
-  border-bottom: 1px solid var(--line);
+.browser-preferences {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.preference-section {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--panel-raised) 48%, transparent);
+}
+.preference-section h3 {
+  margin: 0 0 8px;
+  font-size: 0.96rem;
+}
+.preference-section .appearance {
+  margin-top: 0;
 }
 .settings-actions {
   display: flex;
@@ -843,6 +947,10 @@ small {
   }
   .settings-body {
     padding: 0 16px 16px;
+  }
+  .settings-groups,
+  .browser-preferences {
+    grid-template-columns: 1fr;
   }
   .field {
     grid-template-columns: 1fr;

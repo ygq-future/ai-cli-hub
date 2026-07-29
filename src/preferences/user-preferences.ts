@@ -57,7 +57,10 @@ export function createUserPreferences(deps: UserPreferencesDeps): UserPreference
 
   async function getCwd(platform: Platform, userId: string, cli: CliType): Promise<string> {
     const row = await repos.userPreferences.findCliPreference(platform, userId, cli)
-    if (row) return row.cwd
+    if (row) {
+      await ensureDirectory(row.cwd)
+      return row.cwd
+    }
     const cwd = defaultCwd(deps.homeDir, cli, platform)
     await ensureDirectory(cwd)
     await repos.userPreferences.upsertCwd(platform, userId, cli, cwd)

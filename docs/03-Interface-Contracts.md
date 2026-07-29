@@ -10,7 +10,7 @@
 ## 0. 基础类型（`shared/types/common.ts`）
 
 ```typescript
-export type Platform = 'telegram' | 'qq' | 'websocket';
+export type Platform = 'telegram' | 'qq' | 'web';
 export type CliType = 'claude' | 'opencode' | 'codex' | 'gemini';
 
 // 持久化会话状态（落库 conversations.status，对应 02-架构 §5.2 状态机；决策 D28）

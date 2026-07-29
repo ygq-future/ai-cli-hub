@@ -22,7 +22,7 @@ export interface HttpConversationTarget {
 }
 
 export interface WebSessionStatus {
-  platform: 'websocket'
+  platform: 'web'
   conversationId: string | null
   cli: string
   cwd: string
@@ -283,7 +283,7 @@ async function handleMessageRequest(request: Request, pathname: string, deps: Ap
     const chatId = asNonEmptyString(body.chatId)
     if (!chatId) return json({ error: 'chatId must be a non-empty string' }, 400)
     const platform = parsePlatform(body.platform)
-    if (!platform) return json({ error: 'platform must be telegram, qq, or websocket' }, 400)
+    if (!platform) return json({ error: 'platform must be telegram, qq, or web' }, 400)
     if (!deps.whitelistUserIds.includes(chatId)) return json({ error: 'chatId is not whitelisted' }, 403)
     const transport = deps.transports.find(item => item.platform === platform)
     if (!transport) return json({ error: `Transport is not enabled: ${platform}` }, 503)
@@ -325,7 +325,7 @@ function contentType(pathname: string): string {
 }
 
 function parsePlatform(value: unknown): Platform | null {
-  return value === 'telegram' || value === 'qq' || value === 'websocket' ? value : null
+  return value === 'telegram' || value === 'qq' || value === 'web' ? value : null
 }
 
 function asNonEmptyString(value: unknown): string | null {

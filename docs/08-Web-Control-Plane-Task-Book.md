@@ -37,7 +37,7 @@ flowchart LR
 ```
 
 - `server/` 只依赖 `config/`、`event/`、`shared/` 和 Composition Root 注入的抽象；不得 import Core 内部、具体 CLI 或 Drizzle。
-- `transport/websocket` 按现有 `Transport` 契约处理白名单、入站 `MessageReceived`、出站流式消息和审批事件。
+- `transport/websocket` 通过 WebSocket 协议承载 `web` 平台，按现有 `Transport` 契约处理白名单、入站 `MessageReceived`、出站流式消息和审批事件。
 - `main.ts` 是 server、websocket transport、repositories 与运维能力的唯一装配点。
 - 设置文件读写与 schema 校验收敛在 `config/` 的受控能力中；HTTP handler 不直接操作 SQL。
 

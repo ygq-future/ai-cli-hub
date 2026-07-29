@@ -308,6 +308,7 @@
 | 2026-07-28 | **WebUI 重启后模块 MIME 修复**：定位到 Vite 未配置 `base`，构建入口错误指向 `/assets/app.js` 而后端只托管 `/webui/assets/...`，服务器遂将该模块请求回退成 HTML 的主因；直接以 `bun src/main.ts` 重启时也不会重建被忽略的构建目录，是第二个风险。Vite 现固定 `base: '/webui/'`，构建入口为 `/webui/assets/app.js`；`main.ts` 于服务初始化前强制执行 `webui:build`，`start`/`dev` 统一委托该启动链路；server 不再把带文件扩展名的请求回退成 SPA HTML，默认静态入口只认构建产物。新增 Vite 基路径及 `/main.tsx` 404 回归测试。自动验收：format、format check、typecheck、Vite build、lint、Vite + server/WebSocket 15 项测试通过。 |
 | 2026-07-28 | **WebUI 静态根目录加固**：Composition Root 的静态入口、静态资源根目录及 Vite 构建工作目录统一以 `src/main.ts` 的仓库根路径解析，消除 PM2/手工启动工作目录不同而造成资源 404 的可能性。构建产物检查确认入口引用 `/webui/assets/app.js`。自动验收：format、format check、typecheck、Vite build、lint、15 项相关测试通过。 |
 | 2026-07-28 | **WebUI assets 路由拦截修复**：定位到模块 MIME 防护将所有带扩展名的请求提前返回 404，误伤了合法 `/webui/assets/app.js`、CSS 与图标请求。路由现仅拒绝 assets 前缀之外的文件型 SPA fallback，请求 `/webui/assets/*` 继续进入静态文件服务。新增真实 SVG 静态资源 200/MIME 回归测试。 |
+| 2026-07-29 | **Web 平台语义与聊天体验修复**：浏览器接入的平台常量由传输协议名 `websocket` 迁移为 `web`，默认目录同步改为 `~/.<cli>-web`，并新增数据库枚举/CWD 迁移；WebSocket 仍只作为传输协议。修复浏览器 `/help` 无响应并按用户语言返回共享帮助文案。WebUI 新增本地持久化的“回车发送”开关，支持 Enter/Shift+Enter 或 Ctrl/Cmd+Enter 两种输入方式；消息改用 GFM Markdown 渲染并按内容收缩宽度，累计流式输出不再重复拼接；上传、文本框、发送按钮统一垂直居中，设置面板改为紧凑响应式双栏卡片。自动验收：`bun run format`、format check、typecheck、lint、Vite build 通过；全量测试 430 pass / 7 skip / 0 fail。 |
 
 ## 6. 开放问题（Open Questions）
 

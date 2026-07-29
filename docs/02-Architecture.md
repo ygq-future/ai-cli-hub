@@ -118,7 +118,7 @@ flowchart LR
 
 ```typescript
 interface Transport {
-  readonly platform: Platform;              // 'telegram' | 'qq' | 'websocket'
+  readonly platform: Platform;              // 'telegram' | 'qq' | 'web'
   start(): Promise<void>;
   stop(): Promise<void>;
 

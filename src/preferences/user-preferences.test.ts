@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import path from 'node:path'
 import { createEventBus } from '../event'
-import { createUserPreferences } from './user-preferences'
+import { createUserPreferences, defaultCwd } from './user-preferences'
 
 function createRepos() {
   const preferences = new Map<
@@ -23,7 +23,7 @@ function createRepos() {
     repos: {
       userPreferences: {
         async getOrCreate(input: {
-          platform: 'telegram' | 'qq' | 'websocket'
+          platform: 'telegram' | 'qq' | 'web'
           userId: string
           language: 'zh' | 'en'
           defaultCli: 'claude' | 'opencode' | 'codex' | 'gemini'
@@ -37,29 +37,24 @@ function createRepos() {
           preferences.set(key(input.platform, input.userId), value)
           return { platform: input.platform, userId: input.userId, ...value, createdAt: 1, updatedAt: 1 }
         },
-        async setLanguage(platform: 'telegram' | 'qq' | 'websocket', userId: string, language: 'zh' | 'en') {
+        async setLanguage(platform: 'telegram' | 'qq' | 'web', userId: string, language: 'zh' | 'en') {
           const value = preferences.get(key(platform, userId))!
           value.language = language
         },
         async setDefaultCli(
-          platform: 'telegram' | 'qq' | 'websocket',
+          platform: 'telegram' | 'qq' | 'web',
           userId: string,
           cli: 'claude' | 'opencode' | 'codex' | 'gemini',
         ) {
           const value = preferences.get(key(platform, userId))!
           value.defaultCli = cli
         },
-        async setAutoApprove(
-          platform: 'telegram' | 'qq' | 'websocket',
-          userId: string,
-          enabled: boolean,
-          seconds: number,
-        ) {
+        async setAutoApprove(platform: 'telegram' | 'qq' | 'web', userId: string, enabled: boolean, seconds: number) {
           const preference = preferences.get(key(platform, userId))!
           preference.autoApproveEnabled = enabled
           preference.autoApproveSeconds = seconds
         },
-        async findCliPreference(platform: 'telegram' | 'qq' | 'websocket', userId: string, cli: string) {
+        async findCliPreference(platform: 'telegram' | 'qq' | 'web', userId: string, cli: string) {
           const cwd = cwds.get(cwdKey(platform, userId, cli))
           return cwd
             ? {
@@ -73,11 +68,11 @@ function createRepos() {
               }
             : null
         },
-        async upsertCwd(platform: 'telegram' | 'qq' | 'websocket', userId: string, cli: string, cwd: string) {
+        async upsertCwd(platform: 'telegram' | 'qq' | 'web', userId: string, cli: string, cwd: string) {
           cwds.set(cwdKey(platform, userId, cli), cwd)
         },
         async setModel(
-          platform: 'telegram' | 'qq' | 'websocket',
+          platform: 'telegram' | 'qq' | 'web',
           userId: string,
           cli: string,
           modelId: string,
@@ -86,7 +81,7 @@ function createRepos() {
           models.set(cwdKey(platform, userId, cli), { modelId, modelName })
         },
         async reset(
-          platform: 'telegram' | 'qq' | 'websocket',
+          platform: 'telegram' | 'qq' | 'web',
           userId: string,
           defaults: ReadonlyArray<{ cli: 'claude' | 'opencode' | 'codex' | 'gemini'; cwd: string }>,
         ) {
@@ -116,6 +111,10 @@ function createRepos() {
 }
 
 describe('user preferences', () => {
+  test('Web 平台默认目录使用 web 后缀', () => {
+    expect(defaultCwd('/home/hub', 'claude', 'web')).toBe(path.join('/home/hub', 'ai-workspace', '.claude-web'))
+  })
+
   test('首次访问初始化默认 CLI 目录，并按 platform + userId 隔离', async () => {
     const bus = createEventBus()
     const { repos } = createRepos()
@@ -152,7 +151,7 @@ describe('user preferences', () => {
     expect(await preferences.getAutoApprove('telegram', 'u1')).toEqual({ enabled: true, seconds: 12 })
     expect(await preferences.getAutoApprove('qq', 'u1')).toEqual({ enabled: false, seconds: 5 })
     expect(await preferences.getTarget('qq', 'u1')).toEqual({ cli: 'claude', cwd: qqClaudeCwd })
-    expect(created).toEqual([telegramClaudeCwd, qqClaudeCwd])
+    expect(created).toEqual([telegramClaudeCwd, '/projects/open', qqClaudeCwd])
   })
 
   test('reset 以默认值覆盖持久化偏好、CLI cwd 与模型选择', async () => {

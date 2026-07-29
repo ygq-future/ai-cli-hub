@@ -4,7 +4,7 @@
  */
 import { pgEnum } from 'drizzle-orm/pg-core'
 
-export const platformEnum = pgEnum('platform', ['telegram', 'qq', 'websocket'])
+export const platformEnum = pgEnum('platform', ['telegram', 'qq', 'web'])
 export const cliEnum = pgEnum('cli', ['claude', 'opencode', 'codex', 'gemini'])
 export const sessionStatusEnum = pgEnum('session_status', ['idle', 'starting', 'running', 'closing', 'closed'])
 export const roleEnum = pgEnum('role', ['user', 'assistant', 'system'])

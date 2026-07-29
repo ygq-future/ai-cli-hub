@@ -1,6 +1,16 @@
-import { useEffect, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type FormEvent,
+  type KeyboardEvent,
+  type SetStateAction,
+} from 'react'
 import { createRoot } from 'react-dom/client'
 import { Check, ChevronRight, FilePlus2, LoaderCircle, Palette, Send, Settings2, X } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Button } from './components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './components/ui/dialog'
 import { Input } from './components/ui/input'
@@ -11,6 +21,7 @@ type Translator = (cn: string, en: string) => string
 type Message = { id: string; role: 'user' | 'assistant'; content: string; streaming?: boolean }
 type Approval = { approvalId: string; conversationId: string; command: string; detail: string }
 type Status = {
+  platform: 'web'
   cli: string
   cwd: string
   sessionStatus: string
@@ -22,6 +33,7 @@ type Preferences = {
   locale: 'zh-CN' | 'en'
   theme: 'system' | 'light' | 'dark'
   accent: 'cyan' | 'emerald' | 'amber' | 'rose' | 'violet'
+  enterToSend: boolean
 }
 type ServerEvent = {
   type?: string
@@ -223,6 +235,13 @@ function App() {
     setText('')
     setFiles([])
   }
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+    const shouldSend = preferences.enterToSend ? !event.shiftKey : event.ctrlKey || event.metaKey
+    if (!shouldSend) return
+    event.preventDefault()
+    event.currentTarget.form?.requestSubmit()
+  }
   const decide = (approval: Approval, type: 'approve' | 'reject') => {
     if (socket.current?.readyState !== WebSocket.OPEN) return
     socket.current.send(
@@ -269,7 +288,9 @@ function App() {
             )}
             {messages.map(message => (
               <article className={`message ${message.role}`} key={message.id}>
-                {message.content}
+                <div className="markdown">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                </div>
                 <span className={message.streaming ? 'stream-caret' : ''} />
               </article>
             ))}
@@ -309,8 +330,10 @@ function App() {
                 <FilePlus2 size={19} />
               </Button>
               <textarea
+                rows={1}
                 value={text}
                 onChange={event => setText(event.target.value)}
+                onKeyDown={handleComposerKeyDown}
                 onPaste={event => {
                   const pasted = Array.from(event.clipboardData.files)
                   if (pasted.length) setFiles(current => [...current, ...pasted])
@@ -404,6 +427,7 @@ function Login({
 
 function StatusPanel({ status, t }: { status: Status | null; t: Translator }) {
   const rows = [
+    [t('平台', 'Platform'), status?.platform],
     ['CLI', status?.cli],
     [t('模型', 'Model'), status?.model?.name],
     [t('工作目录', 'Directory'), status?.cwd],
@@ -540,19 +564,44 @@ function Settings({
   return (
     <div className="settings-body">
       {data ? (
-        Object.entries(data).map(([group, value]) => (
-          <ConfigGroup key={group} group={group} value={value} setData={setData} t={t} />
-        ))
+        <div className="settings-groups">
+          {Object.entries(data).map(([group, value]) => (
+            <ConfigGroup key={group} group={group} value={value} setData={setData} t={t} />
+          ))}
+        </div>
       ) : (
         <p className="loading">
           <LoaderCircle />
           {t('正在加载配置…', 'Loading settings…')}
         </p>
       )}
-      <section className="appearance-section">
-        <h3>{t('外观', 'Appearance')}</h3>
-        <Appearance preferences={preferences} setPreferences={setPreferences} t={t} />
-      </section>
+      <div className="browser-preferences">
+        <section className="preference-section">
+          <h3>{t('消息输入', 'Message input')}</h3>
+          <label className="field switch-field">
+            <span>
+              <b>{t('回车发送', 'Enter to send')}</b>
+              <small>
+                {preferences.enterToSend
+                  ? t('Enter 发送，Shift + Enter 换行。', 'Enter sends; Shift + Enter adds a new line.')
+                  : t('Enter 换行，Ctrl/Cmd + Enter 发送。', 'Enter adds a new line; Ctrl/Cmd + Enter sends.')}
+              </small>
+            </span>
+            <button
+              className={`switch ${preferences.enterToSend ? 'on' : ''}`}
+              type="button"
+              role="switch"
+              aria-checked={preferences.enterToSend}
+              onClick={() => setPreferences(current => ({ ...current, enterToSend: !current.enterToSend }))}>
+              <i />
+            </button>
+          </label>
+        </section>
+        <section className="preference-section">
+          <h3>{t('外观', 'Appearance')}</h3>
+          <Appearance preferences={preferences} setPreferences={setPreferences} t={t} />
+        </section>
+      </div>
       <footer className="settings-actions">
         <small>{result}</small>
         <Button variant="secondary" type="button" onClick={close}>
@@ -733,7 +782,7 @@ function ArrayField({
 function appendOutput(messages: Message[], content: string, final: boolean) {
   const last = messages.at(-1)
   if (last?.role === 'assistant' && last.streaming)
-    return [...messages.slice(0, -1), { ...last, content: `${last.content}${content}`, streaming: !final }]
+    return [...messages.slice(0, -1), { ...last, content, streaming: !final }]
   return [...messages, { id: crypto.randomUUID(), role: 'assistant' as const, content, streaming: !final }]
 }
 function isRecord(value: JsonValue): value is { [key: string]: JsonValue } {
@@ -755,10 +804,11 @@ function readPreferences(): Preferences {
       locale: 'zh-CN',
       theme: 'system',
       accent: 'emerald',
+      enterToSend: true,
       ...(JSON.parse(localStorage.getItem(preferenceKey) ?? '{}') as Partial<Preferences>),
     }
   } catch {
-    return { locale: 'zh-CN', theme: 'system', accent: 'emerald' }
+    return { locale: 'zh-CN', theme: 'system', accent: 'emerald', enterToSend: true }
   }
 }
 

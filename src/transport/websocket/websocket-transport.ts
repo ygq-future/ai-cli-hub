@@ -5,9 +5,12 @@ import type {
   ConversationId,
   InboundAttachment,
   MediaPreprocessor,
+  Platform,
   Transport,
   Unsubscribe,
+  UserLanguage,
 } from '../../shared'
+import { getHelpText } from '../messages'
 
 export interface WebSocketPeer {
   send(data: string): void
@@ -30,6 +33,7 @@ export interface WebSocketTransportDeps {
   cwd?: string
   resolveUploads?: (ids: readonly string[]) => Promise<InboundAttachment[]>
   mediaPreprocessor?: MediaPreprocessor
+  resolveUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage> | UserLanguage
 }
 
 interface ClientEnvelope {
@@ -66,6 +70,12 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
         ? message.uploadIds
         : []
     if (message.type === 'message' && typeof message.text === 'string' && (message.text.trim() || uploadIds.length)) {
+      const text = message.text.trim()
+      if (text.toLowerCase() === '/help' && uploadIds.length === 0) {
+        const language = (await deps.resolveUserLanguage?.('web', deps.userId)) ?? 'zh'
+        peer.send(JSON.stringify({ v: 1, type: 'output', content: getHelpText(language), final: true }))
+        return
+      }
       let attachments: InboundAttachment[] = []
       try {
         attachments = uploadIds.length ? ((await deps.resolveUploads?.(uploadIds)) ?? []) : []
@@ -74,16 +84,16 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
         return
       }
       const prepared = deps.mediaPreprocessor
-        ? await deps.mediaPreprocessor.preprocess({ text: message.text.trim(), attachments })
-        : { text: message.text.trim(), warnings: [] }
+        ? await deps.mediaPreprocessor.preprocess({ text, attachments })
+        : { text, warnings: [] }
       deps.bus.emit('MessageReceived', {
         userId: deps.userId,
-        platform: 'websocket',
+        platform: 'web',
         cli,
         cwd,
         text: prepared.text,
         attachments,
-        ref: { platform: 'websocket', chatId: deps.userId, nativeId: crypto.randomUUID() },
+        ref: { platform: 'web', chatId: deps.userId, nativeId: crypto.randomUUID() },
       })
       return
     }
@@ -104,13 +114,13 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
   }
 
   return {
-    platform: 'websocket',
+    platform: 'web',
     async start() {
       deps.gateway.setReceiver((peer, data) => {
         void receive(peer, data)
       })
       const rememberConversation = (event: { platform: string; userId: string; conversationId: ConversationId }) => {
-        if (event.platform === 'websocket' && event.userId === deps.userId) conversations.add(event.conversationId)
+        if (event.platform === 'web' && event.userId === deps.userId) conversations.add(event.conversationId)
       }
       unsubs.push(deps.bus.on('SessionCreated', rememberConversation))
       unsubs.push(deps.bus.on('SessionMapped', rememberConversation))
@@ -121,7 +131,7 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
       )
       unsubs.push(
         deps.bus.on('CommandReply', event => {
-          if (event.ref.platform !== 'websocket' || event.ref.chatId !== deps.userId) return
+          if (event.ref.platform !== 'web' || event.ref.chatId !== deps.userId) return
           send('output', { content: event.content, final: true })
         }),
       )
@@ -142,12 +152,12 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
     },
     async sendMessage(chatId, content) {
       send('message', { chatId, content })
-      return { platform: 'websocket', chatId, nativeId: crypto.randomUUID() }
+      return { platform: 'web', chatId, nativeId: crypto.randomUUID() }
     },
     async sendConversationMessage(conversationId, content) {
       if (!conversations.has(conversationId)) return null
       send('message', { conversationId, content })
-      return { platform: 'websocket', chatId: deps.userId, nativeId: crypto.randomUUID() }
+      return { platform: 'web', chatId: deps.userId, nativeId: crypto.randomUUID() }
     },
     async editMessage(ref, content) {
       send('edit', { ref, content })
@@ -157,7 +167,7 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
     },
     async sendApproval(chatId, card: ApprovalCard) {
       send('approval', { chatId, ...card })
-      return { platform: 'websocket', chatId, nativeId: card.approvalId }
+      return { platform: 'web', chatId, nativeId: card.approvalId }
     },
   }
 }

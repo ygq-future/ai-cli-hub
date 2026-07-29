@@ -3,7 +3,7 @@
  * 契约细节见 docs/03-Interface-Contracts.md §0。
  */
 
-export type Platform = 'telegram' | 'qq' | 'websocket'
+export type Platform = 'telegram' | 'qq' | 'web'
 export type CliType = 'claude' | 'opencode' | 'codex' | 'gemini'
 export type UserLanguage = 'zh' | 'en'
 

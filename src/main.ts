@@ -170,6 +170,7 @@ async function main() {
     userId: config.WHITELIST_USER_IDS[0] ?? '',
     resolveUploads: webUploads.consume,
     mediaPreprocessor,
+    resolveUserLanguage: userPreferences.getLanguage,
   })
   transports.push(webSocketTransport)
   if (config.TELEGRAM_BOT_TOKEN) {
@@ -206,7 +207,7 @@ async function main() {
       preview: restarter.preview,
       run: async () =>
         restarter.run({
-          platform: 'websocket',
+          platform: 'web',
           chatId: config.WHITELIST_USER_IDS[0] ?? '',
           nativeId: crypto.randomUUID(),
         }),
@@ -214,14 +215,14 @@ async function main() {
     webStatus: {
       async get() {
         const userId = config.WHITELIST_USER_IDS[0] ?? ''
-        const target = await userPreferences.getTarget('websocket', userId)
-        const conversation = await repos.conversations.findLatestOpen('websocket', userId, target.cli)
+        const target = await userPreferences.getTarget('web', userId)
+        const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
         const [model, autoApprove] = await Promise.all([
-          userPreferences.getModel('websocket', userId, target.cli),
-          userPreferences.getAutoApprove('websocket', userId),
+          userPreferences.getModel('web', userId, target.cli),
+          userPreferences.getAutoApprove('web', userId),
         ])
         return {
-          platform: 'websocket' as const,
+          platform: 'web' as const,
           conversationId: conversation?.id ?? null,
           cli: target.cli,
           cwd: target.cwd,
