@@ -74,7 +74,7 @@ export type NewConversation = typeof conversations.$inferInsert;
 
 ```typescript
 // storage/schema/messages.ts
-import { pgTable, text, bigint, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, index, jsonb } from 'drizzle-orm/pg-core';
 import { roleEnum } from './enums';
 
 export const messages = pgTable('messages', {
@@ -83,6 +83,7 @@ export const messages = pgTable('messages', {
                     .references(() => conversations.id, { onDelete: 'cascade' }),
   role:           roleEnum('role').notNull(),
   content:        text('content').notNull(),
+  attachments:    jsonb('attachments').$type<StoredMessageAttachment[]>().notNull().default([]),
   createdAt:      bigint('created_at', { mode: 'number' }).notNull(),
 }, (t) => ({
   byConv: index('idx_msg_conv').on(t.conversationId, t.createdAt),

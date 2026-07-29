@@ -92,6 +92,13 @@ export function createMessageRouter(
         conversationId,
         role: 'user',
         content: resolvedText.text,
+        attachments: registeredFiles.map(file => ({
+          id: file.id,
+          kind: file.kind as InboundAttachmentKind,
+          fileName: file.fileName,
+          mimeType: file.mimeType,
+          fileSize: file.fileSize,
+        })),
         createdAt: Date.now(),
       })
 

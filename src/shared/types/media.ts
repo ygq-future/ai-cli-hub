@@ -106,6 +106,14 @@ export interface StoredFileReference {
   localPath: string
 }
 
+export interface StoredMessageAttachment {
+  id: string
+  kind: InboundAttachmentKind
+  fileName: string | null
+  mimeType: string | null
+  fileSize: number | null
+}
+
 export type FileContentResult =
   | { status: 'ok'; text: string; warnings?: string[] }
   | { status: 'unsupported'; reason: string }

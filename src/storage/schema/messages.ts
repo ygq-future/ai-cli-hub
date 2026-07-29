@@ -2,7 +2,8 @@
  * messages —— 完整对话记录（docs/04-Data-Model.md §4）。
  * conversationId 级联删除：会话删除时消息随之清理。
  */
-import { pgTable, text, bigint, index } from 'drizzle-orm/pg-core'
+import { pgTable, text, bigint, index, jsonb } from 'drizzle-orm/pg-core'
+import type { StoredMessageAttachment } from '../../shared'
 import { roleEnum } from './enums'
 import { conversations } from './conversations'
 
@@ -15,6 +16,7 @@ export const messages = pgTable(
       .references(() => conversations.id, { onDelete: 'cascade' }),
     role: roleEnum('role').notNull(),
     content: text('content').notNull(),
+    attachments: jsonb('attachments').$type<StoredMessageAttachment[]>().notNull().default([]),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
   t => [index('idx_msg_conv').on(t.conversationId, t.createdAt)],

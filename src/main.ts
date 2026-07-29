@@ -245,8 +245,23 @@ async function main() {
             id: message.id,
             role: message.role as 'user' | 'assistant',
             content: message.content,
+            attachments: message.attachments,
             createdAt: message.createdAt,
           }))
+      },
+    },
+    webFiles: {
+      async get(id) {
+        const userId = config.WHITELIST_USER_IDS[0] ?? ''
+        const target = await userPreferences.getTarget('web', userId)
+        const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
+        if (!conversation) return null
+        const files = await repos.conversationFiles.listByConversation(conversation.id as ConversationId, 1000)
+        const record = files.find(file => file.id === id)
+        if (!record) return null
+        const body = Bun.file(record.localPath)
+        if (!(await body.exists())) return null
+        return { body, fileName: record.fileName, mimeType: record.mimeType }
       },
     },
     uploads: webUploads,

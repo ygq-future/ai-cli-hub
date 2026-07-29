@@ -528,6 +528,40 @@ small {
 .markdown a {
   color: var(--accent);
 }
+.message-images {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 180px));
+  gap: 7px;
+  margin-top: 10px;
+}
+.message-images.single {
+  grid-template-columns: minmax(180px, 360px);
+}
+.message-images button {
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-radius: 12px;
+  background: var(--bg);
+  transition:
+    border-color 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.message-images button:hover,
+.message-images button:focus-visible {
+  border-color: var(--accent);
+  outline: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 17%, transparent);
+  transform: translateY(-1px);
+}
+.message-images img {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+}
 .stream-caret {
   display: inline-block;
   width: 7px;

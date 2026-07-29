@@ -35,6 +35,13 @@ export interface WebHistoryMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  attachments?: Array<{
+    id: string
+    kind: string
+    fileName: string | null
+    mimeType: string | null
+    fileSize: number | null
+  }>
   createdAt: number
 }
 
@@ -54,6 +61,9 @@ export interface AppServerDeps {
   restart?: { preview(): string; run(): Promise<string> }
   webStatus?: { get(): Promise<WebSessionStatus> }
   webHistory?: { get(): Promise<WebHistoryMessage[]> }
+  webFiles?: {
+    get(id: string): Promise<{ body: Blob; fileName: string | null; mimeType: string | null } | null>
+  }
   uploads?: { stage(file: File): Promise<{ id: string; name: string; mimeType: string; size: number }> }
 }
 
@@ -152,6 +162,8 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname === '/api/web/status') return handleWebStatusRequest(request, deps, sessions, now())
       if (url.pathname === '/api/web/history') return handleWebHistoryRequest(request, deps, sessions, now())
+      if (url.pathname.startsWith('/api/web/files/'))
+        return handleWebFileRequest(request, url.pathname, deps, sessions, now())
       if (url.pathname === '/api/web/uploads') return handleUploadRequest(request, deps, sessions, now())
       if (url.pathname === '/api/settings') return handleSettingsRequest(request, deps, sessions, now())
       if (url.pathname === '/api/restart') return handleRestartRequest(request, deps, sessions, now())
@@ -168,6 +180,31 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
     }
     return serveWebUi(url.pathname, request.method, deps)
   }
+}
+
+async function handleWebFileRequest(
+  request: Request,
+  pathname: string,
+  deps: AppServerDeps,
+  sessions: Map<string, number>,
+  now: number,
+): Promise<Response> {
+  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+  if (!deps.webFiles) return json({ error: 'Web file API is not configured' }, 501)
+  if (request.method !== 'GET' && request.method !== 'HEAD')
+    return json({ error: 'Method not allowed' }, 405, { allow: 'GET, HEAD' })
+  let id: string
+  try {
+    id = decodeURIComponent(pathname.slice('/api/web/files/'.length))
+  } catch {
+    return json({ error: 'Not found' }, 404)
+  }
+  if (!id || id.includes('/') || id.includes('\\')) return json({ error: 'Not found' }, 404)
+  const file = await deps.webFiles.get(id)
+  if (!file) return json({ error: 'Not found' }, 404)
+  const headers = new Headers({ 'content-type': file.mimeType ?? 'application/octet-stream' })
+  if (file.fileName) headers.set('content-disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`)
+  return new Response(request.method === 'HEAD' ? null : file.body, { headers })
 }
 
 async function handleWebHistoryRequest(

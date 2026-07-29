@@ -251,7 +251,21 @@ describe('app server', () => {
       webHistory: {
         get: async () => [
           { id: 'message-1', role: 'user', content: 'hello', createdAt: 1 },
-          { id: 'message-2', role: 'assistant', content: '**world**', createdAt: 2 },
+          {
+            id: 'message-2',
+            role: 'assistant',
+            content: '**world**',
+            attachments: [
+              {
+                id: 'file-1',
+                kind: 'photo',
+                fileName: 'screen.png',
+                mimeType: 'image/png',
+                fileSize: 4,
+              },
+            ],
+            createdAt: 2,
+          },
         ],
       },
     })
@@ -262,8 +276,48 @@ describe('app server', () => {
     expect(await response.json()).toEqual({
       messages: [
         { id: 'message-1', role: 'user', content: 'hello', createdAt: 1 },
-        { id: 'message-2', role: 'assistant', content: '**world**', createdAt: 2 },
+        {
+          id: 'message-2',
+          role: 'assistant',
+          content: '**world**',
+          attachments: [
+            {
+              id: 'file-1',
+              kind: 'photo',
+              fileName: 'screen.png',
+              mimeType: 'image/png',
+              fileSize: 4,
+            },
+          ],
+          createdAt: 2,
+        },
       ],
     })
+  })
+
+  test('Web 文件 API 只向已认证会话返回受控文件', async () => {
+    const fake = createFakeTransport()
+    const handler = createServerRequestHandler({
+      host: '127.0.0.1',
+      port: 8787,
+      authToken: 'secret',
+      whitelistUserIds: ['chat-1'],
+      transports: [fake.transport],
+      resolveConversation: async () => null,
+      webFiles: {
+        get: async id =>
+          id === 'file-1' ? { body: new Blob(['image']), fileName: 'screen.png', mimeType: 'image/png' } : null,
+      },
+    })
+
+    expect((await handler(request('/api/web/files/file-1'))).status).toBe(401)
+    const response = await handler(request('/api/web/files/file-1', { headers: { authorization: 'Bearer secret' } }))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('image/png')
+    expect(response.headers.get('content-disposition')).toContain('screen.png')
+    expect(await response.text()).toBe('image')
+    expect(
+      (await handler(request('/api/web/files/missing', { headers: { authorization: 'Bearer secret' } }))).status,
+    ).toBe(404)
   })
 })

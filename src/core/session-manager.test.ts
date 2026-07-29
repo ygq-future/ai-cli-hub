@@ -642,6 +642,51 @@ describe('MessageRouter with MockHandler', () => {
     expect(await repos.messages.listByConversation(cid!)).toEqual([])
   })
 
+  test('图片附件元数据随用户消息持久化，供 Web 历史气泡回显', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    createMessageRouter(bus as unknown as EventBus, repos, sm, undefined, {
+      async onMessage() {
+        return ''
+      },
+    })
+
+    bus.emit('MessageReceived', {
+      userId: 'u1',
+      platform: 'web',
+      cli: 'claude',
+      cwd: '/project',
+      text: '看看这张图',
+      ref: { platform: 'web', chatId: 'c', nativeId: '1' },
+      attachments: [
+        {
+          kind: 'photo',
+          fileName: 'screen.png',
+          mimeType: 'image/png',
+          fileSize: 1024,
+          localPath: '/tmp/screen.png',
+        },
+      ],
+    })
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    const cid = await sm.findCurrent({ userId: 'u1', platform: 'web', cli: 'claude', cwd: '/project' })
+    const userMessage = (await repos.messages.listByConversation(cid!)).find(message => message.role === 'user')
+    expect(userMessage).toMatchObject({
+      content: '看看这张图',
+      attachments: [
+        {
+          kind: 'photo',
+          fileName: 'screen.png',
+          mimeType: 'image/png',
+          fileSize: 1024,
+        },
+      ],
+    })
+    expect((userMessage as { attachments: Array<{ id: string }> }).attachments[0]?.id).toBeString()
+  })
+
   test('@readN 注入提取内容，@fileN 只注入本地路径', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()

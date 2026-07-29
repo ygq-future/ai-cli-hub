@@ -32,8 +32,23 @@ import { Select } from './components/ui/select'
 import './react.css'
 
 type Translator = (cn: string, en: string) => string
-type Message = { id: string; role: 'user' | 'assistant'; content: string; streaming?: boolean }
+type MessageAttachment = {
+  id: string
+  kind: string
+  fileName: string | null
+  mimeType: string | null
+  fileSize: number | null
+  url: string
+}
+type Message = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  attachments?: MessageAttachment[]
+  streaming?: boolean
+}
 type ComposerFile = { id: string; file: File; previewUrl: string | null }
+type PreviewImage = { name: string; url: string; size: number | null }
 type Approval = { approvalId: string; conversationId: string; command: string; detail: string }
 type Status = {
   platform: 'web'
@@ -128,7 +143,7 @@ function App() {
   const [text, setText] = useState('')
   const [files, setFiles] = useState<ComposerFile[]>([])
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
-  const [previewFile, setPreviewFile] = useState<ComposerFile | null>(null)
+  const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [approvals, setApprovals] = useState<Approval[]>([])
   const [status, setStatus] = useState<Status | null>(null)
@@ -144,7 +159,7 @@ function App() {
   const attempts = useRef(0)
   const picker = useRef<HTMLInputElement>(null)
   const feed = useRef<HTMLDivElement>(null)
-  const filesRef = useRef<ComposerFile[]>([])
+  const objectUrls = useRef(new Set<string>())
 
   const zh = preferences.locale === 'zh-CN'
   const t: Translator = (cn, en) => (zh ? cn : en)
@@ -155,26 +170,43 @@ function App() {
   const historyLoad = async () => {
     const response = await fetch('/api/web/history')
     if (!response.ok) return
-    const value = (await response.json()) as { messages: Message[] }
-    setMessages(value.messages)
+    const value = (await response.json()) as {
+      messages: Array<
+        Omit<Message, 'attachments'> & {
+          attachments?: Array<Omit<MessageAttachment, 'url'>>
+        }
+      >
+    }
+    setMessages(
+      value.messages.map(message => ({
+        ...message,
+        attachments: message.attachments?.map(attachment => ({
+          ...attachment,
+          url: `/api/web/files/${encodeURIComponent(attachment.id)}`,
+        })),
+      })),
+    )
   }
   const addFiles = (incoming: readonly File[]) => {
-    const additions = incoming.map(file => ({
-      id: crypto.randomUUID(),
-      file,
-      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
-    }))
+    const additions = incoming.map(file => {
+      const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+      if (previewUrl) objectUrls.current.add(previewUrl)
+      return { id: crypto.randomUUID(), file, previewUrl }
+    })
     setFiles(current => [...current, ...additions])
     setSelectedFileId(additions.at(-1)?.id ?? null)
   }
   const removeFile = (id: string) => {
     setFiles(current => {
       const target = current.find(item => item.id === id)
-      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl)
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl)
+        objectUrls.current.delete(target.previewUrl)
+      }
       return current.filter(item => item.id !== id)
     })
     setSelectedFileId(current => (current === id ? null : current))
-    setPreviewFile(current => (current?.id === id ? null : current))
+    setPreviewImage(current => (current?.url === files.find(item => item.id === id)?.previewUrl ? null : current))
   }
   const showNotification = (title: string, body: string) => {
     if (
@@ -256,12 +288,10 @@ function App() {
     const frame = requestAnimationFrame(() => element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' }))
     return () => cancelAnimationFrame(frame)
   }, [messages, approvals])
-  useEffect(() => {
-    filesRef.current = files
-  }, [files])
   useEffect(
     () => () => {
-      for (const item of filesRef.current) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+      for (const url of objectUrls.current) URL.revokeObjectURL(url)
+      objectUrls.current.clear()
     },
     [],
   )
@@ -312,11 +342,25 @@ function App() {
       {
         id: crypto.randomUUID(),
         role: 'user',
-        content: text || files.map(item => `📎 ${item.file.name}`).join('\n'),
+        content:
+          text ||
+          files
+            .filter(item => !item.previewUrl)
+            .map(item => `📎 ${item.file.name}`)
+            .join('\n'),
+        attachments: files
+          .filter(item => item.previewUrl)
+          .map(item => ({
+            id: item.id,
+            kind: 'photo',
+            fileName: item.file.name,
+            mimeType: item.file.type || null,
+            fileSize: item.file.size,
+            url: item.previewUrl!,
+          })),
       },
     ])
     setText('')
-    for (const item of files) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
     setFiles([])
     setSelectedFileId(null)
   }
@@ -395,6 +439,7 @@ function App() {
                 <div className="markdown">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
                 </div>
+                <MessageImages attachments={message.attachments} onPreview={setPreviewImage} />
                 <span className={message.streaming ? 'stream-caret' : ''} />
               </article>
             ))}
@@ -434,11 +479,15 @@ function App() {
                         key={item.id}
                         title={item.previewUrl ? t('双击预览', 'Double-click to preview') : item.file.name}
                         onClick={() => setSelectedFileId(item.id)}
-                        onDoubleClick={() => item.previewUrl && setPreviewFile(item)}
+                        onDoubleClick={() =>
+                          item.previewUrl &&
+                          setPreviewImage({ name: item.file.name, url: item.previewUrl, size: item.file.size })
+                        }
                         onKeyDown={event => {
                           if (event.key === 'Enter') {
                             setSelectedFileId(item.id)
-                            if (item.previewUrl) setPreviewFile(item)
+                            if (item.previewUrl)
+                              setPreviewImage({ name: item.file.name, url: item.previewUrl, size: item.file.size })
                           }
                           if (event.key === 'Delete' || event.key === 'Backspace') removeFile(item.id)
                         }}>
@@ -505,13 +554,15 @@ function App() {
           </div>
         </DialogContent>
       </Dialog>
-      <Dialog open={previewFile !== null} onOpenChange={open => !open && setPreviewFile(null)}>
+      <Dialog open={previewImage !== null} onOpenChange={open => !open && setPreviewImage(null)}>
         <DialogContent className="image-preview-dialog">
           <DialogHeader>
-            <DialogTitle>{previewFile?.file.name}</DialogTitle>
-            <DialogDescription>{previewFile ? formatFileSize(previewFile.file.size) : ''}</DialogDescription>
+            <DialogTitle>{previewImage?.name}</DialogTitle>
+            <DialogDescription>
+              {previewImage?.size === null || previewImage?.size === undefined ? '' : formatFileSize(previewImage.size)}
+            </DialogDescription>
           </DialogHeader>
-          {previewFile?.previewUrl && <img src={previewFile.previewUrl} alt={previewFile.file.name} />}
+          {previewImage && <img src={previewImage.url} alt={previewImage.name} />}
         </DialogContent>
       </Dialog>
     </main>
@@ -605,6 +656,32 @@ function StatusContent({ status, t }: { status: Status | null; t: Translator }) 
         </dl>
       ))}
     </>
+  )
+}
+
+function MessageImages({
+  attachments,
+  onPreview,
+}: {
+  attachments: MessageAttachment[] | undefined
+  onPreview: (image: PreviewImage) => void
+}) {
+  const images = (attachments ?? []).filter(
+    attachment => attachment.kind === 'photo' || attachment.mimeType?.startsWith('image/'),
+  )
+  if (!images.length) return null
+  return (
+    <div className={`message-images ${images.length === 1 ? 'single' : ''}`}>
+      {images.map(image => (
+        <button
+          type="button"
+          key={image.id}
+          title={image.fileName ?? 'Image'}
+          onDoubleClick={() => onPreview({ name: image.fileName ?? 'Image', url: image.url, size: image.fileSize })}>
+          <img src={image.url} alt={image.fileName ?? 'Image attachment'} loading="lazy" />
+        </button>
+      ))}
+    </div>
   )
 }
 
