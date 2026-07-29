@@ -549,12 +549,12 @@ function App() {
                         aria-selected={selectedFileId === item.id}
                         tabIndex={0}
                         key={item.id}
-                        title={item.previewUrl ? t('双击预览', 'Double-click to preview') : item.file.name}
-                        onClick={() => setSelectedFileId(item.id)}
-                        onDoubleClick={() =>
-                          item.previewUrl &&
-                          setPreviewImage({ name: item.file.name, url: item.previewUrl, size: item.file.size })
-                        }
+                        title={item.previewUrl ? t('点击预览', 'Tap to preview') : item.file.name}
+                        onClick={() => {
+                          setSelectedFileId(item.id)
+                          if (item.previewUrl)
+                            setPreviewImage({ name: item.file.name, url: item.previewUrl, size: item.file.size })
+                        }}
                         onKeyDown={event => {
                           if (event.key === 'Enter') {
                             setSelectedFileId(item.id)
@@ -751,10 +751,12 @@ function MessageAttachments({
             <button
               type="button"
               key={image.id}
-              title={t('双击放大图片', 'Double-click to enlarge')}
-              onDoubleClick={() =>
-                onPreview({ name: image.fileName ?? 'Image', url: image.url, size: image.fileSize })
-              }>
+              title={t('点击放大图片', 'Tap to enlarge')}
+              aria-label={t(
+                `预览图片：${image.fileName ?? '未命名图片'}`,
+                `Preview image: ${image.fileName ?? 'Image'}`,
+              )}
+              onClick={() => onPreview({ name: image.fileName ?? 'Image', url: image.url, size: image.fileSize })}>
               <img src={image.url} alt={image.fileName ?? 'Image attachment'} loading="lazy" />
             </button>
           ))}
@@ -767,8 +769,12 @@ function MessageAttachments({
               type="button"
               key={file.id}
               className={`message-file ${attachmentCategory(file)}`}
-              title={t('双击下载文件', 'Double-click to download')}
-              onDoubleClick={() => downloadAttachment(file)}>
+              title={t('点击下载文件', 'Tap to download')}
+              aria-label={t(
+                `下载文件：${file.fileName ?? '未命名文件'}`,
+                `Download file: ${file.fileName ?? 'Unnamed file'}`,
+              )}
+              onClick={() => downloadAttachment(file)}>
               <span className="file-icon">
                 <AttachmentIcon attachment={file} />
               </span>

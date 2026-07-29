@@ -94,7 +94,7 @@ export type Message    = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 ```
 
-> `content` 只保存用户可见原文或助手可见回复，不保存 OCR、`@readN` 展开内容和本地路径等内部 prompt 注入文本。`attachments` 保存受控 `conversation_files.id` 及展示元数据，使上传、`@readN`/`@fileN` 引用和 `@viewN` 预览都可在历史气泡中恢复。除 `/help` 外，本地命令的用户输入与回复同样写入当前消息历史，但其 `context_eligible=false`，不会污染后续 CLI 上下文或长期记忆摘要。
+> `content` 只保存用户可见原文或助手可见回复，不保存 OCR、`@readN` 展开内容和本地路径等内部 prompt 注入文本。`attachments` 保存受控 `conversation_files.id` 及展示元数据，使上传、`@readN`/`@fileN` 引用和 `@viewN` 预览都可在历史气泡中恢复。所有 `/...` 命令及命令回复都不写入 `messages`；`@readN`、`@fileN`、`@viewN` 属于消息内指令，按用户原文保存。仅用于文件暂存或预览的消息可设置 `context_eligible=false`，避免污染后续 CLI 上下文和长期记忆摘要。
 
 ---
 

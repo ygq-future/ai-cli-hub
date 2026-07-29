@@ -98,6 +98,14 @@ describe('schema — 表结构与契约', () => {
     expect(updateAt).toBeGreaterThan(dropNotNullAt)
   })
 
+  test('斜杠命令清理迁移同时删除命令输入与对应的本地回复', async () => {
+    const migration = await readFile(path.resolve('drizzle/0017_remove_slash_command_messages.sql'), 'utf8')
+    expect(migration).toContain(`"content" ~ '^[[:space:]]*/'`)
+    expect(migration).toContain(`grouped_messages."role" = 'user'`)
+    expect(migration).toContain(`grouped_messages."role" = 'assistant'`)
+    expect(migration).toContain(`grouped_messages."context_eligible" = false`)
+  })
+
   test('pgvector 序列化：number[] → 文本字面量 [a,b,c]', () => {
     const t = getTableConfig(memories)
     const embedding = t.columns.find(c => c.name === 'embedding')!

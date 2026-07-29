@@ -11,3 +11,9 @@ test('应用运行时不触发 WebUI 构建', async () => {
   expect(main).not.toContain('buildWebUi')
   expect(main).not.toContain("'webui:build'")
 })
+
+test('聊天附件使用触摸屏可触发的单击交互', async () => {
+  const source = await readFile('src/webui/main.tsx', 'utf8')
+  expect(source).not.toContain('onDoubleClick')
+  expect(source).toContain('onClick={() => downloadAttachment(file)}')
+})

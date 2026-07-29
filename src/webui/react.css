@@ -578,6 +578,8 @@ small {
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
   border-radius: 12px;
   background: var(--bg);
+  cursor: pointer;
+  touch-action: manipulation;
   transition:
     border-color 0.18s ease,
     transform 0.18s ease,
@@ -616,13 +618,15 @@ small {
     color-mix(in srgb, var(--bg) 72%, transparent);
   text-align: left;
   cursor: pointer;
+  touch-action: manipulation;
   transition:
     border-color 0.18s ease,
     transform 0.18s ease,
     box-shadow 0.18s ease;
 }
 .message-file:hover,
-.message-file:focus-visible {
+.message-file:focus-visible,
+.message-file:active {
   border-color: color-mix(in srgb, var(--file-tone, var(--accent)) 62%, var(--line));
   outline: 0;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--file-tone, var(--accent)) 10%, transparent);
@@ -764,6 +768,7 @@ small {
   background: var(--bg);
   color: var(--dim);
   cursor: pointer;
+  touch-action: manipulation;
   transition:
     border-color 0.18s ease,
     box-shadow 0.18s ease,

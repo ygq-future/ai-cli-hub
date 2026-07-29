@@ -59,51 +59,7 @@ export function createMessageRouter(
 
     try {
       if (text.trim().startsWith('/') && commandRouter) {
-        const commandName = text.trim().slice(1).split(/[@\s]/, 1)[0]?.toLowerCase() ?? ''
-        const beforeCommand = await sessionManager.findCurrent({ userId, platform, cli, cwd })
-        const replies: EventMap['CommandReply'][] = []
-        const commandConversations: ConversationId[] = []
-        const stopCapturing = bus.on('CommandReply', reply => {
-          if (sameMessageRef(reply.ref, payload.ref)) replies.push(reply)
-        })
-        const rememberCommandConversation = (event: {
-          conversationId: ConversationId
-          platform: Platform
-          userId: string
-        }) => {
-          if (event.platform === platform && event.userId === userId) commandConversations.push(event.conversationId)
-        }
-        const stopCreatedCapture = bus.on('SessionCreated', rememberCommandConversation)
-        const stopMappedCapture = bus.on('SessionMapped', rememberCommandConversation)
-        let handled = false
-        try {
-          handled = await commandRouter.tryHandle(payload)
-        } finally {
-          stopCapturing()
-          stopCreatedCapture()
-          stopMappedCapture()
-        }
-        if (handled) {
-          if (commandName !== 'help') {
-            const afterCommand = await sessionManager.findCurrent({ userId, platform, cli, cwd })
-            conversationId =
-              commandConversations.at(-1) ??
-              afterCommand ??
-              beforeCommand ??
-              (await sessionManager.findOrCreate({ userId, platform, cli, cwd, text }))
-            await persistUserMessage(bus, repos, conversationId, payload.ref, text, [], false)
-            for (const commandReply of replies) {
-              await persistAssistantMessage(
-                repos,
-                conversationId,
-                commandReply.content,
-                commandReply.attachments ?? [],
-                false,
-              )
-            }
-          }
-          return
-        }
+        if (await commandRouter.tryHandle(payload)) return
       }
 
       // 解析/新建会话（新建时同步发 SessionCreated）
@@ -323,7 +279,7 @@ function formatFilePreviewReply(files: ConversationFile[]): string {
     '',
     ...files.map(file => `- **文件 ${file.sequence}**：${file.fileName ?? '未命名文件'}`),
     '',
-    '> 图片可双击放大；其他文件可双击下载。',
+    '> 点击或触摸图片可放大；点击或触摸其他文件可下载。',
   ].join('\n')
 }
 
@@ -394,10 +350,6 @@ async function persistAssistantMessage(
 function nextMessageTimestamp(): number {
   lastMessageTimestamp = Math.max(Date.now(), lastMessageTimestamp + 1)
   return lastMessageTimestamp
-}
-
-function sameMessageRef(left: EventMap['CommandReply']['ref'], right: EventMap['MessageReceived']['ref']): boolean {
-  return left.platform === right.platform && left.chatId === right.chatId && left.nativeId === right.nativeId
 }
 
 function parseAttachmentKind(kind: string): InboundAttachmentKind {

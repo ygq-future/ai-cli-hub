@@ -924,7 +924,7 @@ describe('MessageRouter with MockHandler', () => {
     expect((errors[0] as Record<string, unknown>).message).toContain('Mock failure')
   })
 
-  test('除 /help 外的斜杠命令持久化用户原文和回复，但不调用 handler', async () => {
+  test('所有斜杠命令及其回复都不持久化，也不调用 handler', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()
     const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
@@ -968,14 +968,7 @@ describe('MessageRouter with MockHandler', () => {
     await new Promise(r => setTimeout(r, 10))
 
     const msgs = await repos.messages.listByConversation(cid)
-    expect(msgs).toEqual([
-      expect.objectContaining({ role: 'user', content: '/status', contextEligible: false }),
-      expect.objectContaining({
-        role: 'assistant',
-        content: expect.stringContaining('Current session'),
-        contextEligible: false,
-      }),
-    ])
+    expect(msgs).toEqual([])
     expect(handledByAdapter).toBe(false)
     expect(replies.length).toBe(1)
     expect((replies[0] as Record<string, unknown>).content).toContain('Current session')
