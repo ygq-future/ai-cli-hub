@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type Dispatch,
@@ -8,7 +9,20 @@ import {
   type SetStateAction,
 } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Check, ChevronRight, FilePlus2, LoaderCircle, Palette, Send, Settings2, X } from 'lucide-react'
+import {
+  Bell,
+  BellRing,
+  Check,
+  ChevronRight,
+  File,
+  FilePlus2,
+  LoaderCircle,
+  Palette,
+  PanelRight,
+  Send,
+  Settings2,
+  X,
+} from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from './components/ui/button'
@@ -19,6 +33,7 @@ import './react.css'
 
 type Translator = (cn: string, en: string) => string
 type Message = { id: string; role: 'user' | 'assistant'; content: string; streaming?: boolean }
+type ComposerFile = { id: string; file: File; previewUrl: string | null }
 type Approval = { approvalId: string; conversationId: string; command: string; detail: string }
 type Status = {
   platform: 'web'
@@ -111,23 +126,64 @@ function App() {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
   const [text, setText] = useState('')
-  const [files, setFiles] = useState<File[]>([])
+  const [files, setFiles] = useState<ComposerFile[]>([])
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
+  const [previewFile, setPreviewFile] = useState<ComposerFile | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [approvals, setApprovals] = useState<Approval[]>([])
   const [status, setStatus] = useState<Status | null>(null)
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting')
   const [settings, setSettings] = useState(false)
+  const [mobileStatus, setMobileStatus] = useState(false)
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() =>
+    typeof Notification === 'undefined' ? 'denied' : Notification.permission,
+  )
   const [preferences, setPreferences] = useState<Preferences>(() => readPreferences())
   const socket = useRef<WebSocket | null>(null)
   const retryTimer = useRef<number | null>(null)
   const attempts = useRef(0)
   const picker = useRef<HTMLInputElement>(null)
+  const feed = useRef<HTMLDivElement>(null)
+  const filesRef = useRef<ComposerFile[]>([])
 
   const zh = preferences.locale === 'zh-CN'
   const t: Translator = (cn, en) => (zh ? cn : en)
   const statusLoad = async () => {
     const response = await fetch('/api/web/status')
     if (response.ok) setStatus(((await response.json()) as { status: Status }).status)
+  }
+  const historyLoad = async () => {
+    const response = await fetch('/api/web/history')
+    if (!response.ok) return
+    const value = (await response.json()) as { messages: Message[] }
+    setMessages(value.messages)
+  }
+  const addFiles = (incoming: readonly File[]) => {
+    const additions = incoming.map(file => ({
+      id: crypto.randomUUID(),
+      file,
+      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+    }))
+    setFiles(current => [...current, ...additions])
+    setSelectedFileId(additions.at(-1)?.id ?? null)
+  }
+  const removeFile = (id: string) => {
+    setFiles(current => {
+      const target = current.find(item => item.id === id)
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl)
+      return current.filter(item => item.id !== id)
+    })
+    setSelectedFileId(current => (current === id ? null : current))
+    setPreviewFile(current => (current?.id === id ? null : current))
+  }
+  const showNotification = (title: string, body: string) => {
+    if (
+      typeof Notification === 'undefined' ||
+      Notification.permission !== 'granted' ||
+      document.visibilityState === 'visible'
+    )
+      return
+    new Notification(title, { body: body.slice(0, 180), icon: '/webui/assets/icon.svg' })
   }
 
   useEffect(() => {
@@ -152,6 +208,11 @@ function App() {
         if (payload.type === 'output' && typeof payload.content === 'string') {
           const content = payload.content
           setMessages(current => appendOutput(current, content, payload.final === true))
+          if (payload.final === true)
+            showNotification(
+              document.documentElement.lang === 'en' ? 'New reply' : '收到新回复',
+              plainTextPreview(content),
+            )
         }
         if (
           payload.type === 'approval' &&
@@ -167,6 +228,7 @@ function App() {
             detail: payload.detail,
           }
           setApprovals(current => [...current.filter(item => item.approvalId !== approval.approvalId), approval])
+          showNotification(document.documentElement.lang === 'en' ? 'Approval required' : '需要审批', approval.command)
         }
         if (payload.type === 'error')
           setError(payload.message ?? t('服务器返回错误。', 'The server returned an error.'))
@@ -179,13 +241,30 @@ function App() {
         retryTimer.current = window.setTimeout(connect, delay)
       }
     }
-    connect()
+    void historyLoad()
+      .catch(() => undefined)
+      .finally(connect)
     return () => {
       disposed = true
       if (retryTimer.current !== null) window.clearTimeout(retryTimer.current)
       socket.current?.close()
     }
   }, [ready])
+  useLayoutEffect(() => {
+    const element = feed.current
+    if (!element) return
+    const frame = requestAnimationFrame(() => element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' }))
+    return () => cancelAnimationFrame(frame)
+  }, [messages, approvals])
+  useEffect(() => {
+    filesRef.current = files
+  }, [files])
+  useEffect(
+    () => () => {
+      for (const item of filesRef.current) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+    },
+    [],
+  )
   useEffect(() => {
     void fetch('/api/auth/session')
       .then(async response =>
@@ -221,19 +300,25 @@ function App() {
     event.preventDefault()
     if ((!text.trim() && !files.length) || socket.current?.readyState !== WebSocket.OPEN) return
     const uploadIds: string[] = []
-    for (const file of files) {
+    for (const item of files) {
       const form = new FormData()
-      form.set('file', file)
+      form.set('file', item.file)
       const response = await fetch('/api/web/uploads', { method: 'POST', body: form })
       if (response.ok) uploadIds.push(((await response.json()) as { upload: { id: string } }).upload.id)
     }
     socket.current.send(JSON.stringify({ v: 1, type: 'message', text, uploadIds }))
     setMessages(current => [
       ...current,
-      { id: crypto.randomUUID(), role: 'user', content: text || files.map(file => `📎 ${file.name}`).join('\n') },
+      {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: text || files.map(item => `📎 ${item.file.name}`).join('\n'),
+      },
     ])
     setText('')
+    for (const item of files) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
     setFiles([])
+    setSelectedFileId(null)
   }
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
@@ -248,6 +333,11 @@ function App() {
       JSON.stringify({ v: 1, type, approvalId: approval.approvalId, conversationId: approval.conversationId }),
     )
     setApprovals(current => current.filter(item => item.approvalId !== approval.approvalId))
+  }
+  const requestNotifications = async () => {
+    if (typeof Notification === 'undefined') return
+    const permission = await Notification.requestPermission()
+    setNotificationPermission(permission)
   }
 
   if (!ready)
@@ -265,21 +355,35 @@ function App() {
   return (
     <main className="app">
       <header className="app-header">
-        <a className="brand" href="/webui/" aria-label="AI CLI HUB">
+        <span className="brand" aria-label="AI CLI HUB">
           <img src="/webui/assets/icon.svg" alt="" />
           AI CLI HUB
-        </a>
+        </span>
         <span className={`connection ${connection}`}>
           <i />
           {connection === 'connected' ? t('实时连接', 'Live connection') : t('正在重连', 'Reconnecting')}
         </span>
+        <Button
+          variant="ghost"
+          aria-label={t('启用消息通知', 'Enable notifications')}
+          title={t('消息通知', 'Message notifications')}
+          onClick={() => void requestNotifications()}>
+          {notificationPermission === 'granted' ? <BellRing size={19} /> : <Bell size={19} />}
+        </Button>
+        <Button
+          className="mobile-status-trigger"
+          variant="ghost"
+          aria-label={t('查看当前会话', 'View current session')}
+          onClick={() => setMobileStatus(true)}>
+          <PanelRight size={19} />
+        </Button>
         <Button variant="ghost" aria-label={t('打开设置', 'Open settings')} onClick={() => setSettings(true)}>
           <Settings2 size={19} />
         </Button>
       </header>
       <div className="grid">
         <section className="chat">
-          <div className="feed" aria-live="polite">
+          <div ref={feed} className="feed" aria-live="polite">
             {!messages.length && !approvals.length && (
               <div className="empty-state">
                 <span>✦</span>
@@ -299,20 +403,6 @@ function App() {
             ))}
           </div>
           <form className="composer-wrap" onSubmit={send}>
-            {files.length > 0 && (
-              <div className="files">
-                {files.map((file, index) => (
-                  <span key={`${file.name}-${index}`}>
-                    {file.name}
-                    <button
-                      type="button"
-                      onClick={() => setFiles(current => current.filter((_, fileIndex) => fileIndex !== index))}>
-                      <X size={13} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
             <div className="compose">
               <input
                 hidden
@@ -320,7 +410,10 @@ function App() {
                 type="file"
                 multiple
                 accept="*/*"
-                onChange={event => setFiles(current => [...current, ...Array.from(event.target.files ?? [])])}
+                onChange={event => {
+                  addFiles(Array.from(event.target.files ?? []))
+                  event.target.value = ''
+                }}
               />
               <Button
                 variant="ghost"
@@ -329,20 +422,56 @@ function App() {
                 onClick={() => picker.current?.click()}>
                 <FilePlus2 size={19} />
               </Button>
-              <textarea
-                rows={1}
-                value={text}
-                onChange={event => setText(event.target.value)}
-                onKeyDown={handleComposerKeyDown}
-                onPaste={event => {
-                  const pasted = Array.from(event.clipboardData.files)
-                  if (pasted.length) setFiles(current => [...current, ...pasted])
-                }}
-                placeholder={t('输入消息，或粘贴图片', 'Write a message or paste an image')}
-              />
+              <div className="compose-content">
+                {files.length > 0 && (
+                  <div className="embedded-files" aria-label={t('待发送附件', 'Pending attachments')}>
+                    {files.map(item => (
+                      <div
+                        className={`embedded-file ${selectedFileId === item.id ? 'selected' : ''}`}
+                        role="option"
+                        aria-selected={selectedFileId === item.id}
+                        tabIndex={0}
+                        key={item.id}
+                        title={item.previewUrl ? t('双击预览', 'Double-click to preview') : item.file.name}
+                        onClick={() => setSelectedFileId(item.id)}
+                        onDoubleClick={() => item.previewUrl && setPreviewFile(item)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter') {
+                            setSelectedFileId(item.id)
+                            if (item.previewUrl) setPreviewFile(item)
+                          }
+                          if (event.key === 'Delete' || event.key === 'Backspace') removeFile(item.id)
+                        }}>
+                        {item.previewUrl ? <img src={item.previewUrl} alt={item.file.name} /> : <File size={22} />}
+                        <span>{item.file.name}</span>
+                        <button
+                          type="button"
+                          aria-label={t('移除附件', 'Remove attachment')}
+                          onClick={event => {
+                            event.stopPropagation()
+                            removeFile(item.id)
+                          }}>
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <textarea
+                  rows={1}
+                  value={text}
+                  onChange={event => setText(event.target.value)}
+                  onKeyDown={handleComposerKeyDown}
+                  onPaste={event => {
+                    const pasted = Array.from(event.clipboardData.files)
+                    if (pasted.length) addFiles(pasted)
+                  }}
+                  placeholder={t('输入消息，或粘贴图片', 'Write a message or paste an image')}
+                />
+              </div>
               <Button className="send" disabled={connection !== 'connected'}>
                 <Send size={16} />
-                {t('发送', 'Send')}
+                <span>{t('发送', 'Send')}</span>
               </Button>
             </div>
           </form>
@@ -361,6 +490,28 @@ function App() {
             </DialogDescription>
           </DialogHeader>
           <Settings t={t} preferences={preferences} setPreferences={setPreferences} close={() => setSettings(false)} />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={mobileStatus} onOpenChange={setMobileStatus}>
+        <DialogContent className="mobile-status-dialog">
+          <DialogHeader>
+            <DialogTitle>{t('当前会话', 'Current session')}</DialogTitle>
+            <DialogDescription>
+              {t('Web 控制台当前连接的完整状态。', 'Full status for the current Web console session.')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mobile-status-content">
+            <StatusContent status={status} t={t} />
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={previewFile !== null} onOpenChange={open => !open && setPreviewFile(null)}>
+        <DialogContent className="image-preview-dialog">
+          <DialogHeader>
+            <DialogTitle>{previewFile?.file.name}</DialogTitle>
+            <DialogDescription>{previewFile ? formatFileSize(previewFile.file.size) : ''}</DialogDescription>
+          </DialogHeader>
+          {previewFile?.previewUrl && <img src={previewFile.previewUrl} alt={previewFile.file.name} />}
         </DialogContent>
       </Dialog>
     </main>
@@ -426,6 +577,16 @@ function Login({
 }
 
 function StatusPanel({ status, t }: { status: Status | null; t: Translator }) {
+  return (
+    <aside className="status-panel">
+      <h2>{t('当前会话', 'Current session')}</h2>
+      <p>{t('仅显示 Web 控制台本身的会话。', 'Only the Web console session is shown here.')}</p>
+      <StatusContent status={status} t={t} />
+    </aside>
+  )
+}
+
+function StatusContent({ status, t }: { status: Status | null; t: Translator }) {
   const rows = [
     [t('平台', 'Platform'), status?.platform],
     ['CLI', status?.cli],
@@ -436,16 +597,14 @@ function StatusPanel({ status, t }: { status: Status | null; t: Translator }) {
     ['Conversation ID', status?.conversationId],
   ]
   return (
-    <aside className="status-panel">
-      <h2>{t('当前会话', 'Current session')}</h2>
-      <p>{t('仅显示 Web 控制台本身的会话。', 'Only the Web console session is shown here.')}</p>
+    <>
       {rows.map(([key, value]) => (
         <dl key={key}>
           <dt>{key}</dt>
           <dd title={value ?? undefined}>{value || '—'}</dd>
         </dl>
       ))}
-    </aside>
+    </>
   )
 }
 
@@ -538,12 +697,16 @@ function Settings({
   setPreferences: Dispatch<SetStateAction<Preferences>>
 }) {
   const [data, setData] = useState<SettingsData | null>(null)
+  const [savedSnapshot, setSavedSnapshot] = useState('')
   const [result, setResult] = useState('')
   const [saving, setSaving] = useState(false)
   useEffect(() => {
     void fetch('/api/settings')
       .then(response => (response.ok ? response.json() : Promise.reject()))
-      .then((value: { settings: SettingsData }) => setData(value.settings))
+      .then((value: { settings: SettingsData }) => {
+        setData(value.settings)
+        setSavedSnapshot(JSON.stringify(value.settings))
+      })
       .catch(() => setResult(t('无法加载配置。', 'Unable to load settings.')))
   }, [])
   const save = async () => {
@@ -555,19 +718,46 @@ function Settings({
       body: JSON.stringify(data),
     })
     setSaving(false)
+    if (response.ok) setSavedSnapshot(JSON.stringify(data))
     setResult(
       response.ok
         ? t('配置已保存，重启后生效。', 'Settings saved. Restart to apply.')
         : t('保存失败，请检查字段。', 'Save failed. Check the fields.'),
     )
   }
+  const settingsChanged = data !== null && JSON.stringify(data) !== savedSnapshot
   return (
     <div className="settings-body">
       {data ? (
-        <div className="settings-groups">
+        <div className="settings-masonry">
           {Object.entries(data).map(([group, value]) => (
             <ConfigGroup key={group} group={group} value={value} setData={setData} t={t} />
           ))}
+          <section className="preference-section">
+            <h3>{t('消息输入', 'Message input')}</h3>
+            <label className="field switch-field">
+              <span>
+                <b>{t('回车发送', 'Enter to send')}</b>
+                <small>
+                  {preferences.enterToSend
+                    ? t('Enter 发送，Shift + Enter 换行。', 'Enter sends; Shift + Enter adds a new line.')
+                    : t('Enter 换行，Ctrl/Cmd + Enter 发送。', 'Enter adds a new line; Ctrl/Cmd + Enter sends.')}
+                </small>
+              </span>
+              <button
+                className={`switch ${preferences.enterToSend ? 'on' : ''}`}
+                type="button"
+                role="switch"
+                aria-checked={preferences.enterToSend}
+                onClick={() => setPreferences(current => ({ ...current, enterToSend: !current.enterToSend }))}>
+                <i />
+              </button>
+            </label>
+          </section>
+          <section className="preference-section">
+            <h3>{t('外观', 'Appearance')}</h3>
+            <Appearance preferences={preferences} setPreferences={setPreferences} t={t} />
+          </section>
         </div>
       ) : (
         <p className="loading">
@@ -575,39 +765,12 @@ function Settings({
           {t('正在加载配置…', 'Loading settings…')}
         </p>
       )}
-      <div className="browser-preferences">
-        <section className="preference-section">
-          <h3>{t('消息输入', 'Message input')}</h3>
-          <label className="field switch-field">
-            <span>
-              <b>{t('回车发送', 'Enter to send')}</b>
-              <small>
-                {preferences.enterToSend
-                  ? t('Enter 发送，Shift + Enter 换行。', 'Enter sends; Shift + Enter adds a new line.')
-                  : t('Enter 换行，Ctrl/Cmd + Enter 发送。', 'Enter adds a new line; Ctrl/Cmd + Enter sends.')}
-              </small>
-            </span>
-            <button
-              className={`switch ${preferences.enterToSend ? 'on' : ''}`}
-              type="button"
-              role="switch"
-              aria-checked={preferences.enterToSend}
-              onClick={() => setPreferences(current => ({ ...current, enterToSend: !current.enterToSend }))}>
-              <i />
-            </button>
-          </label>
-        </section>
-        <section className="preference-section">
-          <h3>{t('外观', 'Appearance')}</h3>
-          <Appearance preferences={preferences} setPreferences={setPreferences} t={t} />
-        </section>
-      </div>
       <footer className="settings-actions">
         <small>{result}</small>
         <Button variant="secondary" type="button" onClick={close}>
           {t('关闭', 'Close')}
         </Button>
-        <Button type="button" disabled={!data || saving} onClick={() => void save()}>
+        <Button type="button" disabled={!settingsChanged || saving} onClick={() => void save()}>
           {saving && <LoaderCircle className="spin" size={16} />}
           {t('保存配置', 'Save settings')}
         </Button>
@@ -784,6 +947,18 @@ function appendOutput(messages: Message[], content: string, final: boolean) {
   if (last?.role === 'assistant' && last.streaming)
     return [...messages.slice(0, -1), { ...last, content, streaming: !final }]
   return [...messages, { id: crypto.randomUUID(), role: 'assistant' as const, content, streaming: !final }]
+}
+function plainTextPreview(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, ' code ')
+    .replace(/[#*_>`[\]()~-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 function isRecord(value: JsonValue): value is { [key: string]: JsonValue } {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

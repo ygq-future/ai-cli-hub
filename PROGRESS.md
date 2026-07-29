@@ -309,6 +309,7 @@
 | 2026-07-28 | **WebUI 静态根目录加固**：Composition Root 的静态入口、静态资源根目录及 Vite 构建工作目录统一以 `src/main.ts` 的仓库根路径解析，消除 PM2/手工启动工作目录不同而造成资源 404 的可能性。构建产物检查确认入口引用 `/webui/assets/app.js`。自动验收：format、format check、typecheck、Vite build、lint、15 项相关测试通过。 |
 | 2026-07-28 | **WebUI assets 路由拦截修复**：定位到模块 MIME 防护将所有带扩展名的请求提前返回 404，误伤了合法 `/webui/assets/app.js`、CSS 与图标请求。路由现仅拒绝 assets 前缀之外的文件型 SPA fallback，请求 `/webui/assets/*` 继续进入静态文件服务。新增真实 SVG 静态资源 200/MIME 回归测试。 |
 | 2026-07-29 | **Web 平台语义与聊天体验修复**：浏览器接入的平台常量由传输协议名 `websocket` 迁移为 `web`，默认目录同步改为 `~/.<cli>-web`，并新增数据库枚举/CWD 迁移；WebSocket 仍只作为传输协议。修复浏览器 `/help` 无响应并按用户语言返回共享帮助文案。WebUI 新增本地持久化的“回车发送”开关，支持 Enter/Shift+Enter 或 Ctrl/Cmd+Enter 两种输入方式；消息改用 GFM Markdown 渲染并按内容收缩宽度，累计流式输出不再重复拼接；上传、文本框、发送按钮统一垂直居中，设置面板改为紧凑响应式双栏卡片。自动验收：`bun run format`、format check、typecheck、lint、Vite build 通过；全量测试 430 pass / 7 skip / 0 fail。 |
+| 2026-07-29 | **Web 聊天持久回显与交互增强**：新增认证 `GET /api/web/history`，从当前 `web` 会话的 messages 表恢复 user/assistant 历史，WebSocket 在历史加载后再连接，避免刷新清空或历史覆盖实时消息；主界面品牌取消页面导航。消息与审批状态更新后自动平滑滚动到底部。组合输入框内嵌真实图片缩略图与文件卡，支持选中、键盘删除、双击/Enter 大图预览并正确释放对象 URL。头部新增由用户手势申请的浏览器通知权限，页面不可见时对最终回复和审批请求发系统通知。设置改为不等高 CSS Columns 瀑布流，所有字段标题位于控件上方；以服务端配置快照判断脏状态，仅 `settings.json` 真正变化时允许保存。移动端新增当前会话弹层入口，并修正发送按钮隐藏文字后的图标居中与窄屏头部密度。自动验收：format、format check、typecheck、lint、Vite build 通过；全量测试 431 pass / 7 skip / 0 fail。 |
 
 ## 6. 开放问题（Open Questions）
 

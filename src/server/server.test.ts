@@ -238,4 +238,32 @@ describe('app server', () => {
       },
     })
   })
+
+  test('Web 历史 API 返回当前 Web 会话消息且需要认证', async () => {
+    const fake = createFakeTransport()
+    const handler = createServerRequestHandler({
+      host: '127.0.0.1',
+      port: 8787,
+      authToken: 'secret',
+      whitelistUserIds: ['chat-1'],
+      transports: [fake.transport],
+      resolveConversation: async () => null,
+      webHistory: {
+        get: async () => [
+          { id: 'message-1', role: 'user', content: 'hello', createdAt: 1 },
+          { id: 'message-2', role: 'assistant', content: '**world**', createdAt: 2 },
+        ],
+      },
+    })
+
+    expect((await handler(request('/api/web/history'))).status).toBe(401)
+    const response = await handler(request('/api/web/history', { headers: { authorization: 'Bearer secret' } }))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      messages: [
+        { id: 'message-1', role: 'user', content: 'hello', createdAt: 1 },
+        { id: 'message-2', role: 'assistant', content: '**world**', createdAt: 2 },
+      ],
+    })
+  })
 })

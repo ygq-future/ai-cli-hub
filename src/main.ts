@@ -232,6 +232,23 @@ async function main() {
         }
       },
     },
+    webHistory: {
+      async get() {
+        const userId = config.WHITELIST_USER_IDS[0] ?? ''
+        const target = await userPreferences.getTarget('web', userId)
+        const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
+        if (!conversation) return []
+        const messages = await repos.messages.listByConversation(conversation.id as ConversationId)
+        return messages
+          .filter(message => message.role === 'user' || message.role === 'assistant')
+          .map(message => ({
+            id: message.id,
+            role: message.role as 'user' | 'assistant',
+            content: message.content,
+            createdAt: message.createdAt,
+          }))
+      },
+    },
     uploads: webUploads,
   })
   const getUserLanguage = userPreferences.getLanguage

@@ -31,6 +31,13 @@ export interface WebSessionStatus {
   autoApprove: { enabled: boolean; seconds: number }
 }
 
+export interface WebHistoryMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: number
+}
+
 export interface AppServerDeps {
   host: string
   port: number
@@ -46,6 +53,7 @@ export interface AppServerDeps {
   settings?: { read(): Promise<Record<string, unknown>>; save(input: Record<string, unknown>): Promise<void> }
   restart?: { preview(): string; run(): Promise<string> }
   webStatus?: { get(): Promise<WebSessionStatus> }
+  webHistory?: { get(): Promise<WebHistoryMessage[]> }
   uploads?: { stage(file: File): Promise<{ id: string; name: string; mimeType: string; size: number }> }
 }
 
@@ -143,6 +151,7 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
 
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname === '/api/web/status') return handleWebStatusRequest(request, deps, sessions, now())
+      if (url.pathname === '/api/web/history') return handleWebHistoryRequest(request, deps, sessions, now())
       if (url.pathname === '/api/web/uploads') return handleUploadRequest(request, deps, sessions, now())
       if (url.pathname === '/api/settings') return handleSettingsRequest(request, deps, sessions, now())
       if (url.pathname === '/api/restart') return handleRestartRequest(request, deps, sessions, now())
@@ -159,6 +168,18 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
     }
     return serveWebUi(url.pathname, request.method, deps)
   }
+}
+
+async function handleWebHistoryRequest(
+  request: Request,
+  deps: AppServerDeps,
+  sessions: Map<string, number>,
+  now: number,
+): Promise<Response> {
+  if (!isAuthorized(request, deps.authToken, sessions, now)) return json({ error: 'Unauthorized' }, 401)
+  if (!deps.webHistory) return json({ error: 'Web history is not configured' }, 501)
+  if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, { allow: 'GET' })
+  return json({ messages: await deps.webHistory.get() })
 }
 
 async function handleUploadRequest(

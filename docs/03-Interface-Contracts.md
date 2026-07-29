@@ -398,6 +398,10 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 
 要求已认证会话。仅返回 WebSocket 平台当前管理员会话的 `conversationId`、CLI、CWD、会话状态、模型和自动审批设置；绝不混入 Telegram 或 QQ 会话。
 
+### `GET /api/web/history`
+
+要求已认证会话。按当前 Web 管理员选中的 CLI 查询最新未关闭会话，并按时间正序返回其中的 user/assistant 消息，供 WebUI 刷新后恢复消息列表；没有当前会话时返回空数组。
+
 ### `POST /api/platform-msg`
 
 按平台原生 Chat ID 发送。`chatId` 必须存在于 `transport.whitelistUserIds`，且 `platform` 对应的 Transport 必须已装配。
