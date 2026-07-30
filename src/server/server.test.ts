@@ -79,6 +79,40 @@ describe('app server', () => {
     expect(fake.sent).toEqual([{ mode: 'chat', target: 'chat-1', content: 'hello' }])
   })
 
+  test('platform-msg 兼容 content 字符串中的未转义换行和控制字符', async () => {
+    const { handler, fake } = createHandler()
+    const multiline = '<#> 验证码: 370-594\n请不要与其他人共享\t此密码'
+    const malformedJson = `{
+      "platform": "telegram",
+      "chatId": "chat-1",
+      "content": "${multiline}"
+    }`
+    const response = await handler(
+      request('/api/platform-msg', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: malformedJson,
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(fake.sent).toEqual([{ mode: 'chat', target: 'chat-1', content: multiline }])
+  })
+
+  test('消息接口不会把结构错误的 JSON 静默修复', async () => {
+    const { handler } = createHandler()
+    const response = await handler(
+      request('/api/platform-msg', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{"platform":"telegram","chatId":"chat-1","content":"hello",}',
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Request body must be valid JSON' })
+  })
+
   test('session-msg 按 conversationId 发送', async () => {
     const { handler, fake } = createHandler()
     const response = await handler(

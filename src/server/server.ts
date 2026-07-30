@@ -311,7 +311,7 @@ async function handleMessageRequest(request: Request, pathname: string, deps: Ap
     const raw = await request.text()
     if (new TextEncoder().encode(raw).byteLength > MAX_REQUEST_BYTES)
       return json({ error: 'Request body is too large' }, 413)
-    body = JSON.parse(raw) as MessageRequest
+    body = parseCompatibleJson(raw) as MessageRequest
   } catch {
     return json({ error: 'Request body must be valid JSON' }, 400)
   }
@@ -380,6 +380,49 @@ function parsePlatform(value: unknown): Platform | null {
 
 function asNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function parseCompatibleJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown
+  } catch (strictError) {
+    const compatible = escapeUnescapedJsonStringControls(raw)
+    if (compatible === raw) throw strictError
+    return JSON.parse(compatible) as unknown
+  }
+}
+
+function escapeUnescapedJsonStringControls(raw: string): string {
+  let result = ''
+  let inString = false
+  let escaped = false
+
+  for (const character of raw) {
+    if (!inString) {
+      result += character
+      if (character === '"') inString = true
+      continue
+    }
+    if (escaped) {
+      result += character
+      escaped = false
+      continue
+    }
+    if (character === '\\') {
+      result += character
+      escaped = true
+      continue
+    }
+    if (character === '"') {
+      result += character
+      inString = false
+      continue
+    }
+    const codePoint = character.codePointAt(0)
+    result += codePoint !== undefined && codePoint < 0x20 ? `\\u${codePoint.toString(16).padStart(4, '0')}` : character
+  }
+
+  return result
 }
 
 function isAuthorized(request: Request, authToken: string, now: number): boolean {

@@ -434,6 +434,8 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 
 二者是不同的寻址方式：`chatId` 是 Telegram/QQ 的平台标识，`conversationId` 是 Hub 内部会话标识；两个接口不混用字段。配置 `http.authToken` 后，两者均接受 Bearer Token 或已登录的 Web 会话 Cookie。
 
+两个接口的 `content` 都支持多行文本。调用方应优先使用标准 JSON 转义（如 `\n`、`\t`）；为兼容部分 Webhook/自动化工具，服务端也接受 JSON 字符串值中直接出现的未转义换行、Tab 等控制字符，并按原内容转发。该兼容仅修复字符串内部的控制字符，缺少逗号、尾随逗号、引号不闭合等结构错误仍返回 HTTP 400。
+
 ---
 
 ## 8. Composition Root（`main.ts`）装配顺序
