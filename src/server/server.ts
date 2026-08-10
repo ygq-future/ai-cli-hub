@@ -6,15 +6,15 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 const SUPPORTED_BIND_HOSTS = new Set(['0.0.0.0', '127.0.0.1', 'localhost', '::1'])
 
 interface WebSocketPeer {
-  send(data: string): void
-  close(): void
+  send(data: string): number | void
+  close(code?: number, reason?: string): void
 }
 
 export interface WebSocketGateway {
   setReceiver(receiver: (peer: WebSocketPeer, data: string) => void): void
   broadcast(data: string): number
   waitForPeer(): Promise<void>
-  add(peer: WebSocketPeer): void
+  add(peer: WebSocketPeer): boolean
   remove(peer: WebSocketPeer): void
   receive(peer: WebSocketPeer, data: string): void
 }
@@ -117,6 +117,9 @@ export function createServer(deps: AppServerDeps): AppServer {
         fetch: (request, bunServer) =>
           handler(request, upgradeRequest => bunServer.upgrade(upgradeRequest, { data: {} })),
         websocket: {
+          maxPayloadLength: 128 * 1024,
+          backpressureLimit: 256 * 1024,
+          closeOnBackpressureLimit: true,
           open(ws) {
             websocketGateway?.add(ws as unknown as WebSocketPeer)
           },
@@ -137,7 +140,8 @@ export function createServer(deps: AppServerDeps): AppServer {
   }
 }
 
-export function createWebSocketGateway(): WebSocketGateway {
+export function createWebSocketGateway(options: { maxPeers?: number } = {}): WebSocketGateway {
+  const maxPeers = Math.max(1, options.maxPeers ?? 5)
   const peers = new Set<WebSocketPeer>()
   const peerWaiters = new Set<() => void>()
   let receiver: ((peer: WebSocketPeer, data: string) => void) | null = null
@@ -146,18 +150,39 @@ export function createWebSocketGateway(): WebSocketGateway {
       receiver = next
     },
     broadcast(data) {
-      for (const peer of peers) peer.send(data)
-      return peers.size
+      let delivered = 0
+      for (const peer of [...peers]) {
+        try {
+          const result = peer.send(data)
+          if (result === 0) throw new Error('WebSocket message was not sent')
+          delivered += 1
+        } catch {
+          peers.delete(peer)
+          safeClose(peer, 1011, 'WebSocket send failed')
+        }
+      }
+      return delivered
     },
     async waitForPeer() {
       if (peers.size) return
       await new Promise<void>(resolve => peerWaiters.add(resolve))
     },
     add(peer: WebSocketPeer) {
+      if (peers.size >= maxPeers) {
+        safeClose(peer, 1013, 'Too many WebSocket connections')
+        return false
+      }
       peers.add(peer)
-      peer.send(JSON.stringify({ v: 1, type: 'connected' }))
+      try {
+        peer.send(JSON.stringify({ v: 1, type: 'connected' }))
+      } catch {
+        peers.delete(peer)
+        safeClose(peer, 1011, 'WebSocket initialization failed')
+        return false
+      }
       for (const resolve of peerWaiters) resolve()
       peerWaiters.clear()
+      return true
     },
     remove(peer: WebSocketPeer) {
       peers.delete(peer)
@@ -165,6 +190,14 @@ export function createWebSocketGateway(): WebSocketGateway {
     receive(peer: WebSocketPeer, data: string) {
       receiver?.(peer, data)
     },
+  }
+}
+
+function safeClose(peer: WebSocketPeer, code: number, reason: string): void {
+  try {
+    peer.close(code, reason)
+  } catch {
+    // The peer is already unusable; removing it from the gateway is sufficient.
   }
 }
 
@@ -187,6 +220,7 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
     if (url.pathname === '/api/auth/session') return handleSessionRequest(request, deps, now)
     if (url.pathname === '/ws') {
       if (!isAuthorized(request, deps.authToken, now())) return json({ error: 'Unauthorized' }, 401)
+      if (!isAllowedWebSocketOrigin(request)) return json({ error: 'Forbidden WebSocket origin' }, 403)
       if (upgradeWebSocket?.(request)) return undefined as unknown as Response
       return json({ error: 'WebSocket transport is not configured' }, 501)
     }
@@ -456,6 +490,28 @@ function isAuthorized(request: Request, authToken: string, now: number): boolean
   if (hasBearerToken(request, authToken)) return true
   const session = readCookie(request.headers.get('cookie'), 'ai_cli_hub_session')
   return session ? verifySession(session, authToken, now) : false
+}
+
+function isAllowedWebSocketOrigin(request: Request): boolean {
+  const origin = request.headers.get('origin')
+  if (!origin) return false
+  let originHost: string
+  try {
+    originHost = new URL(origin).host.toLowerCase()
+  } catch {
+    return false
+  }
+
+  const forwardedHosts = (request.headers.get('x-forwarded-host') ?? '')
+    .split(',')
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean)
+  const allowedHosts = new Set([
+    new URL(request.url).host.toLowerCase(),
+    request.headers.get('host')?.trim().toLowerCase() ?? '',
+    ...forwardedHosts,
+  ])
+  return allowedHosts.has(originHost)
 }
 
 function hasBearerToken(request: Request, authToken: string): boolean {

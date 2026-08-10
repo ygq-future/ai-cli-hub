@@ -162,7 +162,7 @@ async function main() {
     mediaDirectory: config.MEDIA_DOWNLOAD_DIR,
   })
   const transports: Transport[] = []
-  const webSocketGateway = createWebSocketGateway()
+  const webSocketGateway = createWebSocketGateway({ maxPeers: 5 })
   const webSocketTransport = createWebSocketTransport({
     bus,
     gateway: webSocketGateway,

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFile } from 'node:fs/promises'
 import { createServer, createServerRequestHandler, createWebSocketGateway, type AppServerDeps } from './server'
 import type { ConversationId, MessageRef, Transport } from '../shared'
 
@@ -199,7 +200,52 @@ describe('app server', () => {
   test('WebSocket 端点在 W2 前拒绝未认证请求，认证后明确尚未配置', async () => {
     const { handler } = createHandler('secret')
     expect((await handler(request('/ws'))).status).toBe(401)
-    expect((await handler(request('/ws', { headers: { authorization: 'Bearer secret' } }))).status).toBe(501)
+    expect((await handler(request('/ws', { headers: { authorization: 'Bearer secret' } }))).status).toBe(403)
+    expect(
+      (
+        await handler(
+          request('/ws', {
+            headers: { authorization: 'Bearer secret', origin: 'http://127.0.0.1' },
+          }),
+        )
+      ).status,
+    ).toBe(501)
+  })
+
+  test('WebSocket upgrade 只允许直接或反代后的同源浏览器', async () => {
+    const { handler } = createHandler('secret')
+    let upgrades = 0
+    const upgrade = () => {
+      upgrades += 1
+      return true
+    }
+
+    const crossOrigin = await handler(
+      request('/ws', {
+        headers: { authorization: 'Bearer secret', host: 'hub.example', origin: 'https://evil.example' },
+      }),
+      upgrade,
+    )
+    expect(crossOrigin.status).toBe(403)
+
+    await handler(
+      request('/ws', {
+        headers: { authorization: 'Bearer secret', host: 'hub.example', origin: 'https://hub.example' },
+      }),
+      upgrade,
+    )
+    await handler(
+      request('/ws', {
+        headers: {
+          authorization: 'Bearer secret',
+          host: '172.17.0.1:8787',
+          origin: 'https://aihub.sheepyu.top',
+          'x-forwarded-host': 'aihub.sheepyu.top',
+        },
+      }),
+      upgrade,
+    )
+    expect(upgrades).toBe(2)
   })
 
   test('Bearer 登录建立 HttpOnly 会话，Cookie 可访问兼容接口', async () => {
@@ -264,6 +310,37 @@ describe('app server', () => {
 
     expect(connected).toBe(true)
     expect(sent.map(data => JSON.parse(data))).toEqual([{ v: 1, type: 'connected' }])
+  })
+
+  test('WebSocket gateway 限制连接数并隔离发送失败的 peer', () => {
+    const gateway = createWebSocketGateway({ maxPeers: 2 })
+    const sent = [0, 0, 0]
+    const closed = [0, 0, 0]
+    const peers = sent.map((_, index) => ({
+      send() {
+        sent[index] = (sent[index] ?? 0) + 1
+        if (index === 1 && (sent[index] ?? 0) > 1) throw new Error('socket closed')
+        return 1
+      },
+      close() {
+        closed[index] = (closed[index] ?? 0) + 1
+      },
+    }))
+
+    expect(gateway.add(peers[0]!)).toBe(true)
+    expect(gateway.add(peers[1]!)).toBe(true)
+    expect(gateway.add(peers[2]!)).toBe(false)
+    expect(closed[2]).toBe(1)
+    expect(gateway.broadcast('message')).toBe(1)
+    expect(closed[1]).toBe(1)
+    expect(gateway.broadcast('again')).toBe(1)
+  })
+
+  test('Bun WebSocket 配置限制 payload 和背压', async () => {
+    const source = await readFile('src/server/server.ts', 'utf8')
+    expect(source).toContain('maxPayloadLength: 128 * 1024')
+    expect(source).toContain('backpressureLimit: 256 * 1024')
+    expect(source).toContain('closeOnBackpressureLimit: true')
   })
 
   test('WebUI 静态入口可用，SPA 路由回退到入口', async () => {

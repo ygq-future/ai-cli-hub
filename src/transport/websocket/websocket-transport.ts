@@ -21,7 +21,7 @@ export interface WebSocketGateway {
   setReceiver(receiver: (peer: WebSocketPeer, data: string) => void): void
   broadcast(data: string): number
   waitForPeer(): Promise<void>
-  add(peer: WebSocketPeer): void
+  add(peer: WebSocketPeer): boolean
   remove(peer: WebSocketPeer): void
   receive(peer: WebSocketPeer, data: string): void
 }
@@ -47,6 +47,10 @@ interface ClientEnvelope {
   clientMessageId?: unknown
 }
 
+const MAX_TEXT_CHARS = 64 * 1024
+const MAX_UPLOAD_IDS = 10
+const MAX_IDENTIFIER_CHARS = 128
+
 export function createWebSocketTransport(deps: WebSocketTransportDeps): Transport {
   const cli = deps.cli ?? 'claude'
   const cwd = deps.cwd ?? '/'
@@ -55,23 +59,51 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
 
   const send = (type: string, payload: Record<string, unknown>) =>
     deps.gateway.broadcast(JSON.stringify({ v: 1, type, ...payload }))
+  const sendError = (peer: WebSocketPeer, code: string) => {
+    peer.send(JSON.stringify({ v: 1, type: 'error', code }))
+  }
   const receive = async (peer: WebSocketPeer, raw: string) => {
     let message: ClientEnvelope
     try {
       message = JSON.parse(raw) as ClientEnvelope
     } catch {
-      peer.send(JSON.stringify({ v: 1, type: 'error', code: 'invalid_json' }))
+      sendError(peer, 'invalid_json')
       return
     }
     if (message.v !== 1 || typeof message.type !== 'string') {
-      peer.send(JSON.stringify({ v: 1, type: 'error', code: 'invalid_envelope' }))
+      sendError(peer, 'invalid_envelope')
       return
     }
-    const uploadIds =
-      Array.isArray(message.uploadIds) && message.uploadIds.every(item => typeof item === 'string')
-        ? message.uploadIds
-        : []
-    if (message.type === 'message' && typeof message.text === 'string' && (message.text.trim() || uploadIds.length)) {
+    if (message.type === 'message') {
+      if (typeof message.text !== 'string') {
+        sendError(peer, 'invalid_message')
+        return
+      }
+      if (message.text.length > MAX_TEXT_CHARS) {
+        sendError(peer, 'message_too_large')
+        return
+      }
+      const uploadIds = message.uploadIds === undefined ? [] : message.uploadIds
+      if (
+        !Array.isArray(uploadIds) ||
+        uploadIds.some(item => !isIdentifier(item)) ||
+        new Set(uploadIds).size !== uploadIds.length
+      ) {
+        sendError(peer, 'invalid_upload_ids')
+        return
+      }
+      if (uploadIds.length > MAX_UPLOAD_IDS) {
+        sendError(peer, 'too_many_uploads')
+        return
+      }
+      if (message.clientMessageId !== undefined && !isIdentifier(message.clientMessageId)) {
+        sendError(peer, 'invalid_client_message_id')
+        return
+      }
+      if (!message.text.trim() && uploadIds.length === 0) {
+        sendError(peer, 'invalid_message')
+        return
+      }
       const text = message.text.trim()
       if (text.toLowerCase() === '/help' && uploadIds.length === 0) {
         const language = (await deps.resolveUserLanguage?.('web', deps.userId)) ?? 'zh'
@@ -82,7 +114,7 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
       try {
         attachments = uploadIds.length ? ((await deps.resolveUploads?.(uploadIds)) ?? []) : []
       } catch {
-        peer.send(JSON.stringify({ v: 1, type: 'error', code: 'upload_unavailable' }))
+        sendError(peer, 'upload_unavailable')
         return
       }
       const prepared = deps.mediaPreprocessor
@@ -109,18 +141,23 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
     }
     if (
       (message.type === 'approve' || message.type === 'reject') &&
-      typeof message.approvalId === 'string' &&
-      typeof message.conversationId === 'string'
+      isIdentifier(message.approvalId) &&
+      isIdentifier(message.conversationId)
     ) {
+      const conversationId = message.conversationId as ConversationId
+      if (!conversations.has(conversationId)) {
+        sendError(peer, 'conversation_unavailable')
+        return
+      }
       const payload = {
-        conversationId: message.conversationId as ConversationId,
+        conversationId,
         approvalId: message.approvalId,
         operator: deps.userId,
       }
       deps.bus.emit(message.type === 'approve' ? 'ApprovalApproved' : 'ApprovalRejected', payload)
       return
     }
-    peer.send(JSON.stringify({ v: 1, type: 'error', code: 'invalid_message' }))
+    sendError(peer, 'invalid_message')
   }
 
   return {
@@ -187,4 +224,8 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
       return { platform: 'web', chatId, nativeId: card.approvalId }
     },
   }
+}
+
+function isIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= MAX_IDENTIFIER_CHARS
 }

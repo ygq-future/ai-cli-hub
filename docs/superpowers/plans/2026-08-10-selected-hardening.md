@@ -413,7 +413,7 @@ git commit -m "fix: bound staged web uploads"
 - Produces: WebSocket gateway `add(peer): boolean`，满员返回 false 并关闭 peer。
 - Produces: `isAllowedWebSocketOrigin(request): boolean` server 内部校验。
 
-- [ ] **Step 1: 写 Origin、连接数和 payload 配置失败测试**
+- [x] **Step 1: 写 Origin、连接数和 payload 配置失败测试**
 
 Server handler 测试：
 
@@ -425,7 +425,7 @@ expect(upgradedForwardedHost).toBe(true)
 
 Gateway 测试创建 6 个 peer，断言第 6 个被 close 且只前 5 个收到广播。
 
-- [ ] **Step 2: 实现服务层限制**
+- [x] **Step 2: 实现服务层限制**
 
 `Bun.serve.websocket` 增加：
 
@@ -439,7 +439,7 @@ closeOnBackpressureLimit: true,
 
 Gateway broadcast 对每个 peer 单独 try/catch，失败 peer 从集合移除并关闭。
 
-- [ ] **Step 3: 写 transport 字段限制和审批隔离失败测试**
+- [x] **Step 3: 写 transport 字段限制和审批隔离失败测试**
 
 ```ts
 gateway.receive(peer, JSON.stringify({ v: 1, type: 'message', text: 'x'.repeat(64 * 1024 + 1) }))
@@ -453,7 +453,7 @@ expect(approved).toEqual([])
 expect(lastEnvelope()).toMatchObject({ code: 'conversation_unavailable' })
 ```
 
-- [ ] **Step 4: 实现协议验证**
+- [x] **Step 4: 实现协议验证**
 
 在解析 JSON 后、调用 upload resolver/EventBus 前集中验证：
 
@@ -465,7 +465,7 @@ const MAX_IDENTIFIER_CHARS = 128
 
 非字符串 uploadIds 不再静默降级为空数组，而是 `invalid_upload_ids`。所有越界分支通过统一 `sendError(peer, code)` 返回并结束。审批分支先验证 `conversations.has(conversationId)`。
 
-- [ ] **Step 5: 定向验证、格式化并提交**
+- [x] **Step 5: 定向验证、格式化并提交**
 
 ```bash
 bun test src/server/server.test.ts src/transport/websocket/websocket-transport.test.ts

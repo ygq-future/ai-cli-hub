@@ -17,7 +17,9 @@ function createGateway(connected = true) {
       return 1
     },
     waitForPeer: async () => undefined,
-    add() {},
+    add() {
+      return true
+    },
     remove() {},
     receive(nextPeer, data) {
       receiver?.(nextPeer, data)
@@ -207,5 +209,59 @@ test('WebSocket transport 回传规范化用户消息和预览附件', async () 
       attachments: [expect.objectContaining({ id: 'file-2' })],
     },
   ])
+  await transport.stop()
+})
+
+test('WebSocket transport 拒绝超长消息和过多上传 ID', async () => {
+  const bus = createEventBus()
+  const { gateway, peer, sent } = createGateway()
+  const received: unknown[] = []
+  bus.on('MessageReceived', message => received.push(message))
+  const transport = createWebSocketTransport({ bus, gateway, userId: 'web-admin' })
+  await transport.start()
+
+  gateway.receive(peer, JSON.stringify({ v: 1, type: 'message', text: 'x'.repeat(64 * 1024 + 1) }))
+  gateway.receive(
+    peer,
+    JSON.stringify({
+      v: 1,
+      type: 'message',
+      text: 'hello',
+      uploadIds: Array.from({ length: 11 }, (_, index) => `upload-${index}`),
+    }),
+  )
+
+  expect(sent.map(data => JSON.parse(data))).toEqual([
+    { v: 1, type: 'error', code: 'message_too_large' },
+    { v: 1, type: 'error', code: 'too_many_uploads' },
+  ])
+  expect(received).toEqual([])
+  await transport.stop()
+})
+
+test('WebSocket transport 只允许已知 Web 会话提交审批', async () => {
+  const bus = createEventBus()
+  const { gateway, peer, sent } = createGateway()
+  const approved: unknown[] = []
+  bus.on('ApprovalApproved', event => approved.push(event))
+  const transport = createWebSocketTransport({ bus, gateway, userId: 'web-admin' })
+  await transport.start()
+
+  gateway.receive(peer, JSON.stringify({ v: 1, type: 'approve', conversationId: 'unknown', approvalId: 'approval-1' }))
+  expect(approved).toEqual([])
+  expect(JSON.parse(sent.at(-1) ?? '{}')).toEqual({
+    v: 1,
+    type: 'error',
+    code: 'conversation_unavailable',
+  })
+
+  const conversationId = 'web-conversation' as ConversationId
+  bus.emit('SessionMapped', {
+    conversationId,
+    platform: 'web',
+    userId: 'web-admin',
+  })
+  gateway.receive(peer, JSON.stringify({ v: 1, type: 'approve', conversationId, approvalId: 'approval-2' }))
+  expect(approved).toEqual([{ conversationId, approvalId: 'approval-2', operator: 'web-admin' }])
   await transport.stop()
 })
