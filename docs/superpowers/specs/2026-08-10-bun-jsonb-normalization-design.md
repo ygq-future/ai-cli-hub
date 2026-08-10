@@ -1,7 +1,7 @@
 # Bun SQL JSONB 类型归一化设计
 
 > 日期：2026-08-10
-> 状态：用户已确认，进入实施
+> 状态：已实现并完成自动验收
 
 ## 1. 问题与根因
 
@@ -44,4 +44,3 @@
 - schema/migration 测试覆盖两个 UPDATE、两个 CHECK 和 journal 登记。
 - 使用临时 PostgreSQL 表做一次 Bun SQL 原生参数探针，确认数组/对象的 `jsonb_typeof` 正确。
 - 执行 format、format check、typecheck、lint、WebUI build 和全量测试。
-
