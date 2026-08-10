@@ -149,6 +149,7 @@ async function main() {
     directory: config.MEDIA_DOWNLOAD_DIR,
     maxBytes: config.MEDIA_MAX_FILE_BYTES,
   })
+  await webUploads.initialize()
   const fileContentReader = createFileContentReader({
     maxTextChars: config.MEDIA_MAX_TEXT_CHARS,
     maxPdfPages: config.MEDIA_PDF_MAX_PAGES,
@@ -353,6 +354,7 @@ async function main() {
         (async () => {
           await appServer.stop()
           await Promise.all(transports.map(transport => transport.stop()))
+          await webUploads.dispose()
           aggregator.flushAll()
           await orch.destroy()
           await openCodeServerPool.close()

@@ -353,7 +353,7 @@ git commit -m "fix: enforce HTTP auth and readiness checks"
 - Produces: `WebUploadStager.dispose(): Promise<void>`。
 - Consumes: `{ directory, maxBytes, maxFiles?: 20, maxTotalBytes?: maxBytes * 3, ttlMs?: 900_000, now?: () => number }`。
 
-- [ ] **Step 1: 写 stager 失败测试**
+- [x] **Step 1: 写 stager 失败测试**
 
 使用临时目录和可控 `now` 覆盖：
 
@@ -372,23 +372,23 @@ await expect(stageBeyondBytes()).rejects.toThrow('staged upload size limit')
 
 另测 consume 成功后文件从 `.staging` 移到正式目录，并且数组中任一 ID 缺失时不移动任何文件。
 
-- [ ] **Step 2: 验证测试失败**
+- [x] **Step 2: 验证测试失败**
 
 Run: `bun test src/media/web-upload-stager.test.ts`
 
 Expected: 生命周期接口和配额行为不存在。
 
-- [ ] **Step 3: 实现 stager**
+- [x] **Step 3: 实现 stager**
 
 Map value 增加 `expiresAt` 与 `stagedPath`。`initialize()` 创建目录并清空 `.staging`。`cleanupExpired()` 删除到期文件并更新 total bytes。`consume()` 先完整验证全部 ID，再逐个 rename 到正式目录，最后从 Map 删除并返回更新后的 attachment。
 
 `dispose()` 清理计时器；不删除已消费的正式文件。后台计时器每 `min(ttlMs, 60_000)` 清理，并调用 `unref()` 防止阻止进程退出。
 
-- [ ] **Step 4: Composition Root 生命周期接入**
+- [x] **Step 4: Composition Root 生命周期接入**
 
 创建后执行 `await webUploads.initialize()`；graceful shutdown 中调用 `await webUploads.dispose()`。
 
-- [ ] **Step 5: 定向验证、格式化并提交**
+- [x] **Step 5: 定向验证、格式化并提交**
 
 ```bash
 bun test src/media/web-upload-stager.test.ts src/server/server.test.ts
