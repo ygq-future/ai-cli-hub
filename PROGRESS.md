@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-07-27 · 阶段：**V4 Web Control Plane（已立项）**
+> 最后更新：2026-08-10 · 阶段：**V4 Web Control Plane 与已选高优先级加固完成**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V4 Web Control Plane（React 重构已完成，待用户验收）** |
-| 代码 | ✅ 启动状态对账 / 优雅关闭 / adapter 故障隔离 / 审批幂等 / PM2 部署；环境画像；V1.5 embedding provider + pgvector 语义召回 + 自然语言记忆 LLM 摘要；V2-R1 优化修复；V2-R2 `/health` live self-check、受控 `/update`、`/restart`、重启后主动通知；V2-R3 `OpenCodeSdkAdapter` 与官方 QQ Bot C2C Transport；QQ 媒体能力；按用户持久化语言/当前 CLI/CWD/模型/自动审批；`/model [model_name\|model_id]` 可实时列出并切换 Claude/OpenCode 模型，Telegram 原生按钮与 QQ Markdown code block 均可复制规范 ID；OpenCode serve 进程共享、跨平台会话独立并发；`/status` 展示模型名称与 ID、自动审批状态/倒计时且无重复目标字段；新增 `/chatid` 查看平台原生 Chat ID；新增默认监听本机 `127.0.0.1:8787`、同时支持 `0.0.0.0` 的 HTTP `/api/platform-msg` 与 `/api/session-msg` 出站消息接口。会话以 `(platform,userId,cli)` 隔离。**配置已迁移到 `settings.json`（嵌套 JSON 14 分类），`loadConfig` 不再读 process.env。** |
-| 文档 | ✅ README 部署说明、PM2/systemd 示例、接口契约、记忆/命令 UX/实施计划同步；V1.5/V2 状态同步 |
+| 当前里程碑 | **V4 Web Control Plane 与已选高优先级加固（✅ 完成）** |
+| 代码 | ✅ React Web Control Plane；Web 平台会话隔离；跨重启认证；HTTP 出站接口；live/readiness 探针；空 Token 默认拒绝；HTTP/上传/WebSocket 资源边界与同源校验；自更新 WebUI 暂存构建、原子提升和失败恢复；Tailwind Vite 构建链；既有 Telegram/QQ、Claude/OpenCode、审批、媒体、记忆和运维能力保持通过。 |
+| 文档 | ✅ README、接口契约、Web Control Plane 任务书、设计/实施计划和延期维护项已同步 |
 | 阻塞项 | 无 |
-| 下一步 | 实施 W5 文档、部署与 VPS HTTPS 真机回归；完整 Hub 启动仍待本机恢复 Bun 对 `node_modules` 的读取后复验。 |
+| 下一步 | 按需处理延期维护项：PDF 解析安全、后端代码模块拆分、前端包拆分。 |
 
 ---
 
@@ -39,7 +39,7 @@
 | V2-R1 | 优化和 Bug 修复 | ✅ 首批完成 | 常量配置化、记忆摘要窗口语义收口、移除 `SessionClosed` 非 LLM 自动摘录、Claude SDK 审批 approve 保留原始 tool input、PTY approval 目录说明、async/import 清理、SDK raw JSON 与消息链路 debug 拆分、短问候跳过语义召回、Agent SDK host 指令泄漏清洗 |
 | V2-R2 | 运维自更新 / 自检测 / 自动拉起 | ✅ 完成 | `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启链路测试入口（Windows 直接拒绝）、重启后主动通知已接入；部署自检与自动拉起留待 V3 按需补强 |
 | V2-R3 | Transport 和 CLI 扩展 | ✅ 完成 | `OpenCodeSdkAdapter` 已完成；官方 QQ Bot C2C Transport 已完成并通过真机联调，含 Gateway 连接(指数退避重连 + `HttpsProxyAgent` 代理注入)、C2C 私聊、Markdown 消息渲染(`msg_type=2`)、流式消息、审批按钮(`INTERACTION_CREATE`)、ACK 5s 回调、重复点击提示、审批详情精简摘要；QQ 媒体能力已完成（附件下载/OCR/懒加载/语音 ASR/emoji 归一化）；opencode `permissionToApproval` 与 `summarizeApprovalDetail` 已按官方 SDK 类型对齐修复重复行/无意义字段；`QQBOT_WS_PROXY` 新增配置；`main.ts` 起動耐故障化（单 Transport 失败不拖垮进程）；Telegram/QQ 并列装配，混合白名单，platform 过滤防串路由 |
-| V4 | Web Control Plane | 🟡 用户验收中 | 后端服务、浏览器 WebSocket Transport、单管理员 WebUI 已完成；前端现为 React + TypeScript + Tailwind + Radix/shadcn 风格组件，任务书见 `docs/08-Web-Control-Plane-Task-Book.md`。 |
+| V4 | Web Control Plane | ✅ 完成 | 后端服务、浏览器 WebSocket Transport、单管理员 React WebUI、历史/附件/设置/重启闭环和高优先级资源边界加固均已完成；任务书见 `docs/08-Web-Control-Plane-Task-Book.md`。 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
 
@@ -325,6 +325,7 @@
 | 2026-07-29 | **Web 登录跨重启与重启通知闭环修复**：根因确认原 8 小时登录仅由进程内 `Map` 保存随机 session ID，进程重启必然丢失；改为由 `http.authToken` HMAC 签名、携带到期时间的 HttpOnly Cookie，跨重启可验证，`GET /api/auth/session` 滚动续期 8 小时，真实到期或管理 Token 改变后才失效。WebSocket 断开后先探测认证状态，服务暂不可达继续指数退避，明确 `401` 才返回登录页。重启通知不再在零 Web 客户端时广播并清除标记：新进程等待客户端重新连入后才发送，并统一使用 React 已处理的 `output` 信封；发送失败继续保留通知文件。同步接口契约与任务书。自动验收：format、format check、typecheck、lint、Vite 生产构建、30 项定向回归通过；全量 `bun test` 448 pass / 7 skip / 0 fail。 |
 | 2026-07-29 | **WebUI Graphite / Porcelain Glass 视觉重构**：移除原有大面积墨绿色基底，深色主题改为冷调石墨黑、浅色主题改为瓷白雾灰；新增统一 Glass 表面变量、冷色环境光、半透明面板、饱和模糊、内高光与克制阴影，覆盖登录面板、应用框架、弹窗、下拉、消息气泡、输入区、状态栏和设置卡片。默认强调色由 emerald 改为冷蓝，旧本地 emerald 偏好自动回退为 blue，其余强调色在深浅主题分别校准；站点图标同步换为石墨黑与冷蓝并提升缓存版本。自动验收：format、format check、typecheck、lint、Vite 生产构建、25 项定向回归通过；全量 `bun test` 449 pass / 7 skip / 0 fail。 |
 | 2026-07-30 | **HTTP 消息接口兼容未转义多行内容**：确认标准 JSON 只允许以 `\n` 等转义表示字符串内换行，部分 Webhook/自动化工具直接写入真实换行时会被严格 `JSON.parse` 拒绝。`/api/platform-msg` 与 `/api/session-msg` 现统一采用“严格解析优先、受限兼容回退”：仅转义字符串内部未转义的换行、Tab 等控制字符并保持转发内容不变，缺逗号、尾随逗号、引号不闭合等结构错误仍返回 HTTP 400。同步接口契约并新增正反回归测试。自动验收：format、format check、typecheck、lint、Vite 生产构建通过；全量测试输出 451 pass / 7 skip / 0 fail（Bun 已输出完成汇总，但测试进程因残留句柄未自行退出）。 |
+| 2026-08-10 | **已选高优先级加固完成**：`/update confirm` 改为 frozen install、静态检查、WebUI 暂存构建、配置/数据库迁移和最后原子提升，提升失败恢复旧资源；Tailwind v4 改接 `@tailwindcss/vite`，消除无效规则警告。空 `http.authToken` 时所有受保护 API/WS 默认拒绝；新增公开 `/health/live` 与 `/health/ready`（旧 `/health` 为 readiness 别名），并限制 HTTP body。Web 上传新增隔离暂存目录、启动清理、15 分钟 TTL、20 文件/总容量配额和整批消费回滚；WebSocket 新增同源校验、5 连接、128 KiB payload、256 KiB 背压、协议字段限制与 Web 审批会话隔离。README、接口契约、任务书与 AGENTS 技术栈同步。自动验收：format/format check/typecheck/lint、Vite 生产构建通过；全量测试 466 pass / 7 skip / 0 fail。构建仅保留前端 chunk 大小提示，对应已延期的前端包拆分。 |
 
 ## 6. 开放问题（Open Questions）
 

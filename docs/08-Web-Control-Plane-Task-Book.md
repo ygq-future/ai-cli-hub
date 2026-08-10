@@ -1,6 +1,6 @@
 # 08 - Web Control Plane 任务书
 
-> 状态：W4 完成；聊天历史分页与持久化附件预览已补齐，准备实施 W5。
+> 状态：W5 已完成；Web Control Plane 已交付并完成资源边界与部署更新加固。
 > 范围：将单用途 HTTP 出站模块演进为 Hub 的 Web 后端服务，并交付单管理员 WebUI。
 
 ---
@@ -18,8 +18,8 @@
 | 管理员模型 | 单一管理员，以现有 `http.authToken` 登录 WebUI。 |
 | 后端边界 | 新建 `src/server/` 承担 Bun HTTP/WebSocket/静态资源/认证，替代旧 HTTP transport 的服务职责。 |
 | 聊天接入 | 新建 `transport/websocket` 实现 `Transport`，经 EventBus 收发；`server/` 不直接调用 Core。 |
-| 前端 | 原生 TypeScript + Web Components + Tailwind CSS；不使用 React/Vue 等运行时框架。 |
-| 样式工具 | `tailwindcss`、`@tailwindcss/cli`、`prettier-plugin-tailwindcss`；Prettier 仍是唯一格式化入口。 |
+| 前端 | React 19 + TypeScript + Radix/shadcn 风格组件；由 Vite 构建。 |
+| 样式工具 | Tailwind CSS v4 通过 `@tailwindcss/vite` 集成，配合 `prettier-plugin-tailwindcss`；Prettier 仍是唯一格式化入口。 |
 | 配置生效 | `SettingsJsonSchema` 校验、原子写入；保存后必须显式受控重启，不做热重载。 |
 | 敏感数据 | API 永不回传 token/password/secret 明文；只显示“已配置”，可显式覆盖。 |
 | Web 偏好 | 语言、主题、强调色仅保存于浏览器本地，不写服务器业务配置。 |
@@ -47,13 +47,14 @@ flowchart LR
 
 - `POST /api/auth/session` 校验 Bearer Token，建立由管理 Token 签名的 8 小时会话，返回 `HttpOnly`、`SameSite=Strict` Cookie；会话可跨服务重启，访问认证会话接口时续期，Token 不写入 `localStorage`。
 - `DELETE /api/auth/session` 登出并失效会话。
-- `/api/*`（健康检查除外）和 `/ws` 均要求认证；兼容接口保留 Bearer Token 支持。
+- `/api/*`（健康检查除外）和 `/ws` 均要求认证；兼容接口保留 Bearer Token 支持。`http.authToken` 为空时所有受保护入口均拒绝访问，不代表关闭鉴权。
 - 对外绑定必须置于 HTTPS 反向代理之后；生产 Cookie 使用 `Secure`。
-- 限制来源、请求体、WebSocket 连接数和帧大小；日志不记录 Token 或敏感配置明文。
+- WebSocket 升级必须同源，反向代理需保留 `Host` / `X-Forwarded-Host` 与浏览器 `Origin`；审批只能操作该 Web 连接已观察到的 Web 会话。
+- HTTP 请求体、上传暂存数量/容量/有效期、WebSocket 连接数、帧大小和发送背压均有硬边界；日志不记录 Token 或敏感配置明文。
 
 ### 4.2 API 与协议
 
-保留 `GET /health`、`POST /api/platform-msg`、`POST /api/session-msg`。新增会话/运行状态、配置分类读取与保存、重启预览与确认、静态资源与 SPA fallback。
+保留 `GET /health`、`POST /api/platform-msg`、`POST /api/session-msg`。健康探针拆分为公开的 `/health/live` 与 `/health/ready`，旧 `/health` 作为 readiness 别名。新增会话/运行状态、配置分类读取与保存、重启预览与确认、静态资源与 SPA fallback。
 
 所有新增接口必须先补入 [接口契约](./03-Interface-Contracts.md)，明确请求、响应、权限和失败码。WebSocket 使用带版本和 `type` 的 JSON 信封：
 
@@ -122,7 +123,7 @@ flowchart LR
 
 ### W5 — 回归、文档与部署
 
-补单元/集成测试，更新架构、接口、命令 UX、设置模板、README 与 HTTPS 反向代理示例。验收：format、typecheck、lint、相关测试通过，VPS HTTPS 真机回归完成。
+补单元/集成测试，更新架构、接口、命令 UX、设置模板、README 与 HTTPS 反向代理示例。自更新采用 WebUI 暂存构建与最后提升，普通启动不构建前端；Tailwind 由 Vite 插件处理。验收：format、typecheck、lint、生产构建和全量测试通过，VPS HTTPS 真机回归完成。
 
 ## 7. 完成定义
 

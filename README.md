@@ -25,6 +25,7 @@ This project acts as an intelligent "Session Manager", allowing you to interact 
 - **Database:** Postgres (with `pgvector` for long-term memory)
 - **ORM:** [Drizzle ORM](https://orm.drizzle.team/)
 - **Bot Transports:** `telegraf` (Telegram), Tencent Official QQ Bot Gateway/API (`ws` + `fetch`)
+- **Web Control Plane:** React 19, TypeScript, Tailwind CSS v4, Radix/shadcn-style components, and Vite
 - **Validation & Config:** `zod`
 - **Logging:** `pino`
 
@@ -105,6 +106,24 @@ Restart after updating code:
 pm2 restart ai-cli-hub
 ```
 
+### Web control plane
+
+Set `http.authToken` before using the WebUI or any protected HTTP/WebSocket endpoint. An empty token intentionally leaves only static assets and health probes available; login, `/api/*`, and `/ws` reject access. For public access, bind to `0.0.0.0` only behind an HTTPS reverse proxy and set `http.secureCookie` to `true`.
+
+The WebUI is available at `/webui/`. Build it during deployment, not during process startup:
+
+```bash
+bun run webui:build
+pm2 restart ai-cli-hub
+```
+
+Use the probes according to their purpose:
+
+- `GET /health/live` checks only whether the HTTP process can answer.
+- `GET /health/ready` checks the database, media directory, and configured CLI commands; `GET /health` is its compatibility alias.
+
+For WebSocket proxying, preserve `Host` and `X-Forwarded-Host`, pass the browser `Origin`, and enable WebSocket upgrade support. The server rejects cross-origin upgrades and limits connection count, frame size, request bodies, and staged uploads.
+
 ### systemd
 
 The sample unit is in `deploy/ai-cli-hub.service`. Adjust `User` and `WorkingDirectory` for your VPS path, then install it:
@@ -130,7 +149,9 @@ The project strictly follows a decoupled architectural pattern:
 │   ├── core/         # Core Hub: Session management, state machines, and message routing.
 │   ├── event/        # Event Bus: Global event definitions (SessionCreated, MessageReceived, etc.).
 │   ├── config/       # Config Module: The ONLY place allowed to read environment variables (Zod validation).
+│   ├── server/       # HTTP API, WebSocket upgrade, authentication, health probes, and WebUI assets.
 │   ├── transport/    # Transport Layer: Client integration (telegram/, qq/, websocket/).
+│   ├── webui/        # React/TypeScript Web control plane source.
 │   ├── cli/          # CLI Adapters: Interface implementations for target CLIs (base/, claude/).
 │   ├── runtime/      # Optional: added with node-pty when a CLI has no SDK.
 │   ├── approval/     # PTY-only approval scraping fallback.

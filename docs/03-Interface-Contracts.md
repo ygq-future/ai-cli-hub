@@ -373,7 +373,7 @@ export function loadConfig(
 - `session.claudeExecutablePath` 为空时从 `PATH` 解析系统 `claude`，非空时使用配置的绝对路径；启动找不到系统 CLI 时 fail-fast。
 - 数据库的 host/port/db/username/password 被组装为兼容字段 `AppConfig.DATABASE_URL`；`db:migrate` 与主进程使用同一配置。
 - 代理配置会写回 `process.env.HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`，仅用于 Bun fetch 和 SDK 子进程继承；`process.env` 不是业务配置输入源。
-- `/update confirm` 依次执行 git pull、bun install、`webui:build`、`setting:migrate`、`db:migrate`、format check、typecheck 和 lint；任一步失败都不安排重启。WebUI 只在部署更新阶段构建，应用启动与 PM2 重启不得触发构建。Claude SDK 平台包已在依赖解析阶段由本地 stub override，不需要安装后裁剪。
+- `/update confirm` 依次执行 git pull、frozen bun install、format check、typecheck、lint、`webui:build:staged`、`setting:migrate`、`db:migrate` 和 `webui:promote`；任一步失败都不安排重启。新 WebUI 先构建到 `.data/update/webui-next`，全部关键步骤成功后才以目录 rename 替换 `public/webui`，提升失败时会恢复旧目录。WebUI 只在部署更新阶段构建，应用启动与 PM2 重启不得触发构建。Claude SDK 平台包已在依赖解析阶段由本地 stub override，不需要安装后裁剪。
 
 ---
 
@@ -381,7 +381,11 @@ export function loadConfig(
 
 HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0.0` 对外监听。`server/` 负责静态 WebUI、SPA fallback、认证会话和兼容出站 API；它不直接依赖 Core、具体 Transport 或 Drizzle，所需能力一律由 `main.ts` 注入。
 
-对外监听必须配置 `http.authToken`，并置于 HTTPS 反向代理、防火墙限制之后。HTTPS 部署时将 `http.secureCookie` 设为 `true`，使 Web 会话 Cookie 带 `Secure` 属性。未配置 `http.authToken` 时，Web 登录接口返回 `503`；为保持已有自动化兼容，两个旧出站 API 仍沿用其“无 Token 即不鉴权”的历史行为。
+对外监听必须配置 `http.authToken`，并置于 HTTPS 反向代理、防火墙限制之后。HTTPS 部署时将 `http.secureCookie` 设为 `true`，使 Web 会话 Cookie 带 `Secure` 属性。未配置 `http.authToken` 时，Web 登录接口返回 `503`，所有受保护的 `/api/*` 和 `/ws` 请求返回 `401`；空 Token 不再表示关闭鉴权。
+
+### `GET /health/live`、`GET /health/ready` 与 `GET /health`
+
+三个探针均公开且不依赖 Token。`/health/live` 只证明 HTTP 进程仍能响应，固定返回 `200 { "status": "ok" }`。`/health/ready` 检查数据库、媒体目录和 CLI，返回 `status`、`uptimeMs` 与逐项 `checks`；总体为 `down` 时返回 503，`ok` 或非关键项导致的 `degraded` 返回 200。`/health` 是 readiness 的兼容别名。
 
 ### `POST /api/auth/session`
 
@@ -391,7 +395,9 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 
 ### `GET /ws`
 
-浏览器在已登录 Cookie 下升级 WebSocket。JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`、`clientMessageId`、可选 `uploadIds`）与 `approve`/`reject`（`conversationId`、`approvalId`）；下行 `connected`、`user_message`、`output`、`approval`、`error`。`user_message` 将服务端规范化消息 ID 和持久化附件回执给浏览器，用于替换乐观消息；`output` 同时承载会话流式输出、持久化预览附件、服务重启通知和 `/help` 等命令回复。浏览器断线后先检查认证状态：服务暂时不可达时使用指数退避重连，明确返回 `401` 时停止重连并回到登录页。重启完成通知在 Web 客户端重新连入前保持待发送状态，实际发送成功后才清除持久化通知标记。
+浏览器在已登录 Cookie 下升级 WebSocket。升级请求必须带 `Origin`，其 host 必须匹配请求 URL、`Host` 或反向代理传入的 `X-Forwarded-Host`，否则返回 403。单进程最多保留 5 个浏览器连接；第 6 个以 1013 关闭。Bun 层限制单帧 128 KiB、发送背压 256 KiB，并在超限时关闭连接；协议层进一步限制消息正文 64 KiB、单条消息最多 10 个上传 ID，标识符最长 128 字符。
+
+JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`、`clientMessageId`、可选 `uploadIds`）与 `approve`/`reject`（`conversationId`、`approvalId`）；下行 `connected`、`user_message`、`output`、`approval`、`error`。`user_message` 将服务端规范化消息 ID 和持久化附件回执给浏览器，用于替换乐观消息；`output` 同时承载会话流式输出、持久化预览附件、服务重启通知和 `/help` 等命令回复。审批决定只接受当前 Web 连接已观察到的 Web 会话 ID，禁止借 WebSocket 操作 Telegram/QQ 或未知会话。浏览器断线后先检查认证状态：服务暂时不可达时使用指数退避重连，明确返回 `401` 时停止重连并回到登录页。重启完成通知在 Web 客户端重新连入前保持待发送状态，实际发送成功后才清除持久化通知标记。
 
 ### `GET` / `PUT /api/settings` 与 `/api/restart`
 
@@ -408,6 +414,10 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 ### `GET /api/web/files/:id`
 
 要求已认证会话。仅当文件属于当前 Web 会话且受控文件仍存在时返回内容，默认使用 `inline`；不能借此读取其他平台、其他会话或任意本地路径。图片附件在气泡内直接显示，点击或触摸即可放大；其他附件按类型显示卡片，点击或触摸即可下载。
+
+### `POST /api/web/uploads`
+
+要求已认证会话。请求体为单文件 multipart；Bun 的请求体硬上限为 `media.maxFileBytes + 1 MiB`，声明超限的 `Content-Length` 会提前返回 413。上传先进入隔离的 `.staging` 目录并返回一次性 ID：每个进程最多暂存 20 个文件、总大小最多为单文件上限的 3 倍、15 分钟未消费即删除；服务启动会清理上次异常退出遗留的暂存文件。WebSocket 消息消费整批 ID 时先完整校验，失败会回滚已移动文件，避免半成功消息。
 
 ### `POST /api/platform-msg`
 
@@ -432,7 +442,7 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 }
 ```
 
-二者是不同的寻址方式：`chatId` 是 Telegram/QQ 的平台标识，`conversationId` 是 Hub 内部会话标识；两个接口不混用字段。配置 `http.authToken` 后，两者均接受 Bearer Token 或已登录的 Web 会话 Cookie。
+二者是不同的寻址方式：`chatId` 是 Telegram/QQ 的平台标识，`conversationId` 是 Hub 内部会话标识；两个接口不混用字段。两者始终要求有效的 Bearer Token 或已登录的 Web 会话 Cookie；`http.authToken` 为空时直接返回 401。
 
 两个接口的 `content` 都支持多行文本。调用方应优先使用标准 JSON 转义（如 `\n`、`\t`）；为兼容部分 Webhook/自动化工具，服务端也接受 JSON 字符串值中直接出现的未转义换行、Tab 等控制字符，并按原内容转发。该兼容仅修复字符串内部的控制字符，缺少逗号、尾随逗号、引号不闭合等结构错误仍返回 HTTP 400。
 

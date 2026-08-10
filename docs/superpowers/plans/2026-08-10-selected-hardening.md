@@ -479,6 +479,7 @@ git commit -m "fix: bound and isolate WebSocket clients"
 **Files:**
 
 - Modify: `README.md`
+- Modify: `AGENTS.md`
 - Modify: `docs/03-Interface-Contracts.md`
 - Modify: `docs/08-Web-Control-Plane-Task-Book.md`
 - Modify: `PROGRESS.md`
@@ -487,7 +488,7 @@ git commit -m "fix: bound and isolate WebSocket clients"
 
 - Documents: 空 Token 401、live/readiness、WS/上传边界、staged update 和延期项。
 
-- [ ] **Step 1: 更新接口与部署文档**
+- [x] **Step 1: 更新接口与部署文档**
 
 明确：
 
@@ -497,7 +498,7 @@ git commit -m "fix: bound and isolate WebSocket clients"
 - `/update` 使用暂存 WebUI且不运行生产测试。
 - 上传和 WS 的固定边界。
 
-- [ ] **Step 2: 运行完整格式化和静态检查**
+- [x] **Step 2: 运行完整格式化和静态检查**
 
 ```bash
 bun run format
@@ -508,7 +509,7 @@ bun run lint
 
 Expected: 全部退出 0。
 
-- [ ] **Step 3: 运行生产构建和完整测试**
+- [x] **Step 3: 运行生产构建和完整测试**
 
 ```bash
 bun run webui:build
@@ -517,7 +518,7 @@ bun test
 
 Expected: 构建无 unknown Tailwind rules；已有测试与新增测试全部通过，Postgres 集成测试在无 `TEST_DATABASE_URL` 时保持已知 skip。
 
-- [ ] **Step 4: 检查差异和延期范围**
+- [x] **Step 4: 检查差异和延期范围**
 
 ```bash
 git diff --check
@@ -527,7 +528,7 @@ rg -n "PDF|代码模块拆分|前端包拆分" PROGRESS.md
 
 确认没有把日志、并发会话或 CI 写成延期任务。
 
-- [ ] **Step 5: 同步 PROGRESS 并提交**
+- [x] **Step 5: 同步 PROGRESS 并提交**
 
 在 PROGRESS Changelog 记录实现内容、测试计数与构建结果，然后：
 
@@ -536,7 +537,7 @@ git add README.md docs/03-Interface-Contracts.md docs/08-Web-Control-Plane-Task-
 git commit -m "docs: document hardened web control plane"
 ```
 
-- [ ] **Step 6: 最终仓库验收**
+- [x] **Step 6: 最终仓库验收**
 
 ```bash
 git status --short

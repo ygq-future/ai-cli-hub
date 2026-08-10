@@ -28,7 +28,7 @@
 | QQ | **腾讯官方 QQ Bot Gateway + HTTP API**（`ws` + Bun `fetch`） | 封装在 `transport/qq`；只接官方机器人，不接个人 QQ 协议 |
 | 日志 | **Pino** | 结构化 |
 | 校验 | **Zod** | 仅用于 `config/` |
-| WebUI 样式 | **Tailwind CSS + prettier-plugin-tailwindcss** | 原生 TypeScript/Web Components；仅构建期依赖，不引入前端运行时框架 |
+| WebUI | **React 19 + TypeScript + Tailwind CSS + Radix/shadcn 风格组件** | Vite 构建；使用 `@tailwindcss/vite` 与 `prettier-plugin-tailwindcss` |
 | 守护 | PM2 / systemd | 部署期 |
 
 ---
@@ -69,7 +69,7 @@ src/
 ├── config/       # settings.json 唯一配置入口（Zod 校验，fail-fast）
 ├── server/        # HTTP API、WebSocket 承载、WebUI 静态资源与认证
 ├── transport/    # 客户端接入 (telegram, qq, websocket)
-├── webui/         # 原生 TypeScript/Web Components 的浏览器端源码
+├── webui/         # React + TypeScript 的浏览器端源码
 ├── cli/          # CLI 适配器 (base, Codex=SDK 家族)；语义接缝 CLIAdapter，两家族同实现
 ├── runtime/      # 按需目录：接入无 SDK CLI 时再加入 PTY 字节容器
 ├── approval/     # PTY 家族审批 scraping（正则）；SDK 家族经 canUseTool，无需
