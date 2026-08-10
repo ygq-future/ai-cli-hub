@@ -39,6 +39,7 @@ describe('schema — 表结构与契约', () => {
     expect(t.foreignKeys).toHaveLength(2)
     expect(t.foreignKeys.map(key => key.onDelete)).toEqual(expect.arrayContaining(['cascade', 'no action']))
     expect(t.indexes.map(index => index.config.name)).toContain('uniq_msg_audit_log')
+    expect(t.checks.map(check => check.name)).toContain('messages_attachments_array')
   })
 
   test('audit_logs：外键不级联删除（审计永久）', () => {
@@ -67,6 +68,18 @@ describe('schema — 表结构与契约', () => {
     expect(t.indexes.map(index => index.config.name)).toEqual(
       expect.arrayContaining(['idx_audit_conv', 'uniq_audit_conversation_approval']),
     )
+    expect(t.checks.map(check => check.name)).toContain('audit_logs_request_object')
+  })
+
+  test('Bun SQL JSONB 写入保持原生数组和对象，不提前序列化', () => {
+    const messageTable = getTableConfig(messages)
+    const attachments = messageTable.columns.find(column => column.name === 'attachments')!
+    expect(attachments.mapToDriverValue([])).toEqual([])
+
+    const auditTable = getTableConfig(auditLogs)
+    const request = auditTable.columns.find(column => column.name === 'request')!
+    const value = { command: 'Bash', detail: { command: 'git status --short' } }
+    expect(request.mapToDriverValue(value)).toEqual(value)
   })
 
   test('memories：不再关联会话/消息，保留 namespace + vector(1024) + FTS', () => {
@@ -144,6 +157,22 @@ describe('schema — 表结构与契约', () => {
     expect(migration).toContain('ADD COLUMN "audit_log_id" text')
     expect(migration).toContain('FOREIGN KEY ("audit_log_id") REFERENCES "public"."audit_logs"("id")')
     expect(migration).toContain('CREATE UNIQUE INDEX "uniq_msg_audit_log"')
+  })
+
+  test('Bun JSONB 归一化迁移先解析旧字符串，再增加数组和对象约束', async () => {
+    const migration = await readFile(path.resolve('drizzle/0019_normalize_bun_jsonb.sql'), 'utf8')
+    const normalizeAttachmentsAt = migration.indexOf('SET "attachments" = ("attachments" #>> \'{}\')::jsonb')
+    const normalizeRequestAt = migration.indexOf('SET "request" = ("request" #>> \'{}\')::jsonb')
+    const attachmentsConstraintAt = migration.indexOf('CONSTRAINT "messages_attachments_array"')
+    const requestConstraintAt = migration.indexOf('CONSTRAINT "audit_logs_request_object"')
+    expect(normalizeAttachmentsAt).toBeGreaterThanOrEqual(0)
+    expect(normalizeRequestAt).toBeGreaterThanOrEqual(0)
+    expect(attachmentsConstraintAt).toBeGreaterThan(normalizeAttachmentsAt)
+    expect(requestConstraintAt).toBeGreaterThan(normalizeRequestAt)
+    expect(migration).toContain(`jsonb_typeof("attachments") = 'string'`)
+    expect(migration).toContain(`jsonb_typeof("request") = 'string'`)
+    expect(migration).toContain(`jsonb_typeof("attachments") = 'array'`)
+    expect(migration).toContain(`jsonb_typeof("request") = 'object'`)
   })
 
   test('pgvector 序列化：number[] → 文本字面量 [a,b,c]', () => {

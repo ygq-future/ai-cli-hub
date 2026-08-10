@@ -81,7 +81,7 @@ export const messages = pgTable('messages', {
                     .references(() => conversations.id, { onDelete: 'cascade' }),
   role:           roleEnum('role').notNull(),
   content:        text('content').notNull(),
-  attachments:    jsonb('attachments').$type<StoredMessageAttachment[]>().notNull().default([]),
+  attachments:    bunJsonb<StoredMessageAttachment[]>('attachments').notNull().default([]),
   contextEligible: boolean('context_eligible').notNull().default(true),
   messageType:    messageTypeEnum('message_type').notNull().default('chat'),
   auditLogId:     text('audit_log_id').references(() => auditLogs.id),
@@ -89,13 +89,14 @@ export const messages = pgTable('messages', {
 }, (t) => ({
   byConv: index('idx_msg_conv').on(t.conversationId, t.createdAt),
   auditRef: uniqueIndex('uniq_msg_audit_log').on(t.auditLogId),
+  attachmentsShape: check('messages_attachments_array', sql`jsonb_typeof(${t.attachments}) = 'array'`),
 }));
 
 export type Message    = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 ```
 
-> `content` 只保存用户可见原文或助手可见回复，不保存 OCR、`@readN` 展开内容和本地路径等内部 prompt 注入文本。`attachments` 保存受控 `conversation_files.id` 及展示元数据，使上传、`@readN`/`@fileN` 引用和 `@viewN` 预览都可在历史气泡中恢复。所有 `/...` 命令及命令回复都不写入 `messages`；`@readN`、`@fileN`、`@viewN` 属于消息内指令，按用户原文保存。Web 审批使用空正文的 `message_type=approval` 引用 `audit_logs`，并设置 `context_eligible=false`；Telegram/QQ 不写该引用。`audit_log_id` 的 nullable unique 外键保证一条审计最多对应一个时间线项目，删除消息不会删除永久审计。
+> `content` 只保存用户可见原文或助手可见回复，不保存 OCR、`@readN` 展开内容和本地路径等内部 prompt 注入文本。`attachments` 保存受控 `conversation_files.id` 及展示元数据，使上传、`@readN`/`@fileN` 引用和 `@viewN` 预览都可在历史气泡中恢复。所有 `/...` 命令及命令回复都不写入 `messages`；`@readN`、`@fileN`、`@viewN` 属于消息内指令，按用户原文保存。Web 审批使用空正文的 `message_type=approval` 引用 `audit_logs`，并设置 `context_eligible=false`；Telegram/QQ 不写该引用。`audit_log_id` 的 nullable unique 外键保证一条审计最多对应一个时间线项目，删除消息不会删除永久审计。`attachments` 使用 Bun SQL 专用 JSONB 映射保持原生数组参数，并由 CHECK 约束禁止 JSONB string。
 
 ---
 
@@ -109,7 +110,7 @@ export const auditLogs = pgTable('audit_logs', {
   conversationId: text('conversation_id').notNull()
                     .references(() => conversations.id),   // 注意：不 cascade delete，审计不随会话删除
   approvalId:     text('approval_id').notNull(),
-  request:        jsonb('request').$type<ApprovalAuditRequest>().notNull(),
+  request:        bunJsonb<ApprovalAuditRequest>('request').notNull(),
   status:         approvalStatusEnum('status').notNull().default('pending'),
   operator:       text('operator'),                        // pending 时为空
   automatic:      boolean('automatic').notNull().default(false),
@@ -117,13 +118,14 @@ export const auditLogs = pgTable('audit_logs', {
 }, (t) => ({
   byConv: index('idx_audit_conv').on(t.conversationId, t.createdAt),
   approval: uniqueIndex('uniq_audit_conversation_approval').on(t.conversationId, t.approvalId),
+  requestShape: check('audit_logs_request_object', sql`jsonb_typeof(${t.request}) = 'object'`),
 }));
 
 export type AuditLog    = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
 ```
 
-> `request` 是 `{ command, detail }` JSONB；合法 JSON detail 保存为结构化值，否则保留原字符串。`createdAt` 是请求创建/时间线排序时间，不另设 requestedAt/resolvedAt。pending 行的 operator 为 NULL、automatic=false；决议更新同一行。**强约束**：Repository 不提供 delete；`conversationId` 不设 `onDelete: cascade`，保证会话归档后审计仍在。迁移 0018 经用户明确批准一次性清空旧 packed command 审计，迁移完成后恢复永久不可删约束。
+> `request` 是 `{ command, detail }` JSONB object；合法 JSON detail 保存为结构化值，否则保留原字符串。该列使用 Bun SQL 专用 JSONB 映射和 object CHECK。`createdAt` 是请求创建/时间线排序时间，不另设 requestedAt/resolvedAt。pending 行的 operator 为 NULL、automatic=false；决议更新同一行。**强约束**：Repository 不提供 delete；`conversationId` 不设 `onDelete: cascade`，保证会话归档后审计仍在。迁移 0018 经用户明确批准一次性清空旧 packed command 审计，迁移完成后恢复永久不可删约束。
 
 ---
 
@@ -222,5 +224,6 @@ bun run db:migrate     # 应用迁移
 - **迁移 0000_init**：`CREATE EXTENSION vector` + 四表 + 除 HNSW 外全部索引。`embedding` 列建但不建向量索引。
 - **迁移 0001_memory_namespace**：`memories.user_id` 迁为实例级 `namespace`，旧数据统一进入 `global` 命名空间；新增 `(namespace,type)` 索引与 unique `(namespace,tag)` 幂等 upsert 索引。
 - **迁移 00xx（V1.5）**：回填 `embedding` 后 `CREATE INDEX ... USING hnsw`。分开是因为 HNSW 建索引需数据先就位且耗时。
+- **迁移 0019_normalize_bun_jsonb**：把 Bun SQL/Drizzle 双重序列化产生的 JSONB string 还原成 `attachments` array 与 `request` object，再增加数据库形状 CHECK；迁移遇到非预期损坏值会失败，不静默清空数据。
 
 > `sql` 需 `import { sql } from 'drizzle-orm'`。向量维度若换嵌入模型需同步调整 `vector(N)` 与索引。

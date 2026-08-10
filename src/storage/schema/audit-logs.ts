@@ -3,8 +3,10 @@
  * 强约束：conversationId 不 cascade delete —— 会话归档后审计仍在。
  * Repository 不提供 delete 方法。
  */
-import { pgTable, text, bigint, index, jsonb, boolean, uniqueIndex } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { pgTable, text, bigint, index, boolean, uniqueIndex, check } from 'drizzle-orm/pg-core'
 import type { ApprovalAuditRequest } from '../../shared'
+import { bunJsonb } from './bun-jsonb'
 import { approvalStatusEnum } from './enums'
 import { conversations } from './conversations'
 
@@ -16,7 +18,7 @@ export const auditLogs = pgTable(
       .notNull()
       .references(() => conversations.id), // 注意：不 onDelete cascade
     approvalId: text('approval_id').notNull(),
-    request: jsonb('request').$type<ApprovalAuditRequest>().notNull(),
+    request: bunJsonb<ApprovalAuditRequest>('request').notNull(),
     status: approvalStatusEnum('status').notNull().default('pending'),
     operator: text('operator'), // pending 时为空；决议后为 userId 或 auto:userId
     automatic: boolean('automatic').notNull().default(false),
@@ -25,6 +27,7 @@ export const auditLogs = pgTable(
   t => [
     index('idx_audit_conv').on(t.conversationId, t.createdAt),
     uniqueIndex('uniq_audit_conversation_approval').on(t.conversationId, t.approvalId),
+    check('audit_logs_request_object', sql`jsonb_typeof(${t.request}) = 'object'`),
   ],
 )
 

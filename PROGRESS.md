@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V4 Web Control Plane 与已选高优先级加固（✅ 完成）** |
-| 代码 | ✅ React Web Control Plane；Web 平台会话隔离；结构化审批审计与单消息表时间线；跨重启认证；HTTP 出站接口；live/readiness 探针；空 Token 默认拒绝；HTTP/上传/WebSocket 资源边界与同源校验；自更新 WebUI 暂存构建、原子提升和失败恢复；Tailwind Vite 构建链；既有 Telegram/QQ、Claude/OpenCode、媒体、记忆和运维能力保持通过。 |
+| 代码 | ✅ React Web Control Plane；Web 平台会话隔离；结构化审批审计与单消息表时间线；Bun SQL 原生 JSONB 写入与数据库形状约束；跨重启认证；HTTP 出站接口；live/readiness 探针；空 Token 默认拒绝；HTTP/上传/WebSocket 资源边界与同源校验；自更新 WebUI 暂存构建、原子提升和失败恢复；Tailwind Vite 构建链；既有 Telegram/QQ、Claude/OpenCode、媒体、记忆和运维能力保持通过。 |
 | 文档 | ✅ README、接口契约、Web Control Plane 任务书、设计/实施计划和延期维护项已同步 |
 | 阻塞项 | 无 |
 | 下一步 | 按需处理延期维护项：PDF 解析安全、后端代码模块拆分、前端包拆分。 |
@@ -137,6 +137,7 @@
 | D82 | **个人部署加固按实际风险取舍实施**：本轮执行自更新暂存构建、空 HTTP Token 全部拒绝受保护请求、上传/WS 资源边界、WebSocket 同源与审批隔离、live/readiness 健康探针及 Tailwind Vite 构建修复。生产 `/update` 不运行测试；私人日志、首消息并发和数据库 CI 明确不改且不列入延期。延期项只保留 PDF 解析漏洞、后端代码模块拆分和 WebUI 包拆分。详细设计见 `docs/superpowers/specs/2026-08-10-selected-hardening-design.md`。 | 2026-08-10 |
 | D83 | **代码拆分只改善文件职责，不重构现有解耦架构**：延期任务包含前后端两部分，并按“先 WebUI、后 Bun 后端”执行。WebUI 先把 `main.tsx`/`react.css` 按页面、聊天、设置、附件、状态、hooks/API/WebSocket、设计令牌和组件样式拆开，再对设置与 Markdown 等做懒加载和 bundle 分包；后端只在现有依赖矩阵内拆 `server.ts`、`main.ts`、`commands.ts`、大型 Transport/Orchestrator 等超大文件，`main.ts` 继续作为唯一 Composition Root，EventBus、抽象接口和模块依赖方向不变。当前继续延期，优先修复 Web 审批状态与历史时间线。 | 2026-08-10 |
 | D84 | **Web 审批通过 messages 引用结构化 audit 进入单表时间线**：`audit_logs` 改为 approvalId + request JSONB + pending/approved/rejected + operator + automatic + createdAt 的生命周期记录；0018 一次性清空旧 packed command 数据，迁移后恢复永久不可删约束。Web 审批在 messages 写 `messageType=approval`、`auditLogId`、`contextEligible=false` 的引用行，历史继续只分页 messages，再批量补齐 audit，避免双表游标和 N+1。实时 WebSocket 转发终态，React 就地更新卡片；Telegram/QQ 不变。设计见 `docs/superpowers/specs/2026-08-10-web-approval-timeline-design.md`。 | 2026-08-10 |
+| D85 | **Bun SQL 的 JSONB 列必须使用原生参数映射并由数据库约束形状**：Drizzle 0.45.2 内置 `jsonb()` 会先 `JSON.stringify`，Bun SQL 1.3.14 再序列化后把数组/对象存成 JSONB string；项目改用 `bunJsonb<T>()` 直接传原生值，读取兼容一层旧字符串。0019 将 `messages.attachments` 归一化为 array、`audit_logs.request` 归一化为 object，并增加 CHECK 阻止复发；不通过 Repository 兜底掩盖错误。设计见 `docs/superpowers/specs/2026-08-10-bun-jsonb-normalization-design.md`。 | 2026-08-10 |
 
 ---
 
@@ -329,6 +330,7 @@
 | 2026-07-30 | **HTTP 消息接口兼容未转义多行内容**：确认标准 JSON 只允许以 `\n` 等转义表示字符串内换行，部分 Webhook/自动化工具直接写入真实换行时会被严格 `JSON.parse` 拒绝。`/api/platform-msg` 与 `/api/session-msg` 现统一采用“严格解析优先、受限兼容回退”：仅转义字符串内部未转义的换行、Tab 等控制字符并保持转发内容不变，缺逗号、尾随逗号、引号不闭合等结构错误仍返回 HTTP 400。同步接口契约并新增正反回归测试。自动验收：format、format check、typecheck、lint、Vite 生产构建通过；全量测试输出 451 pass / 7 skip / 0 fail（Bun 已输出完成汇总，但测试进程因残留句柄未自行退出）。 |
 | 2026-08-10 | **已选高优先级加固完成**：`/update confirm` 改为 frozen install、静态检查、WebUI 暂存构建、配置/数据库迁移和最后原子提升，提升失败恢复旧资源；Tailwind v4 改接 `@tailwindcss/vite`，消除无效规则警告。空 `http.authToken` 时所有受保护 API/WS 默认拒绝；新增公开 `/health/live` 与 `/health/ready`（旧 `/health` 为 readiness 别名），并限制 HTTP body。Web 上传新增隔离暂存目录、启动清理、15 分钟 TTL、20 文件/总容量配额和整批消费回滚；WebSocket 新增同源校验、5 连接、128 KiB payload、256 KiB 背压、协议字段限制与 Web 审批会话隔离。README、接口契约、任务书与 AGENTS 技术栈同步。自动验收：format/format check/typecheck/lint、Vite 生产构建通过；全量测试 466 pass / 7 skip / 0 fail。构建仅保留前端 chunk 大小提示，对应已延期的前端包拆分。 |
 | 2026-08-10 | **Web 审批审计与单时间线完成**：`audit_logs` 改为 approvalId、request JSONB、pending/approved/rejected、operator、automatic、createdAt 的结构化生命周期记录；`messages` 通过 `messageType=approval` 与 `auditLogId` 引用审批且不进入 CLI 上下文。Web 历史仍只分页 messages，再批量补齐审批详情；WebSocket 新增 `approval_resolved` 终态与重复操作幂等反馈，React 将聊天和审批合并为单一时间线，自动/手动决议均在原位置转为不可操作的终态卡片。`/audit`、接口契约、数据模型和任务书同步。迁移 `0018` 会按已确认方案清空旧 packed 审计数据。自动验收：format、format check、typecheck、lint、Vite 生产构建和 175 项定向回归通过；全量测试 469 pass / 7 skip / 0 fail。Bun 在输出完整测试汇总后仍有既有残留句柄，外层超时仅终止未退出进程。 |
+| 2026-08-10 | **Bun SQL JSONB 双重序列化修复**：实测确认 Drizzle 0.45.2 内置 `jsonb()` 的预序列化与 Bun SQL 1.3.14 再序列化叠加，使显式写入的数组/对象落库为 JSONB string，而迁移默认值仍是原生 array，造成混合数据。新增 storage 专用 `bunJsonb<T>()`，`messages.attachments` 和 `audit_logs.request` 改为向 Bun SQL 传原生值并兼容读取一层旧字符串。迁移 0019 将旧值分别归一化为 array/object，再增加 CHECK 防止复发；临时 PostgreSQL 表验证迁移后类型和两个约束均正确。自动验收：format、format check、typecheck、lint、Vite 生产构建、diff check 通过；全量测试 471 pass / 7 skip / 0 fail。 |
 
 ## 6. 开放问题（Open Questions）
 

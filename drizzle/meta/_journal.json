@@ -134,6 +134,13 @@
       "when": 1786358400000,
       "tag": "0018_structured_approval_timeline",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786362000000,
+      "tag": "0019_normalize_bun_jsonb",
+      "breakpoints": true
     }
   ]
 }
