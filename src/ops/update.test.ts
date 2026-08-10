@@ -31,6 +31,22 @@ function unchangedRevisionResult() {
   }
 }
 
+function changedRevisionResult() {
+  let revisionReads = 0
+  return async (command: string, args: string[]): Promise<CommandResult> => {
+    const call = [command, ...args].join(' ')
+    if (call === 'git rev-parse HEAD') return ok(++revisionReads === 1 ? '1111111111111111' : '2222222222222222')
+    if (call.startsWith('git diff --shortstat')) return ok('1 file changed, 1 insertion(+)')
+    if (call.startsWith('git log --format=')) return ok('2222222\tfix: update')
+    if (call === 'bun run setting:migrate --report-json')
+      return ok(
+        'AI_CLI_HUB_SETTINGS_REPORT={"created":false,"changed":false,"added":0,"deleted":0,"addedPaths":[],"deletedPaths":[]}',
+      )
+    if (call === 'bun run db:migrate --report-json') return ok('AI_CLI_HUB_DB_REPORT={"applied":[]}')
+    return ok()
+  }
+}
+
 describe('update runner', () => {
   test('preview lists commands and explicit confirmation', () => {
     const runner = createUpdateRunner({
@@ -126,7 +142,7 @@ describe('update runner', () => {
     expect(report).toContain('not a git repository')
   })
 
-  test('successful update runs checks and schedules restart', async () => {
+  test('unchanged update exits after pull without checks or restart', async () => {
     const calls: string[] = []
     const restarts: string[] = []
     const notices: string[] = []
@@ -147,31 +163,16 @@ describe('update runner', () => {
 
     const report = await runner.run({ platform: 'telegram', chatId: 'chat-1', nativeId: 'msg-1' })
 
-    expect(calls).toEqual([
-      'git status --short',
-      'git rev-parse HEAD',
-      'git pull --ff-only',
-      'git rev-parse HEAD',
-      'bun install --frozen-lockfile',
-      'bun run format:check',
-      'bun run typecheck',
-      'bun run lint',
-      'bun run webui:build:staged',
-      'bun run setting:migrate --report-json',
-      'bun run db:migrate --report-json',
-      'bun run webui:promote',
-    ])
-    expect(notices).toEqual(['chat-1/msg-1'])
-    expect(restarts).toEqual(['pm2 restart ai-cli-hub | /app/ai-cli-hub | 1500'])
-    expect(report).toContain('自更新完成')
-    expect(report).toContain('已是最新版本 `aaaaaaaa`')
-    expect(report).not.toContain('同步依赖')
-    expect(report).not.toContain('代码格式检查')
-    expect(report).toContain('**命令**: `pm2 restart ai-cli-hub`')
+    expect(calls).toEqual(['git status --short', 'git rev-parse HEAD', 'git pull --ff-only', 'git rev-parse HEAD'])
+    expect(notices).toEqual([])
+    expect(restarts).toEqual([])
+    expect(report).toContain('当前版本：`aaaaaaaa`')
+    expect(report).toContain('无需重启')
   })
 
   test('successful update reports commits, settings keys, and database operations', async () => {
     let revisionReads = 0
+    const restarts: string[] = []
     const runner = createUpdateRunner({
       config: config(),
       platform: 'linux',
@@ -189,7 +190,9 @@ describe('update runner', () => {
           return ok('AI_CLI_HUB_DB_REPORT={"applied":[{"tag":"0020_health","changes":["services：新增字段 health"]}]}')
         return ok()
       },
-      scheduleRestart() {},
+      scheduleRestart(command) {
+        restarts.push(command)
+      },
     })
 
     const report = await runner.run()
@@ -200,6 +203,7 @@ describe('update runner', () => {
     expect(report).toContain('**删除配置**: `http.legacy`')
     expect(report).toContain('`0020_health`: services：新增字段 health')
     expect(report).not.toContain('暂存构建 WebUI')
+    expect(restarts).toEqual(['pm2'])
   })
 
   test('restart notice failure warns but still schedules restart', async () => {
@@ -207,7 +211,7 @@ describe('update runner', () => {
     const runner = createUpdateRunner({
       config: config(),
       platform: 'linux',
-      runCommand: unchangedRevisionResult(),
+      runCommand: changedRevisionResult(),
       async writeRestartNotice() {
         throw new Error('disk full')
       },
@@ -225,15 +229,15 @@ describe('update runner', () => {
 
   test('failed step stops and does not schedule restart', async () => {
     const restarts: string[] = []
+    const runChangedCommand = changedRevisionResult()
     const runner = createUpdateRunner({
       config: config({ UPDATE_REQUIRE_CLEAN_WORKTREE: false }),
       platform: 'linux',
       async runCommand(command, args) {
-        if (command === 'git' && args.join(' ') === 'rev-parse HEAD') return ok('aaaaaaaaaaaaaaaa')
         if (command === 'bun' && args.join(' ') === 'run typecheck') {
           return { code: 2, stdout: '', stderr: 'type error' }
         }
-        return ok()
+        return runChangedCommand(command, args)
       },
       scheduleRestart(command) {
         restarts.push(command)

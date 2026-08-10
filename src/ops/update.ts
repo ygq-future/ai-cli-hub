@@ -98,6 +98,7 @@ export function createUpdateRunner(deps: UpdateRunnerDeps): UpdateRunner {
 
       const git = await inspectGitUpdate(deps, results, beforeRevision.result.stdout, afterRevision.result.stdout)
       if (typeof git === 'string') return formatUpdateFailure(results, git)
+      if (git.before === git.after) return formatNoUpdate(git.after)
 
       let settings: SettingsMigrationReport | null = null
       let database: DatabaseMigrationReport | null = null
@@ -330,6 +331,16 @@ function formatUpdateFailure(results: UpdateStepResult[], reason: string): strin
 
 function formatUpdateUnsupported(): string {
   return ['## ⚠️ 自更新不可用', '', WINDOWS_UNSUPPORTED_MESSAGE, '', '未执行任何命令，未安排重启。'].join('\n')
+}
+
+function formatNoUpdate(revision: string): string {
+  return [
+    '## ✅ 已是最新版本',
+    '',
+    `当前版本：\`${shortHash(revision)}\`。`,
+    '',
+    '> 未发现新提交，已跳过依赖同步、检查、构建和迁移，无需重启。',
+  ].join('\n')
 }
 
 function commandOutputPreview(result: CommandResult): string {
