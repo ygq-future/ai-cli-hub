@@ -16,7 +16,14 @@ export interface HealthCheckResult {
 }
 
 export interface HealthReporter {
+  check(): Promise<HealthSnapshot>
   getReport(): Promise<string>
+}
+
+export interface HealthSnapshot {
+  status: HealthStatus
+  uptimeMs: number
+  checks: HealthCheckResult[]
 }
 
 export interface HealthReporterDeps {
@@ -30,21 +37,20 @@ export interface HealthReporterDeps {
 
 export function createHealthReporter(deps: HealthReporterDeps): HealthReporter {
   const now = deps.now ?? Date.now
+  const check = async (): Promise<HealthSnapshot> => {
+    const checks = await Promise.all([
+      deps.checkDatabase(),
+      deps.checkDirectory(deps.config.MEDIA_DOWNLOAD_DIR).then(result => ({ ...result, name: 'media_dir' })),
+      deps.checkCommand('claude').then(result => ({ ...result, name: 'cli.claude', critical: true })),
+      deps.checkCommand('opencode').then(result => ({ ...result, name: 'cli.opencode' })),
+    ])
+    return { status: overallStatus(checks), uptimeMs: now() - deps.startedAt, checks }
+  }
 
   return {
+    check,
     async getReport(): Promise<string> {
-      const checks = await Promise.all([
-        deps.checkDatabase(),
-        deps.checkDirectory(deps.config.MEDIA_DOWNLOAD_DIR).then(check => ({ ...check, name: 'media_dir' })),
-        deps.checkCommand('claude').then(check => ({ ...check, name: 'cli.claude', critical: true })),
-        deps.checkCommand('opencode').then(check => ({ ...check, name: 'cli.opencode' })),
-      ])
-
-      return formatHealthReport({
-        status: overallStatus(checks),
-        uptimeMs: now() - deps.startedAt,
-        checks,
-      })
+      return formatHealthReport(await check())
     },
   }
 }

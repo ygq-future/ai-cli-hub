@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createServer, createServerRequestHandler, createWebSocketGateway } from './server'
+import { createServer, createServerRequestHandler, createWebSocketGateway, type AppServerDeps } from './server'
 import type { ConversationId, MessageRef, Transport } from '../shared'
 
 const CID = 'conversation-1' as ConversationId
@@ -28,7 +28,7 @@ function createFakeTransport() {
   return { transport, sent }
 }
 
-function createHandler(authToken = '', now?: () => number) {
+function createHandler(authToken = '', now?: () => number, overrides: Partial<AppServerDeps> = {}) {
   const fake = createFakeTransport()
   const handler = createServerRequestHandler({
     host: '127.0.0.1',
@@ -39,6 +39,7 @@ function createHandler(authToken = '', now?: () => number) {
     resolveConversation: async conversationId => (conversationId === CID ? { transport: fake.transport } : null),
     staticIndexPath: 'src/webui/index.html',
     now,
+    ...overrides,
   })
   return { handler, fake }
 }
@@ -71,16 +72,20 @@ describe('app server', () => {
   })
 
   test('platform-msg 按 platform + chatId 发送', async () => {
-    const { handler, fake } = createHandler()
+    const { handler, fake } = createHandler('secret')
     const response = await handler(
-      messageRequest('/api/platform-msg', { platform: 'telegram', chatId: 'chat-1', content: 'hello' }),
+      messageRequest(
+        '/api/platform-msg',
+        { platform: 'telegram', chatId: 'chat-1', content: 'hello' },
+        { authorization: 'Bearer secret' },
+      ),
     )
     expect(response.status).toBe(200)
     expect(fake.sent).toEqual([{ mode: 'chat', target: 'chat-1', content: 'hello' }])
   })
 
   test('platform-msg 兼容 content 字符串中的未转义换行和控制字符', async () => {
-    const { handler, fake } = createHandler()
+    const { handler, fake } = createHandler('secret')
     const multiline = '<#> 验证码: 370-594\n请不要与其他人共享\t此密码'
     const malformedJson = `{
       "platform": "telegram",
@@ -90,7 +95,7 @@ describe('app server', () => {
     const response = await handler(
       request('/api/platform-msg', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { authorization: 'Bearer secret', 'content-type': 'application/json' },
         body: malformedJson,
       }),
     )
@@ -100,11 +105,11 @@ describe('app server', () => {
   })
 
   test('消息接口不会把结构错误的 JSON 静默修复', async () => {
-    const { handler } = createHandler()
+    const { handler } = createHandler('secret')
     const response = await handler(
       request('/api/platform-msg', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { authorization: 'Bearer secret', 'content-type': 'application/json' },
         body: '{"platform":"telegram","chatId":"chat-1","content":"hello",}',
       }),
     )
@@ -114,9 +119,13 @@ describe('app server', () => {
   })
 
   test('session-msg 按 conversationId 发送', async () => {
-    const { handler, fake } = createHandler()
+    const { handler, fake } = createHandler('secret')
     const response = await handler(
-      messageRequest('/api/session-msg', { conversationId: CID, content: 'hello session' }),
+      messageRequest(
+        '/api/session-msg',
+        { conversationId: CID, content: 'hello session' },
+        { authorization: 'Bearer secret' },
+      ),
     )
     expect(response.status).toBe(200)
     expect(fake.sent).toEqual([{ mode: 'conversation', target: CID, content: 'hello session' }])
@@ -128,6 +137,63 @@ describe('app server', () => {
       messageRequest('/api/platform-msg', { platform: 'telegram', chatId: 'chat-1', content: 'hello' }),
     )
     expect(response.status).toBe(401)
+  })
+
+  test('未配置 token 时拒绝兼容消息请求', async () => {
+    const { handler } = createHandler()
+    const response = await handler(
+      messageRequest('/api/platform-msg', { platform: 'telegram', chatId: 'chat-1', content: 'hello' }),
+    )
+    expect(response.status).toBe(401)
+  })
+
+  test('health 区分 live 与 ready，并保留 /health readiness 兼容入口', async () => {
+    const down = createHandler('secret', undefined, {
+      health: {
+        ready: async () => ({
+          status: 'down',
+          uptimeMs: 123,
+          checks: [{ name: 'database', status: 'down', detail: 'unavailable', critical: true }],
+        }),
+      },
+    })
+
+    expect((await down.handler(request('/health/live'))).status).toBe(200)
+    for (const path of ['/health', '/health/ready']) {
+      const response = await down.handler(request(path))
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({
+        status: 'down',
+        uptimeMs: 123,
+        checks: [{ name: 'database', status: 'down', detail: 'unavailable', critical: true }],
+      })
+    }
+
+    const degraded = createHandler('secret', undefined, {
+      health: {
+        ready: async () => ({
+          status: 'degraded',
+          uptimeMs: 456,
+          checks: [{ name: 'cli.opencode', status: 'down', detail: 'not installed' }],
+        }),
+      },
+    })
+    expect((await degraded.handler(request('/health/ready'))).status).toBe(200)
+  })
+
+  test('上传在解析 multipart 前拒绝超过服务上限的请求体', async () => {
+    const { handler } = createHandler('secret', undefined, {
+      maxRequestBodyBytes: 1024,
+      uploads: { stage: async () => ({ id: 'upload-1', name: 'x', mimeType: 'text/plain', size: 1 }) },
+    })
+    const response = await handler(
+      request('/api/web/uploads', {
+        method: 'POST',
+        headers: { authorization: 'Bearer secret', 'content-length': '1025' },
+        body: 'x',
+      }),
+    )
+    expect(response.status).toBe(413)
   })
 
   test('WebSocket 端点在 W2 前拒绝未认证请求，认证后明确尚未配置', async () => {
@@ -237,7 +303,7 @@ describe('app server', () => {
     expect(response.status).toBe(404)
   })
 
-  test('未配置 Token 时 Web 登录不可用，保持旧 HTTP 接口兼容', async () => {
+  test('未配置 Token 时 Web 登录不可用且 HTTP 消息接口拒绝请求', async () => {
     const { handler } = createHandler()
     expect((await handler(request('/api/auth/session', { method: 'POST' }))).status).toBe(503)
     expect(
@@ -246,7 +312,7 @@ describe('app server', () => {
           messageRequest('/api/platform-msg', { platform: 'telegram', chatId: 'chat-1', content: 'legacy' }),
         )
       ).status,
-    ).toBe(200)
+    ).toBe(401)
   })
 
   test('配置 API 脱敏读取、校验保存与重启预览均需要认证', async () => {

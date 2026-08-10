@@ -51,6 +51,7 @@ export interface AppServerDeps {
   host: string
   port: number
   authToken: string
+  maxRequestBodyBytes?: number
   whitelistUserIds: readonly string[]
   transports: readonly Transport[]
   resolveConversation: (conversationId: ConversationId) => Promise<HttpConversationTarget | null>
@@ -59,6 +60,13 @@ export interface AppServerDeps {
   secureCookie?: boolean
   now?: () => number
   webSocketGateway?: WebSocketGateway
+  health?: {
+    ready(): Promise<{
+      status: 'ok' | 'degraded' | 'down'
+      uptimeMs: number
+      checks: Array<{ name: string; status: 'ok' | 'degraded' | 'down'; detail: string; critical?: boolean }>
+    }>
+  }
   settings?: { read(): Promise<Record<string, unknown>>; save(input: Record<string, unknown>): Promise<void> }
   restart?: { preview(): string; run(): Promise<string> }
   webStatus?: { get(): Promise<WebSessionStatus> }
@@ -105,6 +113,7 @@ export function createServer(deps: AppServerDeps): AppServer {
       server = Bun.serve({
         hostname: deps.host,
         port: deps.port,
+        maxRequestBodySize: deps.maxRequestBodyBytes,
         fetch: (request, bunServer) =>
           handler(request, upgradeRequest => bunServer.upgrade(upgradeRequest, { data: {} })),
         websocket: {
@@ -165,7 +174,16 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
   return async function handle(request: Request, upgradeWebSocket?: (request: Request) => boolean): Promise<Response> {
     const url = new URL(request.url)
 
-    if (request.method === 'GET' && url.pathname === '/health') return json({ status: 'ok' })
+    if (request.method === 'GET' && url.pathname === '/health/live') return json({ status: 'ok' })
+    if (request.method === 'GET' && (url.pathname === '/health' || url.pathname === '/health/ready')) {
+      if (!deps.health) return json({ status: 'down', error: 'Health readiness is not configured' }, 503)
+      try {
+        const snapshot = await deps.health.ready()
+        return json({ ...snapshot }, snapshot.status === 'down' ? 503 : 200)
+      } catch {
+        return json({ status: 'down', error: 'Health readiness check failed' }, 503)
+      }
+    }
     if (url.pathname === '/api/auth/session') return handleSessionRequest(request, deps, now)
     if (url.pathname === '/ws') {
       if (!isAuthorized(request, deps.authToken, now())) return json({ error: 'Unauthorized' }, 401)
@@ -240,6 +258,14 @@ async function handleUploadRequest(request: Request, deps: AppServerDeps, now: n
   if (!isAuthorized(request, deps.authToken, now)) return json({ error: 'Unauthorized' }, 401)
   if (!deps.uploads) return json({ error: 'Upload API is not configured' }, 501)
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, { allow: 'POST' })
+  const contentLength = request.headers.get('content-length')
+  if (
+    contentLength !== null &&
+    deps.maxRequestBodyBytes !== undefined &&
+    Number.isFinite(Number(contentLength)) &&
+    Number(contentLength) > deps.maxRequestBodyBytes
+  )
+    return json({ error: 'Request body is too large' }, 413)
   try {
     const file = (await request.formData()).get('file')
     if (!(file instanceof File)) return json({ error: 'file is required' }, 400)
@@ -426,7 +452,8 @@ function escapeUnescapedJsonStringControls(raw: string): string {
 }
 
 function isAuthorized(request: Request, authToken: string, now: number): boolean {
-  if (!authToken || hasBearerToken(request, authToken)) return true
+  if (!authToken) return false
+  if (hasBearerToken(request, authToken)) return true
   const session = readCookie(request.headers.get('cookie'), 'ai_cli_hub_session')
   return session ? verifySession(session, authToken, now) : false
 }

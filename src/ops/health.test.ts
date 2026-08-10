@@ -21,8 +21,19 @@ describe('health reporter', () => {
       checkCommand: async name => ok(name),
     })
 
+    const snapshot = await reporter.check()
     const report = await reporter.getReport()
 
+    expect(snapshot).toEqual({
+      status: 'ok',
+      uptimeMs: 61_000,
+      checks: [
+        { name: 'database', status: 'ok', detail: 'database ok', critical: true },
+        { name: 'media_dir', status: 'ok', detail: '/app/.data/media ok' },
+        { name: 'cli.claude', status: 'ok', detail: 'claude ok', critical: true },
+        { name: 'cli.opencode', status: 'ok', detail: 'opencode ok' },
+      ],
+    })
     expect(report).toContain('## 🩺 服务健康检查')
     expect(report).toContain('✅ 正常')
     expect(report).toContain('**运行时长**: 1m 1s')

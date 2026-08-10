@@ -1,5 +1,5 @@
 export { createHealthReporter, formatHealthReport } from './health'
-export type { HealthCheckResult, HealthReporter, HealthStatus } from './health'
+export type { HealthCheckResult, HealthReporter, HealthSnapshot, HealthStatus } from './health'
 export { createRestartRunner } from './restart'
 export type { RestartRunner } from './restart'
 export { createUpdateRunner } from './update'

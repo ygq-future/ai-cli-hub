@@ -260,7 +260,7 @@ git commit -m "fix: stage WebUI during self-update"
 - Produces: `AppServerDeps.health?: { ready(): Promise<HealthSnapshot> }`。
 - Produces: `AppServerDeps.maxRequestBodyBytes?: number`。
 
-- [ ] **Step 1: 写 health snapshot 失败测试**
+- [x] **Step 1: 写 health snapshot 失败测试**
 
 ```ts
 const snapshot = await reporter.check()
@@ -272,7 +272,7 @@ expect(snapshot).toEqual({
 expect(await reporter.getReport()).toContain('部分降级')
 ```
 
-- [ ] **Step 2: 实现结构化 snapshot**
+- [x] **Step 2: 实现结构化 snapshot**
 
 `HealthReporter` 增加 `check()`；`getReport()` 调用同一个内部 `runChecks()`，避免重复规则。导出：
 
@@ -284,7 +284,7 @@ export interface HealthSnapshot {
 }
 ```
 
-- [ ] **Step 3: 写 server 失败测试**
+- [x] **Step 3: 写 server 失败测试**
 
 增加以下断言：
 
@@ -297,7 +297,7 @@ expect((await handler(request('/health'))).status).toBe(503)
 
 ready mock 返回 `down`；另测 `degraded` 返回 200。
 
-- [ ] **Step 4: 实现认证和 health 路由**
+- [x] **Step 4: 实现认证和 health 路由**
 
 将授权入口改为：
 
@@ -323,14 +323,14 @@ if (request.method === 'GET' && (url.pathname === '/health' || url.pathname === 
 
 在 `Bun.serve` 注入 `maxRequestBodySize: deps.maxRequestBodyBytes`。上传 handler 在 `formData()` 前检查 Content-Length 并返回 413。
 
-- [ ] **Step 5: Composition Root 注入**
+- [x] **Step 5: Composition Root 注入**
 
 ```ts
 maxRequestBodyBytes: config.MEDIA_MAX_FILE_BYTES + 1024 * 1024,
 health: { ready: health.check },
 ```
 
-- [ ] **Step 6: 定向验证、格式化并提交**
+- [x] **Step 6: 定向验证、格式化并提交**
 
 ```bash
 bun test src/ops/health.test.ts src/server/server.test.ts

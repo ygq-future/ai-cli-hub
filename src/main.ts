@@ -188,6 +188,7 @@ async function main() {
     host: config.HTTP_HOST,
     port: config.HTTP_PORT,
     authToken: config.HTTP_AUTH_TOKEN,
+    maxRequestBodyBytes: config.MEDIA_MAX_FILE_BYTES + 1024 * 1024,
     staticAssetsRoot: path.join(APP_ROOT, 'public', 'webui'),
     staticIndexPath: path.join(APP_ROOT, 'public', 'webui', 'index.html'),
     whitelistUserIds: config.WHITELIST_USER_IDS,
@@ -199,6 +200,7 @@ async function main() {
       return transport ? { transport } : null
     },
     secureCookie: config.HTTP_SECURE_COOKIE,
+    health: { ready: health.check },
     webSocketGateway,
     settings,
     restart: {
