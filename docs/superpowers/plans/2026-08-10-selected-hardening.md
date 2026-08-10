@@ -53,7 +53,7 @@
 - Produces: `webui:build:staged` 将产物写到仓库根 `.data/update/webui-next`。
 - Produces: Vite plugins 同时包含 `tailwindcss()` 与 `react()`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `test/vite-config.test.ts` 断言：
 
@@ -67,13 +67,13 @@ expect(pkg.devDependencies['@tailwindcss/vite']).toBeDefined()
 expect(pkg.devDependencies['@tailwindcss/cli']).toBeUndefined()
 ```
 
-- [ ] **Step 2: 验证测试失败**
+- [x] **Step 2: 验证测试失败**
 
 Run: `bun test test/vite-config.test.ts`
 
 Expected: 缺少 `@tailwindcss/vite` 和 staged build 断言失败。
 
-- [ ] **Step 3: 实现 Tailwind Vite 集成**
+- [x] **Step 3: 实现 Tailwind Vite 集成**
 
 执行：
 
@@ -109,13 +109,13 @@ export default defineConfig({
 "webui:build:staged": "vite build --outDir ../../.data/update/webui-next --emptyOutDir"
 ```
 
-- [ ] **Step 4: 验证测试和构建**
+- [x] **Step 4: 验证测试和构建**
 
 Run: `bun test test/vite-config.test.ts && bun run webui:build`
 
 Expected: 测试通过；构建日志不再出现 unknown `@theme`/`@tailwind`。
 
-- [ ] **Step 5: 格式化并提交**
+- [x] **Step 5: 格式化并提交**
 
 ```bash
 bun run format

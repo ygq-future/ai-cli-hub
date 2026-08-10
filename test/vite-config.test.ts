@@ -6,6 +6,21 @@ test('WebUI 构建资源使用 /webui/ 公共路径', async () => {
   expect(config).toContain("base: '/webui/'")
 })
 
+test('WebUI 通过 Tailwind Vite 插件构建并提供暂存构建入口', async () => {
+  const [config, packageJson] = await Promise.all([
+    readFile('vite.config.ts', 'utf8'),
+    readFile('package.json', 'utf8').then(value => JSON.parse(value) as Record<string, Record<string, string>>),
+  ])
+
+  expect(config).toContain("import tailwindcss from '@tailwindcss/vite'")
+  expect(config).toContain('plugins: [tailwindcss(), react()]')
+  expect(packageJson.scripts?.['webui:build:staged']).toBe(
+    'vite build --outDir ../../.data/update/webui-next --emptyOutDir',
+  )
+  expect(packageJson.devDependencies?.['@tailwindcss/vite']).toBeDefined()
+  expect(packageJson.devDependencies?.['@tailwindcss/cli']).toBeUndefined()
+})
+
 test('应用运行时不触发 WebUI 构建', async () => {
   const main = await readFile('src/main.ts', 'utf8')
   expect(main).not.toContain('buildWebUi')

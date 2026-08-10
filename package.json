@@ -12,6 +12,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "webui:build": "vite build",
+    "webui:build:staged": "vite build --outDir ../../.data/update/webui-next --emptyOutDir",
     "setting:migrate": "bun scripts/setting-migrate.ts",
     "setting": "tsx scripts/setting.ts",
     "db:generate": "drizzle-kit generate",
@@ -58,7 +59,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
-    "@tailwindcss/cli": "^4.3.3",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/bun": "latest",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
