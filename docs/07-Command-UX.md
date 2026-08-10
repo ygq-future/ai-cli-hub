@@ -158,7 +158,7 @@ Markdown 卡片 + 内联按钮：
 | `/env` 执行 | 立即刷新环境快照并返回 `env.*` 记忆；probe 失败项显示 `missing` 或 `unknown`，不阻塞服务 |
 | `/health` 执行 | 返回 live self-check；关键检查失败时 Status 为 `down`，非关键检查失败时为 `degraded` |
 | `/update` 执行 | Windows 上直接返回“自更新不可用”且不执行命令；非 Windows 无参数返回预检计划；必须发送 `/update confirm` 才执行；Claude SDK 平台包由本地 stub 在安装解析阶段覆盖，不会下载；工作树不干净或任一步失败时停止且不安排重启 |
-| `/update confirm` 成功 | 返回精简 Markdown 汇总，并在 `UPDATE_RESTART_DELAY_MS` 后执行 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`。通知 marker 仅在主动消息发送成功后删除；启动期发送失败会重试，避免丢失通知。 |
+| `/update confirm` 成功 | 按“代码更新 / 配置模板 / 数据库迁移 / 重启安排”返回精简 Markdown：代码展示拉取前后版本、提交数、文件与增删行统计及 commit；配置只在模板结构变化时列新增/删除 key；数据库只在实际应用迁移时列迁移名和字段/表/约束/数据操作摘要。依赖同步、格式、类型、静态检查、暂存构建和产物切换成功时静默，失败时才显示阶段与诊断。随后在 `UPDATE_RESTART_DELAY_MS` 后执行 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`。通知 marker 仅在主动消息发送成功后删除；启动期发送失败会重试，避免丢失通知。 |
 | `/restart` 执行 | Windows 上直接返回“重启不可用”且不执行命令；非 Windows 无参数返回重启预检计划；必须发送 `/restart confirm` 才执行；不执行 git pull、依赖安装、迁移或检查 |
 | `/restart confirm` 成功 | 返回 Markdown 重启安排，并在 `UPDATE_RESTART_DELAY_MS` 后执行同一组 `UPDATE_RESTART_COMMAND` + `UPDATE_RESTART_ARGS`；重启前写入 `UPDATE_RESTART_NOTICE_FILE`，新进程启动后主动通知原 chat；marker 仅在发送成功后删除。 |
 | adapter 重启后继续同一会话 | 下一条 user message 会携带当前 conversation 最近 `RECENT_CONTEXT_LIMIT` 条历史消息；单条超长时按 `RECENT_CONTEXT_MESSAGE_MAX_CHARS` 保留尾部，避免丢失上一轮最新结论 |
@@ -182,6 +182,6 @@ bun run setting:migrate
 bun setting
 ```
 
-`setting:migrate` 只在 `settings.json` 与 `settings.json.example` 之间对齐结构：保留现有值、补新 key、删旧 key。它不读取 `.env`。`/update confirm` 也会在数据库迁移前自动执行该命令。
+`setting:migrate` 只在 `settings.json` 与 `settings.json.example` 之间对齐结构：保留现有值、补新 key、删旧 key。它不读取 `.env`。`/update confirm` 会追加内部 `--report-json` 参数，在数据库迁移前获取新增/删除 key 路径；普通手工执行仍只显示人类可读结果。
 
 `session.claudeExecutablePath` 可填写系统 Claude CLI 的绝对路径；留空时从 `PATH` 自动查找。根 `package.json` 为 Agent SDK 声明的每个平台 CLI 包配置同名本地 stub override，因此普通 `bun install` 只安装 SDK JS 控制层，不下载原生 Claude CLI。PDF 仅在 `@readN` 时通过 `pdf-to-img` 临时渲染，默认最多 20 页、scale=2。

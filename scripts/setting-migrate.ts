@@ -20,18 +20,23 @@ export interface MigrationStats {
   preserved: number
   added: number
   deleted: number
+  addedPaths: string[]
+  deletedPaths: string[]
 }
+
+export const SETTINGS_REPORT_PREFIX = 'AI_CLI_HUB_SETTINGS_REPORT='
 
 /** 深度遍历对齐：保留 existing 值，补 template 新 key，统计 deleted。 */
 export function deepMerge(
   existing: Record<string, unknown> | null,
   template: Record<string, unknown>,
 ): { result: Record<string, unknown>; stats: MigrationStats } {
-  const stats: MigrationStats = { preserved: 0, added: 0, deleted: 0 }
+  const stats: MigrationStats = { preserved: 0, added: 0, deleted: 0, addedPaths: [], deletedPaths: [] }
 
   function walk(
     source: Record<string, unknown>,
     existingNode: Record<string, unknown> | null,
+    parentPath: string[] = [],
   ): Record<string, unknown> {
     const out: Record<string, unknown> = {}
 
@@ -45,6 +50,7 @@ export function deepMerge(
           existingVal && typeof existingVal === 'object' && !Array.isArray(existingVal)
             ? (existingVal as Record<string, unknown>)
             : null,
+          [...parentPath, key],
         )
       } else if (existingNode && key in existingNode) {
         out[key] = existingVal
@@ -52,12 +58,16 @@ export function deepMerge(
       } else {
         out[key] = templateVal
         stats.added++
+        stats.addedPaths.push([...parentPath, key].join('.'))
       }
     }
 
     if (existingNode) {
       for (const key of Object.keys(existingNode)) {
-        if (!(key in source)) stats.deleted++
+        if (!(key in source)) {
+          stats.deleted++
+          stats.deletedPaths.push([...parentPath, key].join('.'))
+        }
       }
     }
 
@@ -117,6 +127,8 @@ function main(): void {
         `settings.json ${action}: preserved=${stats.preserved}, added=${stats.added}, deleted=${stats.deleted}`,
       )
     }
+    if (process.argv.includes('--report-json'))
+      console.log(`${SETTINGS_REPORT_PREFIX}${JSON.stringify({ created, changed, ...stats })}`)
     console.log(path.resolve(SETTINGS_PATH))
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err))

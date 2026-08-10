@@ -273,9 +273,30 @@ describe('migrateSettings', () => {
     })
 
     expect(r.stats.added).toBe(1)
+    expect(r.stats.addedPaths).toEqual(['transport.qqBotAppId'])
+    expect(r.stats.deletedPaths).toEqual([])
     expect(getNested(r.settings, ['transport', 'telegramBotToken'])).toBe('kept')
     expect(getNested(r.settings, ['transport', 'qqBotAppId'])).toBe('')
 
+    cleanup()
+  })
+
+  test('记录被模板删除的配置路径', () => {
+    cleanup()
+    mkdirSync(tmp, { recursive: true })
+    writeFileSync(`${tmp}/settings.json.example`, JSON.stringify({ http: { port: 8787 } }))
+    writeFileSync(
+      `${tmp}/settings.json`,
+      JSON.stringify({ http: { port: 9000, legacyToken: 'remove-me' }, legacyGroup: { enabled: true } }),
+    )
+
+    const r = migrateSettings({
+      examplePath: `${tmp}/settings.json.example`,
+      settingsPath: `${tmp}/settings.json`,
+    })
+
+    expect(r.stats.deleted).toBe(2)
+    expect(r.stats.deletedPaths).toEqual(['http.legacyToken', 'legacyGroup'])
     cleanup()
   })
 })

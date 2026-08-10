@@ -9,10 +9,18 @@
  */
 import { migrate } from 'drizzle-orm/bun-sql/migrator'
 import { loadConfig } from '../src/config'
-import { createDb } from '../src/storage'
+import { createDb, DB_MIGRATION_REPORT_PREFIX, inspectPendingMigrations } from '../src/storage'
 
 const config = loadConfig()
 const db = createDb(config.DATABASE_URL)
-await migrate(db, { migrationsFolder: './drizzle' })
-await db.$client.end()
-console.log('✔ 迁移已应用（drizzle/）')
+const report = await (async () => {
+  try {
+    const pending = await inspectPendingMigrations(db)
+    await migrate(db, { migrationsFolder: './drizzle' })
+    return pending
+  } finally {
+    await db.$client.end()
+  }
+})()
+console.log(report.applied.length ? `✔ 已应用 ${report.applied.length} 个数据库迁移` : '✔ 数据库结构已是最新')
+if (process.argv.includes('--report-json')) console.log(`${DB_MIGRATION_REPORT_PREFIX}${JSON.stringify(report)}`)

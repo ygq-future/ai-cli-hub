@@ -2,6 +2,13 @@
 // 禁止依赖任何业务模块（见 CLAUDE.md 依赖矩阵）。
 export { closeDb, createDb } from './db'
 export type { Db } from './db'
+export {
+  DB_MIGRATION_REPORT_PREFIX,
+  inspectPendingMigrations,
+  summarizeMigrationSql,
+  type DatabaseMigrationReport,
+  type PendingMigration,
+} from './migration-report'
 export * as schema from './schema'
 export type {
   Conversation,

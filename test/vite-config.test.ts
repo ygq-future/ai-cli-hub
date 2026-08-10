@@ -80,3 +80,11 @@ test('WebSocket 断开后区分服务重启与认证过期', async () => {
   expect(source).toContain("setConnection('reconnecting')")
   expect(source).toContain('setReady(false)')
 })
+
+test('浏览器通知权限与可持久关闭的应用开关分离', async () => {
+  const source = await readFile('src/webui/main.tsx', 'utf8')
+  expect(source).toContain('notificationsEnabled: boolean')
+  expect(source).toContain('!preferences.notificationsEnabled')
+  expect(source).toContain('notificationsEnabled: false')
+  expect(source).toContain("t('浏览器通知', 'Browser notifications')")
+})

@@ -382,7 +382,7 @@ export function loadConfig(
 - `session.claudeExecutablePath` 为空时从 `PATH` 解析系统 `claude`，非空时使用配置的绝对路径；启动找不到系统 CLI 时 fail-fast。
 - 数据库的 host/port/db/username/password 被组装为兼容字段 `AppConfig.DATABASE_URL`；`db:migrate` 与主进程使用同一配置。
 - 代理配置会写回 `process.env.HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`，仅用于 Bun fetch 和 SDK 子进程继承；`process.env` 不是业务配置输入源。
-- `/update confirm` 依次执行 git pull、frozen bun install、format check、typecheck、lint、`webui:build:staged`、`setting:migrate`、`db:migrate` 和 `webui:promote`；任一步失败都不安排重启。新 WebUI 先构建到 `.data/update/webui-next`，全部关键步骤成功后才以目录 rename 替换 `public/webui`，提升失败时会恢复旧目录。WebUI 只在部署更新阶段构建，应用启动与 PM2 重启不得触发构建。Claude SDK 平台包已在依赖解析阶段由本地 stub override，不需要安装后裁剪。
+- `/update confirm` 依次执行 git pull、frozen bun install、format check、typecheck、lint、`webui:build:staged`、`setting:migrate`、`db:migrate` 和 `webui:promote`；任一步失败都不安排重启。更新器比较 pull 前后 HEAD，并查询 commit 与 shortstat；`setting:migrate` 输出新增/删除 key 路径；`db:migrate` 在执行前按目标数据库的 Drizzle journal 确定实际待应用迁移并生成 DDL/DML 摘要。成功响应只展示代码、配置和数据库的实际变化，其他阶段成功时静默、失败时显示阶段与诊断。新 WebUI 先构建到 `.data/update/webui-next`，全部关键步骤成功后才以目录 rename 替换 `public/webui`，提升失败时会恢复旧目录。WebUI 只在部署更新阶段构建，应用启动与 PM2 重启不得触发构建。Claude SDK 平台包已在依赖解析阶段由本地 stub override，不需要安装后裁剪。
 
 ---
 

@@ -22,7 +22,7 @@
 | 样式工具 | Tailwind CSS v4 通过 `@tailwindcss/vite` 集成，配合 `prettier-plugin-tailwindcss`；Prettier 仍是唯一格式化入口。 |
 | 配置生效 | `SettingsJsonSchema` 校验、原子写入；保存后必须显式受控重启，不做热重载。 |
 | 敏感数据 | API 永不回传 token/password/secret 明文；只显示“已配置”，可显式覆盖。 |
-| Web 偏好 | 语言、主题、强调色仅保存于浏览器本地，不写服务器业务配置。 |
+| Web 偏好 | 语言、主题、强调色、输入行为和浏览器通知开关仅保存于浏览器本地，不写服务器业务配置。浏览器通知权限与应用开关分离：应用可随时停止通知，撤销浏览器权限仍由站点权限管理。 |
 
 ## 3. 架构边界
 

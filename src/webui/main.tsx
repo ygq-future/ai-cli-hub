@@ -11,6 +11,7 @@ import {
 import { createRoot } from 'react-dom/client'
 import {
   Bell,
+  BellOff,
   BellRing,
   Check,
   ChevronRight,
@@ -103,6 +104,7 @@ type Preferences = {
   theme: 'system' | 'light' | 'dark'
   accent: 'blue' | 'cyan' | 'amber' | 'rose' | 'violet'
   enterToSend: boolean
+  notificationsEnabled: boolean
 }
 type ServerEvent = {
   type?: string
@@ -269,6 +271,7 @@ function App() {
   }
   const showNotification = (title: string, body: string) => {
     if (
+      !preferences.notificationsEnabled ||
       typeof Notification === 'undefined' ||
       Notification.permission !== 'granted' ||
       document.visibilityState === 'visible'
@@ -523,10 +526,19 @@ function App() {
       ),
     )
   }
-  const requestNotifications = async () => {
+  const toggleNotifications = async () => {
     if (typeof Notification === 'undefined') return
+    if (preferences.notificationsEnabled) {
+      setPreferences(current => ({ ...current, notificationsEnabled: false }))
+      return
+    }
+    if (Notification.permission === 'denied') {
+      setNotificationPermission('denied')
+      return
+    }
     const permission = await Notification.requestPermission()
     setNotificationPermission(permission)
+    if (permission === 'granted') setPreferences(current => ({ ...current, notificationsEnabled: true }))
   }
 
   if (!ready)
@@ -554,10 +566,26 @@ function App() {
         </span>
         <Button
           variant="ghost"
-          aria-label={t('启用消息通知', 'Enable notifications')}
-          title={t('消息通知', 'Message notifications')}
-          onClick={() => void requestNotifications()}>
-          {notificationPermission === 'granted' ? <BellRing size={19} /> : <Bell size={19} />}
+          aria-label={
+            preferences.notificationsEnabled
+              ? t('关闭消息通知', 'Disable notifications')
+              : t('开启消息通知', 'Enable notifications')
+          }
+          title={
+            notificationPermission === 'denied'
+              ? t('浏览器已阻止通知，请在站点权限中开启', 'Notifications are blocked in browser site permissions')
+              : preferences.notificationsEnabled
+                ? t('消息通知已开启，点击关闭', 'Notifications enabled; click to disable')
+                : t('消息通知已关闭，点击开启', 'Notifications disabled; click to enable')
+          }
+          onClick={() => void toggleNotifications()}>
+          {preferences.notificationsEnabled && notificationPermission === 'granted' ? (
+            <BellRing size={19} />
+          ) : notificationPermission === 'denied' ? (
+            <BellOff size={19} />
+          ) : (
+            <Bell size={19} />
+          )}
         </Button>
         <Button
           className="mobile-status-trigger"
@@ -705,7 +733,14 @@ function App() {
               )}
             </DialogDescription>
           </DialogHeader>
-          <Settings t={t} preferences={preferences} setPreferences={setPreferences} close={() => setSettings(false)} />
+          <Settings
+            t={t}
+            preferences={preferences}
+            setPreferences={setPreferences}
+            notificationPermission={notificationPermission}
+            toggleNotifications={toggleNotifications}
+            close={() => setSettings(false)}
+          />
         </DialogContent>
       </Dialog>
       <Dialog open={mobileStatus} onOpenChange={setMobileStatus}>
@@ -1006,11 +1041,15 @@ function Settings({
   t,
   preferences,
   setPreferences,
+  notificationPermission,
+  toggleNotifications,
 }: {
   close: () => void
   t: Translator
   preferences: Preferences
   setPreferences: Dispatch<SetStateAction<Preferences>>
+  notificationPermission: NotificationPermission
+  toggleNotifications: () => Promise<void>
 }) {
   const [data, setData] = useState<SettingsData | null>(null)
   const [savedSnapshot, setSavedSnapshot] = useState('')
@@ -1073,6 +1112,32 @@ function Settings({
                     role="switch"
                     aria-checked={preferences.enterToSend}
                     onClick={() => setPreferences(current => ({ ...current, enterToSend: !current.enterToSend }))}>
+                    <i />
+                  </button>
+                </label>
+                <label className="field switch-field">
+                  <span>
+                    <b>{t('浏览器通知', 'Browser notifications')}</b>
+                    <small>
+                      {notificationPermission === 'denied'
+                        ? t(
+                            '浏览器已阻止通知，请在站点权限中重新开启。',
+                            'Blocked by the browser; enable it in site permissions.',
+                          )
+                        : preferences.notificationsEnabled
+                          ? t(
+                              '页面在后台时显示新消息通知。',
+                              'Show new-message notifications while the page is in the background.',
+                            )
+                          : t('当前浏览器不会显示消息通知。', 'This browser will not show message notifications.')}
+                    </small>
+                  </span>
+                  <button
+                    className={`switch ${preferences.notificationsEnabled ? 'on' : ''}`}
+                    type="button"
+                    role="switch"
+                    aria-checked={preferences.notificationsEnabled}
+                    onClick={() => void toggleNotifications()}>
                     <i />
                   </button>
                 </label>
@@ -1448,9 +1513,19 @@ function readPreferences(): Preferences {
       enterToSend: true,
       ...stored,
       accent: accents.find(accent => accent === stored.accent) ?? 'blue',
+      notificationsEnabled:
+        typeof Notification !== 'undefined' &&
+        Notification.permission !== 'denied' &&
+        (stored.notificationsEnabled ?? Notification.permission === 'granted'),
     }
   } catch {
-    return { locale: 'zh-CN', theme: 'system', accent: 'blue', enterToSend: true }
+    return {
+      locale: 'zh-CN',
+      theme: 'system',
+      accent: 'blue',
+      enterToSend: true,
+      notificationsEnabled: typeof Notification !== 'undefined' && Notification.permission === 'granted',
+    }
   }
 }
 

@@ -18,6 +18,19 @@ function ok(stdout = ''): CommandResult {
   return { code: 0, stdout, stderr: '' }
 }
 
+function unchangedRevisionResult() {
+  return async (command: string, args: string[]): Promise<CommandResult> => {
+    const call = [command, ...args].join(' ')
+    if (call === 'git rev-parse HEAD') return ok('aaaaaaaaaaaaaaaa')
+    if (call === 'bun run setting:migrate --report-json')
+      return ok(
+        'AI_CLI_HUB_SETTINGS_REPORT={"created":false,"changed":false,"added":0,"deleted":0,"addedPaths":[],"deletedPaths":[]}',
+      )
+    if (call === 'bun run db:migrate --report-json') return ok('AI_CLI_HUB_DB_REPORT={"applied":[]}')
+    return ok()
+  }
+}
+
 describe('update runner', () => {
   test('preview lists commands and explicit confirmation', () => {
     const runner = createUpdateRunner({
@@ -33,6 +46,7 @@ describe('update runner', () => {
     expect(preview).toContain('**工作目录**: `/app/ai-cli-hub`')
     expect(preview).toContain('git status --short')
     expect(preview).toContain('git pull --ff-only')
+    expect(preview).toContain('git diff --shortstat <before>..<after>')
     expect(preview).toContain('bun install --frozen-lockfile')
     expect(preview).toContain('bun run webui:build:staged')
     expect(preview).toContain('bun run setting:migrate')
@@ -87,7 +101,29 @@ describe('update runner', () => {
     expect(calls).toEqual(['git status --short'])
     expect(report).toContain('自更新失败')
     expect(report).toContain('工作树存在未提交')
+    expect(report).toContain('M src/main.ts')
     expect(report).toContain('未安排重启')
+  })
+
+  test('worktree inspection failure stops before pull', async () => {
+    const calls: string[] = []
+    const runner = createUpdateRunner({
+      config: config(),
+      platform: 'linux',
+      async runCommand(command, args) {
+        calls.push([command, ...args].join(' '))
+        return { code: 128, stdout: '', stderr: 'not a git repository' }
+      },
+      scheduleRestart() {
+        throw new Error('should not restart')
+      },
+    })
+
+    const report = await runner.run()
+
+    expect(calls).toEqual(['git status --short'])
+    expect(report).toContain('工作树检查失败')
+    expect(report).toContain('not a git repository')
   })
 
   test('successful update runs checks and schedules restart', async () => {
@@ -99,7 +135,7 @@ describe('update runner', () => {
       platform: 'linux',
       async runCommand(command, args) {
         calls.push([command, ...args].join(' '))
-        return ok()
+        return unchangedRevisionResult()(command, args)
       },
       async writeRestartNotice(ref) {
         notices.push(`${ref.chatId}/${ref.nativeId}`)
@@ -113,21 +149,57 @@ describe('update runner', () => {
 
     expect(calls).toEqual([
       'git status --short',
+      'git rev-parse HEAD',
       'git pull --ff-only',
+      'git rev-parse HEAD',
       'bun install --frozen-lockfile',
       'bun run format:check',
       'bun run typecheck',
       'bun run lint',
       'bun run webui:build:staged',
-      'bun run setting:migrate',
-      'bun run db:migrate',
+      'bun run setting:migrate --report-json',
+      'bun run db:migrate --report-json',
       'bun run webui:promote',
     ])
     expect(notices).toEqual(['chat-1/msg-1'])
     expect(restarts).toEqual(['pm2 restart ai-cli-hub | /app/ai-cli-hub | 1500'])
     expect(report).toContain('自更新完成')
-    expect(report).toContain('已完成 **10** 项检查与更新')
+    expect(report).toContain('已是最新版本 `aaaaaaaa`')
+    expect(report).not.toContain('同步依赖')
+    expect(report).not.toContain('代码格式检查')
     expect(report).toContain('**命令**: `pm2 restart ai-cli-hub`')
+  })
+
+  test('successful update reports commits, settings keys, and database operations', async () => {
+    let revisionReads = 0
+    const runner = createUpdateRunner({
+      config: config(),
+      platform: 'linux',
+      async runCommand(command, args) {
+        const call = [command, ...args].join(' ')
+        if (call === 'git rev-parse HEAD') return ok(++revisionReads === 1 ? '1111111111111111' : '2222222222222222')
+        if (call.startsWith('git diff --shortstat')) return ok(' 4 files changed, 25 insertions(+), 3 deletions(-)')
+        if (call.startsWith('git log --format='))
+          return ok('2222222\tfeat: add update report\n2111111\tfix: notification toggle')
+        if (call === 'bun run setting:migrate --report-json')
+          return ok(
+            'AI_CLI_HUB_SETTINGS_REPORT={"created":false,"changed":true,"added":1,"deleted":1,"addedPaths":["http.health"],"deletedPaths":["http.legacy"]}',
+          )
+        if (call === 'bun run db:migrate --report-json')
+          return ok('AI_CLI_HUB_DB_REPORT={"applied":[{"tag":"0020_health","changes":["services：新增字段 health"]}]}')
+        return ok()
+      },
+      scheduleRestart() {},
+    })
+
+    const report = await runner.run()
+
+    expect(report).toContain('2 个提交 · 4 个文件 · +25 / -3')
+    expect(report).toContain('`2222222` feat: add update report')
+    expect(report).toContain('**新增配置**: `http.health`')
+    expect(report).toContain('**删除配置**: `http.legacy`')
+    expect(report).toContain('`0020_health`: services：新增字段 health')
+    expect(report).not.toContain('暂存构建 WebUI')
   })
 
   test('restart notice failure warns but still schedules restart', async () => {
@@ -135,9 +207,7 @@ describe('update runner', () => {
     const runner = createUpdateRunner({
       config: config(),
       platform: 'linux',
-      async runCommand() {
-        return ok()
-      },
+      runCommand: unchangedRevisionResult(),
       async writeRestartNotice() {
         throw new Error('disk full')
       },
@@ -159,6 +229,7 @@ describe('update runner', () => {
       config: config({ UPDATE_REQUIRE_CLEAN_WORKTREE: false }),
       platform: 'linux',
       async runCommand(command, args) {
+        if (command === 'git' && args.join(' ') === 'rev-parse HEAD') return ok('aaaaaaaaaaaaaaaa')
         if (command === 'bun' && args.join(' ') === 'run typecheck') {
           return { code: 2, stdout: '', stderr: 'type error' }
         }
@@ -173,7 +244,7 @@ describe('update runner', () => {
 
     expect(restarts).toEqual([])
     expect(report).toContain('自更新失败')
-    expect(report).toContain('typecheck 失败')
+    expect(report).toContain('类型检查失败')
     expect(report).toContain('type error')
   })
 })
