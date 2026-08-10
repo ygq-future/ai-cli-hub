@@ -47,6 +47,14 @@ interface ClientEnvelope {
   clientMessageId?: unknown
 }
 
+interface ApprovalResolvedEnvelope {
+  conversationId: ConversationId
+  approvalId: string
+  status: 'approved' | 'rejected'
+  operator: string
+  automatic: boolean
+}
+
 const MAX_TEXT_CHARS = 64 * 1024
 const MAX_UPLOAD_IDS = 10
 const MAX_IDENTIFIER_CHARS = 128
@@ -56,9 +64,12 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
   const cwd = deps.cwd ?? '/'
   const unsubs: Unsubscribe[] = []
   const conversations = new Set<ConversationId>()
+  const resolvedApprovals = new Map<string, ApprovalResolvedEnvelope>()
 
   const send = (type: string, payload: Record<string, unknown>) =>
     deps.gateway.broadcast(JSON.stringify({ v: 1, type, ...payload }))
+  const sendToPeer = (peer: WebSocketPeer, type: string, payload: Record<string, unknown>) =>
+    peer.send(JSON.stringify({ v: 1, type, ...payload }))
   const sendError = (peer: WebSocketPeer, code: string) => {
     peer.send(JSON.stringify({ v: 1, type: 'error', code }))
   }
@@ -149,6 +160,11 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
         sendError(peer, 'conversation_unavailable')
         return
       }
+      const resolved = resolvedApprovals.get(approvalKey(conversationId, message.approvalId))
+      if (resolved) {
+        sendToPeer(peer, 'approval_resolved', { ...resolved, alreadyHandled: true })
+        return
+      }
       const payload = {
         conversationId,
         approvalId: message.approvalId,
@@ -194,6 +210,34 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
         }),
       )
       unsubs.push(
+        deps.bus.on('ApprovalApproved', event => {
+          if (!conversations.has(event.conversationId)) return
+          const resolved: ApprovalResolvedEnvelope = {
+            conversationId: event.conversationId,
+            approvalId: event.approvalId,
+            status: 'approved',
+            operator: event.operator,
+            automatic: event.automatic === true,
+          }
+          resolvedApprovals.set(approvalKey(event.conversationId, event.approvalId), resolved)
+          send('approval_resolved', { ...resolved })
+        }),
+      )
+      unsubs.push(
+        deps.bus.on('ApprovalRejected', event => {
+          if (!conversations.has(event.conversationId)) return
+          const resolved: ApprovalResolvedEnvelope = {
+            conversationId: event.conversationId,
+            approvalId: event.approvalId,
+            status: 'rejected',
+            operator: event.operator,
+            automatic: false,
+          }
+          resolvedApprovals.set(approvalKey(event.conversationId, event.approvalId), resolved)
+          send('approval_resolved', { ...resolved })
+        }),
+      )
+      unsubs.push(
         deps.bus.on('ErrorOccurred', event => {
           if (!event.conversationId || conversations.has(event.conversationId))
             send('error', { code: 'server_error', message: event.message })
@@ -202,6 +246,7 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
     },
     async stop() {
       for (const unsub of unsubs.splice(0)) unsub()
+      resolvedApprovals.clear()
     },
     async sendMessage(chatId, content) {
       if (send('output', { content, final: true }) === 0) throw new Error('No WebSocket client connected')
@@ -228,4 +273,8 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
 
 function isIdentifier(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= MAX_IDENTIFIER_CHARS
+}
+
+function approvalKey(conversationId: ConversationId, approvalId: string): string {
+  return `${conversationId}:${approvalId}`
 }

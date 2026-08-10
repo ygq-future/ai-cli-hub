@@ -81,7 +81,15 @@ export interface ConversationFileRepository {
 
 export interface AuditRepository {
   /** 永久留痕，不提供 delete（docs/04 §5 强约束）。 */
-  record(a: NewAuditLog): Promise<void>
+  createPending(audit: NewAuditLog, timelineMessage?: NewMessage): Promise<void>
+  resolve(input: {
+    conversationId: ConversationId
+    approvalId: string
+    status: 'approved' | 'rejected'
+    operator: string
+    automatic: boolean
+  }): Promise<AuditLog | null>
+  findByIds(ids: readonly string[]): Promise<AuditLog[]>
   listByConversation(id: ConversationId): Promise<AuditLog[]>
 }
 

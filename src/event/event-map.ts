@@ -92,6 +92,8 @@ export interface EventMap {
     approvalId: string
     command: string
     detail: string
+    /** 审批请求创建时间，也是 Web 时间线稳定排序时间。 */
+    createdAt: number
     /** 存在时表示到期自动批准；Transport 可据此展示倒计时。 */
     autoApproveAt?: number
     /** 用户持久化的倒计时秒数，用于稳定展示。 */

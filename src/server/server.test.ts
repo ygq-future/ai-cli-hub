@@ -474,8 +474,9 @@ describe('app server', () => {
           historyInputs.push(input)
           return {
             messages: [
-              { id: 'message-1', role: 'user', content: 'hello', createdAt: 1 },
+              { type: 'chat', id: 'message-1', role: 'user', content: 'hello', createdAt: 1 },
               {
+                type: 'chat',
                 id: 'message-2',
                 role: 'assistant',
                 content: '**world**',
@@ -490,6 +491,21 @@ describe('app server', () => {
                 ],
                 createdAt: 2,
               },
+              {
+                type: 'approval',
+                id: 'message-3',
+                createdAt: 3,
+                approval: {
+                  id: 'audit-1',
+                  conversationId: 'web-conversation',
+                  approvalId: 'approval-1',
+                  request: { command: 'Bash', detail: { command: 'git pull' } },
+                  status: 'approved',
+                  operator: 'auto:web-admin',
+                  automatic: true,
+                  createdAt: 3,
+                },
+              },
             ],
             nextCursor: input.limit === 10 && input.before === null ? '1:message-1' : null,
           }
@@ -502,8 +518,9 @@ describe('app server', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       messages: [
-        { id: 'message-1', role: 'user', content: 'hello', createdAt: 1 },
+        { type: 'chat', id: 'message-1', role: 'user', content: 'hello', createdAt: 1 },
         {
+          type: 'chat',
           id: 'message-2',
           role: 'assistant',
           content: '**world**',
@@ -517,6 +534,21 @@ describe('app server', () => {
             },
           ],
           createdAt: 2,
+        },
+        {
+          type: 'approval',
+          id: 'message-3',
+          createdAt: 3,
+          approval: {
+            id: 'audit-1',
+            conversationId: 'web-conversation',
+            approvalId: 'approval-1',
+            request: { command: 'Bash', detail: { command: 'git pull' } },
+            status: 'approved',
+            operator: 'auto:web-admin',
+            automatic: true,
+            createdAt: 3,
+          },
         },
       ],
       nextCursor: '1:message-1',

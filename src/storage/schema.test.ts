@@ -31,18 +31,42 @@ describe('schema — 表结构与契约', () => {
   test('messages：级联外键指向 conversations', () => {
     const t = getTableConfig(messages)
     expect(t.name).toBe('messages')
-    expect(t.columns.map(column => column.name)).toContain('attachments')
-    expect(t.columns.map(column => column.name)).toContain('context_eligible')
-    expect(t.foreignKeys).toHaveLength(1)
-    expect(t.foreignKeys[0]!.onDelete).toBe('cascade')
+    expect(t.columns.map(column => column.name)).toEqual(
+      expect.arrayContaining(['attachments', 'context_eligible', 'message_type', 'audit_log_id']),
+    )
+    expect(t.columns.find(column => column.name === 'message_type')?.default).toBe('chat')
+    expect(t.columns.find(column => column.name === 'audit_log_id')?.notNull).toBe(false)
+    expect(t.foreignKeys).toHaveLength(2)
+    expect(t.foreignKeys.map(key => key.onDelete)).toEqual(expect.arrayContaining(['cascade', 'no action']))
+    expect(t.indexes.map(index => index.config.name)).toContain('uniq_msg_audit_log')
   })
 
   test('audit_logs：外键不级联删除（审计永久）', () => {
     const t = getTableConfig(auditLogs)
     expect(t.name).toBe('audit_logs')
+    const columns = t.columns.map(column => column.name)
+    expect(columns).toEqual(
+      expect.arrayContaining([
+        'id',
+        'conversation_id',
+        'approval_id',
+        'request',
+        'status',
+        'operator',
+        'automatic',
+        'created_at',
+      ]),
+    )
+    expect(columns).not.toContain('command')
+    expect(columns).not.toContain('action')
+    expect(t.columns.find(column => column.name === 'operator')?.notNull).toBe(false)
+    expect(t.columns.find(column => column.name === 'automatic')?.default).toBe(false)
     expect(t.foreignKeys).toHaveLength(1)
     // onDelete = no action（非 cascade）→ 审计不随会话删除
     expect(t.foreignKeys[0]!.onDelete).toBe('no action')
+    expect(t.indexes.map(index => index.config.name)).toEqual(
+      expect.arrayContaining(['idx_audit_conv', 'uniq_audit_conversation_approval']),
+    )
   })
 
   test('memories：不再关联会话/消息，保留 namespace + vector(1024) + FTS', () => {
@@ -104,6 +128,22 @@ describe('schema — 表结构与契约', () => {
     expect(migration).toContain(`grouped_messages."role" = 'user'`)
     expect(migration).toContain(`grouped_messages."role" = 'assistant'`)
     expect(migration).toContain(`grouped_messages."context_eligible" = false`)
+  })
+
+  test('结构化审批迁移先清空旧审计，再替换 packed 字段并建立消息引用', async () => {
+    const migration = await readFile(path.resolve('drizzle/0018_structured_approval_timeline.sql'), 'utf8')
+    const clearAt = migration.indexOf('DELETE FROM "audit_logs"')
+    const dropCommandAt = migration.indexOf('DROP COLUMN "command"')
+    const dropActionAt = migration.indexOf('DROP COLUMN "action"')
+    const dropActionEnumAt = migration.indexOf('DROP TYPE "public"."approval_action"')
+    expect(clearAt).toBeGreaterThanOrEqual(0)
+    expect(dropCommandAt).toBeGreaterThan(clearAt)
+    expect(dropActionAt).toBeGreaterThan(clearAt)
+    expect(dropActionEnumAt).toBeGreaterThan(dropActionAt)
+    expect(migration).toContain('ADD COLUMN "message_type" "message_type" DEFAULT \'chat\' NOT NULL')
+    expect(migration).toContain('ADD COLUMN "audit_log_id" text')
+    expect(migration).toContain('FOREIGN KEY ("audit_log_id") REFERENCES "public"."audit_logs"("id")')
+    expect(migration).toContain('CREATE UNIQUE INDEX "uniq_msg_audit_log"')
   })
 
   test('pgvector 序列化：number[] → 文本字面量 [a,b,c]', () => {

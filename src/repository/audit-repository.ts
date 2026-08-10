@@ -1,16 +1,52 @@
 /**
  * AuditRepository —— Drizzle 实现（docs/03 §5 / docs/04 §5）。
- * 永久留痕：仅 record + 查询，无 delete（强约束）。
+ * 永久留痕：创建、终态更新与查询，无 delete（强约束）。
  */
-import { asc, eq } from 'drizzle-orm'
+import { and, asc, eq, inArray } from 'drizzle-orm'
 import type { Db } from '../storage'
-import { auditLogs } from '../storage/schema'
-import type { AuditRepository, AuditLog, NewAuditLog, ConversationId } from './types'
+import { auditLogs, messages } from '../storage/schema'
+import type { AuditRepository, AuditLog, ConversationId } from './types'
 
 export function createAuditRepository(db: Db): AuditRepository {
   return {
-    async record(a: NewAuditLog): Promise<void> {
-      await db.insert(auditLogs).values(a)
+    async createPending(audit, timelineMessage): Promise<void> {
+      await db.transaction(async tx => {
+        await tx.insert(auditLogs).values(audit)
+        if (timelineMessage) await tx.insert(messages).values(timelineMessage)
+      })
+    },
+
+    async resolve(input): Promise<AuditLog | null> {
+      const [updated] = await db
+        .update(auditLogs)
+        .set({
+          status: input.status,
+          operator: input.operator,
+          automatic: input.automatic,
+        })
+        .where(
+          and(
+            eq(auditLogs.conversationId, input.conversationId),
+            eq(auditLogs.approvalId, input.approvalId),
+            eq(auditLogs.status, 'pending'),
+          ),
+        )
+        .returning()
+      if (updated) return updated
+      const [existing] = await db
+        .select()
+        .from(auditLogs)
+        .where(and(eq(auditLogs.conversationId, input.conversationId), eq(auditLogs.approvalId, input.approvalId)))
+        .limit(1)
+      return existing ?? null
+    },
+
+    findByIds(ids): Promise<AuditLog[]> {
+      if (ids.length === 0) return Promise.resolve([])
+      return db
+        .select()
+        .from(auditLogs)
+        .where(inArray(auditLogs.id, [...ids]))
     },
 
     listByConversation(id: ConversationId): Promise<AuditLog[]> {

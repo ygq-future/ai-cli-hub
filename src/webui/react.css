@@ -765,6 +765,23 @@ small {
   background: color-mix(in srgb, #e7a12e 8%, var(--panel-raised));
   animation: message-in 0.23s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+.approval-card.approved,
+.approval-card.rejected,
+.approval-card.unavailable {
+  gap: 9px;
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--glass-raised) 88%, transparent);
+  opacity: 0.86;
+}
+.approval-card.approved {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
+}
+.approval-card.rejected {
+  border-color: color-mix(in srgb, #df6781 38%, var(--line));
+}
+.approval-card.resolving footer svg {
+  animation: spin 0.9s linear infinite;
+}
 .approval-card span {
   display: block;
   color: #e7a12e;
@@ -782,6 +799,21 @@ small {
   font: inherit;
   font-size: 0.82rem;
   white-space: pre-wrap;
+}
+.approval-card small {
+  display: block;
+  margin-top: 10px;
+  color: var(--dim);
+  font-size: 0.76rem;
+}
+.approval-card.approved span {
+  color: var(--accent);
+}
+.approval-card.rejected span {
+  color: #df6781;
+}
+.approval-card.unavailable span {
+  color: var(--dim);
 }
 .approval-card footer {
   display: flex;

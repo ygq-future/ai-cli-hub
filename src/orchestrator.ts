@@ -219,12 +219,14 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   }
 
   async function publishApprovalRequest(cid: ConversationId, entry: AdapterEntry, req: ApprovalRequest) {
+    const createdAt = Date.now()
     if (!deps.getAutoApprove) {
       bus.emit('ApprovalRequested', {
         conversationId: cid,
         approvalId: req.approvalId,
         command: req.command,
         detail: req.detail,
+        createdAt,
       })
       return
     }
@@ -241,6 +243,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       approvalId: req.approvalId,
       command: req.command,
       detail: req.detail,
+      createdAt,
       ...(autoApproveAt ? { autoApproveAt, autoApproveSeconds: preference.seconds } : {}),
     })
     if (!autoApproveAt) return

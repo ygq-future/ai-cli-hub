@@ -3,8 +3,9 @@
  * 强约束：conversationId 不 cascade delete —— 会话归档后审计仍在。
  * Repository 不提供 delete 方法。
  */
-import { pgTable, text, bigint, index } from 'drizzle-orm/pg-core'
-import { approvalActionEnum } from './enums'
+import { pgTable, text, bigint, index, jsonb, boolean, uniqueIndex } from 'drizzle-orm/pg-core'
+import type { ApprovalAuditRequest } from '../../shared'
+import { approvalStatusEnum } from './enums'
 import { conversations } from './conversations'
 
 export const auditLogs = pgTable(
@@ -14,12 +15,17 @@ export const auditLogs = pgTable(
     conversationId: text('conversation_id')
       .notNull()
       .references(() => conversations.id), // 注意：不 onDelete cascade
-    command: text('command').notNull(),
-    action: approvalActionEnum('action').notNull(),
-    operator: text('operator').notNull(), // 决策人 userId
+    approvalId: text('approval_id').notNull(),
+    request: jsonb('request').$type<ApprovalAuditRequest>().notNull(),
+    status: approvalStatusEnum('status').notNull().default('pending'),
+    operator: text('operator'), // pending 时为空；决议后为 userId 或 auto:userId
+    automatic: boolean('automatic').notNull().default(false),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
-  t => [index('idx_audit_conv').on(t.conversationId, t.createdAt)],
+  t => [
+    index('idx_audit_conv').on(t.conversationId, t.createdAt),
+    uniqueIndex('uniq_audit_conversation_approval').on(t.conversationId, t.approvalId),
+  ],
 )
 
 export type AuditLog = typeof auditLogs.$inferSelect

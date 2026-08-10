@@ -46,7 +46,7 @@ import {
 import { createSessionOrchestrator } from './orchestrator'
 import { createUserPreferences } from './preferences'
 import { createQQTransport, createTelegramTransport, createWebSocketTransport } from './transport'
-import { createServer, createWebSocketGateway } from './server'
+import { createServer, createWebSocketGateway, type WebHistoryMessage } from './server'
 import type { ConversationId, Transport } from './shared'
 
 const APP_ROOT = path.resolve(import.meta.dir, '..')
@@ -118,7 +118,7 @@ async function main() {
   })
 
   // —— 5. Audit（审批事件旁路落库）——
-  const approvalAudit = createApprovalAudit({ bus, audit: repos.audit })
+  const approvalAudit = createApprovalAudit({ bus, audit: repos.audit, conversations: repos.conversations })
 
   // —— 6. Memory（环境快照 + 全局记忆召回）——
   const memory = await createMemoryModule({
@@ -243,16 +243,37 @@ async function main() {
         const page = await repos.messages.listByConversation(conversation.id as ConversationId, limit + 1, cursor)
         const hasMore = page.length > limit
         const messages = hasMore ? page.slice(-limit) : page
-        return {
-          messages: messages
-            .filter(message => message.role === 'user' || message.role === 'assistant')
-            .map(message => ({
+        const auditIds = messages.flatMap(message =>
+          message.messageType === 'approval' && message.auditLogId ? [message.auditLogId] : [],
+        )
+        const audits = await repos.audit.findByIds(auditIds)
+        const auditById = new Map(audits.map(audit => [audit.id, audit]))
+        const timeline = messages.flatMap<WebHistoryMessage>(message => {
+          if (message.messageType === 'approval') {
+            const approval = message.auditLogId ? (auditById.get(message.auditLogId) ?? null) : null
+            if (!approval) {
+              bus.emit('ErrorOccurred', {
+                scope: 'server:webHistoryApproval',
+                message: `审批消息 ${message.id} 缺少可用的 audit_logs 引用`,
+                conversationId: conversation.id as ConversationId,
+              })
+            }
+            return [{ type: 'approval', id: message.id, createdAt: message.createdAt, approval }]
+          }
+          if (message.role !== 'user' && message.role !== 'assistant') return []
+          return [
+            {
+              type: 'chat',
               id: message.id,
-              role: message.role as 'user' | 'assistant',
+              role: message.role,
               content: message.content,
               attachments: message.attachments,
               createdAt: message.createdAt,
-            })),
+            },
+          ]
+        })
+        return {
+          messages: timeline,
           nextCursor: hasMore && messages[0] ? `${messages[0].createdAt}:${messages[0].id}` : null,
         }
       },

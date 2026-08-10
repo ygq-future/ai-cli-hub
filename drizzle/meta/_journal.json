@@ -127,6 +127,13 @@
       "when": 1785322800000,
       "tag": "0017_remove_slash_command_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786358400000,
+      "tag": "0018_structured_approval_timeline",
+      "breakpoints": true
     }
   ]
 }

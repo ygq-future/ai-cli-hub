@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import type { ConversationId, Platform, Transport } from '../shared'
+import type { ApprovalAuditRequest, ApprovalStatus, ConversationId, Platform, Transport } from '../shared'
 
 const MAX_REQUEST_BYTES = 1_048_576
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
@@ -33,7 +33,8 @@ export interface WebSessionStatus {
   autoApprove: { enabled: boolean; seconds: number }
 }
 
-export interface WebHistoryMessage {
+export interface WebHistoryChatMessage {
+  type: 'chat'
   id: string
   role: 'user' | 'assistant'
   content: string
@@ -46,6 +47,26 @@ export interface WebHistoryMessage {
   }>
   createdAt: number
 }
+
+export interface WebHistoryApproval {
+  id: string
+  conversationId: string
+  approvalId: string
+  request: ApprovalAuditRequest
+  status: ApprovalStatus
+  operator: string | null
+  automatic: boolean
+  createdAt: number
+}
+
+export interface WebHistoryApprovalMessage {
+  type: 'approval'
+  id: string
+  createdAt: number
+  approval: WebHistoryApproval | null
+}
+
+export type WebHistoryMessage = WebHistoryChatMessage | WebHistoryApprovalMessage
 
 export interface AppServerDeps {
   host: string

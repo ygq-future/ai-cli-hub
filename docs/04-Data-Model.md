@@ -73,9 +73,7 @@ export type NewConversation = typeof conversations.$inferInsert;
 ## 4. `messages` — 完整对话记录
 
 ```typescript
-// storage/schema/messages.ts
-import { pgTable, text, bigint, index, jsonb, boolean } from 'drizzle-orm/pg-core';
-import { roleEnum } from './enums';
+// storage/schema/messages.ts（节选）
 
 export const messages = pgTable('messages', {
   id:             text('id').primaryKey(),
@@ -85,44 +83,47 @@ export const messages = pgTable('messages', {
   content:        text('content').notNull(),
   attachments:    jsonb('attachments').$type<StoredMessageAttachment[]>().notNull().default([]),
   contextEligible: boolean('context_eligible').notNull().default(true),
+  messageType:    messageTypeEnum('message_type').notNull().default('chat'),
+  auditLogId:     text('audit_log_id').references(() => auditLogs.id),
   createdAt:      bigint('created_at', { mode: 'number' }).notNull(),
 }, (t) => ({
   byConv: index('idx_msg_conv').on(t.conversationId, t.createdAt),
+  auditRef: uniqueIndex('uniq_msg_audit_log').on(t.auditLogId),
 }));
 
 export type Message    = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 ```
 
-> `content` 只保存用户可见原文或助手可见回复，不保存 OCR、`@readN` 展开内容和本地路径等内部 prompt 注入文本。`attachments` 保存受控 `conversation_files.id` 及展示元数据，使上传、`@readN`/`@fileN` 引用和 `@viewN` 预览都可在历史气泡中恢复。所有 `/...` 命令及命令回复都不写入 `messages`；`@readN`、`@fileN`、`@viewN` 属于消息内指令，按用户原文保存。仅用于文件暂存或预览的消息可设置 `context_eligible=false`，避免污染后续 CLI 上下文和长期记忆摘要。
+> `content` 只保存用户可见原文或助手可见回复，不保存 OCR、`@readN` 展开内容和本地路径等内部 prompt 注入文本。`attachments` 保存受控 `conversation_files.id` 及展示元数据，使上传、`@readN`/`@fileN` 引用和 `@viewN` 预览都可在历史气泡中恢复。所有 `/...` 命令及命令回复都不写入 `messages`；`@readN`、`@fileN`、`@viewN` 属于消息内指令，按用户原文保存。Web 审批使用空正文的 `message_type=approval` 引用 `audit_logs`，并设置 `context_eligible=false`；Telegram/QQ 不写该引用。`audit_log_id` 的 nullable unique 外键保证一条审计最多对应一个时间线项目，删除消息不会删除永久审计。
 
 ---
 
 ## 5. `audit_logs` — 审批留痕（永久，不可删）
 
 ```typescript
-// storage/schema/audit-logs.ts
-import { pgTable, text, bigint, index } from 'drizzle-orm/pg-core';
-import { approvalActionEnum } from './enums';
-import { conversations } from './conversations';
+// storage/schema/audit-logs.ts（节选）
 
 export const auditLogs = pgTable('audit_logs', {
   id:             text('id').primaryKey(),
   conversationId: text('conversation_id').notNull()
                     .references(() => conversations.id),   // 注意：不 cascade delete，审计不随会话删除
-  command:        text('command').notNull(),
-  action:         approvalActionEnum('action').notNull(),
-  operator:       text('operator').notNull(),              // 决策人 userId
+  approvalId:     text('approval_id').notNull(),
+  request:        jsonb('request').$type<ApprovalAuditRequest>().notNull(),
+  status:         approvalStatusEnum('status').notNull().default('pending'),
+  operator:       text('operator'),                        // pending 时为空
+  automatic:      boolean('automatic').notNull().default(false),
   createdAt:      bigint('created_at', { mode: 'number' }).notNull(),
 }, (t) => ({
   byConv: index('idx_audit_conv').on(t.conversationId, t.createdAt),
+  approval: uniqueIndex('uniq_audit_conversation_approval').on(t.conversationId, t.approvalId),
 }));
 
 export type AuditLog    = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
 ```
 
-> **强约束**：不提供 delete 方法；`conversationId` 不设 `onDelete: cascade`，保证会话归档后审计仍在。
+> `request` 是 `{ command, detail }` JSONB；合法 JSON detail 保存为结构化值，否则保留原字符串。`createdAt` 是请求创建/时间线排序时间，不另设 requestedAt/resolvedAt。pending 行的 operator 为 NULL、automatic=false；决议更新同一行。**强约束**：Repository 不提供 delete；`conversationId` 不设 `onDelete: cascade`，保证会话归档后审计仍在。迁移 0018 经用户明确批准一次性清空旧 packed command 审计，迁移完成后恢复永久不可删约束。
 
 ---
 
@@ -196,7 +197,9 @@ user_cli_preferences: (platform, user_id, cli) → cwd, model_id nullable, model
 | user_preferences | primary `(platform, user_id)` | 读取语言、默认 CLI、自动审批开关与 1–300 秒倒计时 |
 | user_cli_preferences | primary `(platform, user_id, cli)` | 读取/写入每 CLI 工作目录与模型偏好 |
 | messages | `(conversation_id, created_at)` | 历史查看、审计与后续摘要；当前不做完整上下文回放 |
+| messages | unique `(audit_log_id)` | Web 时间线审批引用；NULL 不冲突 |
 | audit_logs | `(conversation_id, created_at)` | 审计查询 |
+| audit_logs | unique `(conversation_id, approval_id)` | 同一审批的唯一生命周期记录 |
 | conversation_files | unique `(conversation_id, sequence)` | 会话内文件编号；会话关闭或清空时删除映射和临时文件 |
 | memories | `(namespace, type)` | 实例级全局记忆取回 |
 | memories | unique `(namespace, tag)` | 环境快照等幂等 upsert；普通手工记忆可使用唯一 tag 或 NULL tag |

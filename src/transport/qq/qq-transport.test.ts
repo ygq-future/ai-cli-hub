@@ -295,6 +295,7 @@ describe('QQTransport 出站流式与审批', () => {
       approvalId: 'approval-1',
       command: 'Write',
       detail: '{"path":"a.txt"}',
+      createdAt: Date.now(),
     })
     await tick()
 
@@ -337,6 +338,7 @@ describe('QQTransport 出站流式与审批', () => {
       approvalId: 'auto-qq',
       command: 'Write',
       detail: '{"path":"a.txt"}',
+      createdAt: Date.now(),
       autoApproveAt: Date.now() + 5_000,
       autoApproveSeconds: 9,
     })

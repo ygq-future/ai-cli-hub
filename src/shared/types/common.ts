@@ -18,6 +18,14 @@ export type SessionStatus =
 export type Role = 'user' | 'assistant' | 'system'
 export type MemoryType = 'episodic' | 'semantic' | 'preference'
 export type ApprovalAction = 'approve' | 'reject'
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected'
+export type MessageType = 'chat' | 'approval'
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+
+export interface ApprovalAuditRequest {
+  command: string
+  detail: JsonValue
+}
 
 /** 当前个人 AI Hub 实例默认共享记忆池。 */
 export const DEFAULT_MEMORY_NAMESPACE = 'global'

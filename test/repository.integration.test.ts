@@ -36,6 +36,7 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
 
   afterAll(async () => {
     // 清理本测试插入的数据（audit 无级联，先删；其余随 conversation 级联/置空）。
+    await repos.messages.deleteByConversation(cid)
     await db.delete(auditLogs).where(inArray(auditLogs.conversationId, [cid]))
     await db.delete(memories).where(eq(memories.namespace, testNamespace))
     await db.delete(conversations).where(inArray(conversations.id, [cid, startingCid, closingCid]))
@@ -123,18 +124,60 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     ).toEqual(['第一条'])
   })
 
-  test('AuditRepository：record → listByConversation（永久留痕）', async () => {
-    await repos.audit.record({
-      id: crypto.randomUUID(),
-      conversationId: cid,
-      command: 'rm -rf build',
-      action: 'approve',
-      operator: 'u-int',
-      createdAt: now,
+  test('AuditRepository：pending → timeline → resolve → batch list（永久留痕）', async () => {
+    const auditId = crypto.randomUUID()
+    const timelineMessageId = crypto.randomUUID()
+    await repos.audit.createPending(
+      {
+        id: auditId,
+        conversationId: cid,
+        approvalId: 'approval-int',
+        request: { command: 'Bash', detail: { command: 'rm -rf build' } },
+        status: 'pending',
+        operator: null,
+        automatic: false,
+        createdAt: now,
+      },
+      {
+        id: timelineMessageId,
+        conversationId: cid,
+        role: 'assistant',
+        content: '',
+        attachments: [],
+        contextEligible: false,
+        messageType: 'approval',
+        auditLogId: auditId,
+        createdAt: now,
+      },
+    )
+    expect((await repos.audit.findByIds([auditId]))[0]?.status).toBe('pending')
+    expect(
+      (await repos.messages.listByConversation(cid)).find(message => message.id === timelineMessageId),
+    ).toMatchObject({
+      messageType: 'approval',
+      auditLogId: auditId,
+      contextEligible: false,
     })
+
+    const approved = await repos.audit.resolve({
+      conversationId: cid,
+      approvalId: 'approval-int',
+      status: 'approved',
+      operator: 'u-int',
+      automatic: false,
+    })
+    expect(approved?.status).toBe('approved')
+    const duplicate = await repos.audit.resolve({
+      conversationId: cid,
+      approvalId: 'approval-int',
+      status: 'rejected',
+      operator: 'u-other',
+      automatic: false,
+    })
+    expect(duplicate?.status).toBe('approved')
     const logs = await repos.audit.listByConversation(cid)
     expect(logs).toHaveLength(1)
-    expect(logs[0]!.action).toBe('approve')
+    expect(logs[0]).toMatchObject({ approvalId: 'approval-int', status: 'approved', operator: 'u-int' })
   })
 
   test('MemoryRepository：insert → listGlobal → searchByKeyword → searchByVector → touch/delete/upsert', async () => {

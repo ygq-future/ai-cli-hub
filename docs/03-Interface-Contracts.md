@@ -76,7 +76,7 @@ export interface EventMap {
   UserPreferencesReset: { userId: string; platform: Platform }; // /reset 后停止该用户 adapter
 
   // —— 审批（Human-in-the-loop）——
-  ApprovalRequested: { conversationId: ConversationId; approvalId: string; command: string; detail: string; autoApproveAt?: number; autoApproveSeconds?: number };
+  ApprovalRequested: { conversationId: ConversationId; approvalId: string; command: string; detail: string; createdAt: number; autoApproveAt?: number; autoApproveSeconds?: number };
   ApprovalApproved:  { conversationId: ConversationId; approvalId: string; operator: string; automatic?: boolean };
   ApprovalRejected:  { conversationId: ConversationId; approvalId: string; operator: string };
 
@@ -205,7 +205,7 @@ export interface SpawnOptions {
 export type AdapterState = 'stopped' | 'starting' | 'ready' | 'busy' | 'waitingApproval';
 ```
 
-> **事件映射（EventMap 不变）**：Adapter 的 `onApprovalRequest` → `bus.emit('ApprovalRequested', { approvalId, command, detail, conversationId })`；Transport 的 [Approve]/[Reject] → `bus.emit('ApprovalApproved'|'ApprovalRejected')` → Core 调 `adapter.resolveApproval(id, 'approve'|'reject')`。SDK 家族据此 `resolve({ behavior: 'allow'|'deny' })`；PTY 家族据此 `runtime.write("y\r"|"n\r")`。
+> **事件映射**：Adapter 的 `onApprovalRequest` → Orchestrator 补齐 `conversationId` 与稳定的 `createdAt` 后发 `ApprovalRequested`；Transport 的 [Approve]/[Reject] → `ApprovalApproved|ApprovalRejected` → Orchestrator 调 `adapter.resolveApproval(id, 'approve'|'reject')`。SDK 家族据此 `resolve({ behavior: 'allow'|'deny' })`；PTY 家族据此 `runtime.write("y\r"|"n\r")`。ApprovalAudit 旁路订阅同一事件流，持久化失败不阻塞 Adapter 决议。
 
 > **共享只读查询策略**：所有 CLI Adapter 必须复用 `cli/utils.isReadOnlyShellCommand`。策略使用 `unbash` AST 和 `read-only | mutating | unknown` 三态模型；管道、`&&`、`||`、`;` 仅在所有叶子命令都确定只读时免审批，`cd <path>` 仅改变临时 shell 工作目录，属于只读链路的一部分；`2>&1` 以及仅把 stderr 丢到 `/dev/null` 的 `2>/dev/null` 不视为写文件，具名文件输出仍视为写入。`docker exec`、`bash/sh -c`、PowerShell/cmd 包装命令递归分析内部命令；`docker inspect` 与 `docker volume ls/inspect` 可带经验证的只读命令替换参数，`find` 仅在没有 `-delete`、`-exec`、`-fprint` 等副作用 action 时放行。`git pull` 会更新 Git 元数据且可能改写工作区，始终要求审批。解析失败、动态命令名和未知程序一律审批。Claude 在 `canUseTool(Bash)` 放行，OpenCode 在 `permission=bash` 时直接 reply `once`。
 
@@ -301,13 +301,22 @@ export interface MessageRepository {
 }
 
 export interface AuditRepository {
-  record(a: NewAuditLog): Promise<void>;          // 永久，不可删
+  createPending(audit: NewAuditLog, timelineMessage?: NewMessage): Promise<void>;
+  resolve(input: {
+    conversationId: ConversationId;
+    approvalId: string;
+    status: 'approved' | 'rejected';
+    operator: string;
+    automatic: boolean;
+  }): Promise<AuditLog | null>;
+  findByIds(ids: readonly string[]): Promise<AuditLog[]>;
   listByConversation(id: ConversationId): Promise<AuditLog[]>;
 }
 
-// 审计范围：记录手动与自动 Approval 决议；自动操作人格式为 auto:<userId>。
-// audit_logs.command 写入工具/命令名、approvalId 与请求详情的可读文本；
-// /audit [conversationId] 通过 listByConversation 查看最近审批记录。
+// 审计范围：ApprovalRequested 创建 pending 生命周期记录，手动/自动决议更新同一行；
+// 自动操作人格式为 auto:<userId>。Web 会话在同一事务中额外创建 contextEligible=false
+// 的 messageType=approval 引用消息；Telegram/QQ 不创建 Hub 时间线引用。
+// /audit [conversationId] 直接格式化结构化 request/status/automatic/operator。
 
 export interface MemoryRepository {
   insert(m: NewMemory): Promise<Memory>;
@@ -397,7 +406,7 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 
 浏览器在已登录 Cookie 下升级 WebSocket。升级请求必须带 `Origin`，其 host 必须匹配请求 URL、`Host` 或反向代理传入的 `X-Forwarded-Host`，否则返回 403。单进程最多保留 5 个浏览器连接；第 6 个以 1013 关闭。Bun 层限制单帧 128 KiB、发送背压 256 KiB，并在超限时关闭连接；协议层进一步限制消息正文 64 KiB、单条消息最多 10 个上传 ID，标识符最长 128 字符。
 
-JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`、`clientMessageId`、可选 `uploadIds`）与 `approve`/`reject`（`conversationId`、`approvalId`）；下行 `connected`、`user_message`、`output`、`approval`、`error`。`user_message` 将服务端规范化消息 ID 和持久化附件回执给浏览器，用于替换乐观消息；`output` 同时承载会话流式输出、持久化预览附件、服务重启通知和 `/help` 等命令回复。审批决定只接受当前 Web 连接已观察到的 Web 会话 ID，禁止借 WebSocket 操作 Telegram/QQ 或未知会话。浏览器断线后先检查认证状态：服务暂时不可达时使用指数退避重连，明确返回 `401` 时停止重连并回到登录页。重启完成通知在 Web 客户端重新连入前保持待发送状态，实际发送成功后才清除持久化通知标记。
+JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`、`clientMessageId`、可选 `uploadIds`）与 `approve`/`reject`（`conversationId`、`approvalId`）；下行 `connected`、`user_message`、`output`、`approval`、`approval_resolved`、`error`。`approval_resolved` 携带 `status=approved|rejected`、`operator`、`automatic`，自动或手动决议都会发送；同进程内重复操作不会再次发 EventBus 决议，而是重发既有终态并标记 `alreadyHandled=true`。`user_message` 将服务端规范化消息 ID 和持久化附件回执给浏览器，用于替换乐观消息；`output` 同时承载会话流式输出、持久化预览附件、服务重启通知和 `/help` 等命令回复。审批决定只接受当前 Web 连接已观察到的 Web 会话 ID，禁止借 WebSocket 操作 Telegram/QQ 或未知会话。浏览器断线后先检查认证状态：服务暂时不可达时使用指数退避重连，明确返回 `401` 时停止重连并回到登录页。重启完成通知在 Web 客户端重新连入前保持待发送状态，实际发送成功后才清除持久化通知标记。
 
 ### `GET` / `PUT /api/settings` 与 `/api/restart`
 
@@ -409,7 +418,7 @@ JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`、`client
 
 ### `GET /api/web/history`
 
-要求已认证会话。查询参数 `limit` 默认 10、范围 1–50，`before` 使用上一页返回的 opaque cursor。按当前 Web 管理员选中的 CLI 查询最新未关闭会话，返回该游标之前最新一页 user/assistant 消息、持久化附件元数据和 `nextCursor`；单页内部按时间正序。WebUI 滚动到顶部时按游标加载更早消息并保持当前阅读位置；没有当前会话时返回 `{ messages: [], nextCursor: null }`。
+要求已认证会话。查询参数 `limit` 默认 10、范围 1–50，`before` 使用上一页返回的 opaque cursor。分页始终只查询 `messages`，返回 `type=chat|approval` 判别联合与 `nextCursor`；chat 项包含 user/assistant 正文和附件，approval 项通过 `auditLogId` 单次批量补齐结构化审计详情，缺失引用降级为 `approval:null` 而不使整页失败。单页内部按消息时间正序，审批引用本身占一个分页项目。WebUI 先建立 WebSocket 并缓冲实时事件，首屏历史完成后按消息 ID、clientMessageId 和 approvalId 去重回放；滚动到顶部时按游标加载更早项目并保持阅读位置。没有当前会话时返回 `{ messages: [], nextCursor: null }`。
 
 ### `GET /api/web/files/:id`
 

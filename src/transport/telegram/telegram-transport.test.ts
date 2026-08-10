@@ -817,7 +817,13 @@ describe('TelegramTransport 审批', () => {
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 1000 }, message: { text: 'hi', message_id: 1 } })
     bus.emit('SessionCreated', { conversationId: CID, platform: 'telegram', userId: '42', cli: 'claude', cwd: '/w' })
 
-    bus.emit('ApprovalRequested', { conversationId: CID, approvalId: 'ap1', command: 'Bash', detail: '{"cmd":"ls"}' })
+    bus.emit('ApprovalRequested', {
+      conversationId: CID,
+      approvalId: 'ap1',
+      command: 'Bash',
+      detail: '{"cmd":"ls"}',
+      createdAt: Date.now(),
+    })
     await tick()
 
     expect(mock.sent.length).toBe(1)
@@ -853,7 +859,13 @@ describe('TelegramTransport 审批', () => {
 
     mock.handlers.text!({ from: { id: 42 }, chat: { id: 1000 }, message: { text: 'hi', message_id: 1 } })
     bus.emit('SessionCreated', { conversationId: CID, platform: 'telegram', userId: '42', cli: 'claude', cwd: '/w' })
-    bus.emit('ApprovalRequested', { conversationId: CID, approvalId: 'ap2', command: 'Write', detail: '{}' })
+    bus.emit('ApprovalRequested', {
+      conversationId: CID,
+      approvalId: 'ap2',
+      command: 'Write',
+      detail: '{}',
+      createdAt: Date.now(),
+    })
     await tick()
 
     const rejected: unknown[] = []
@@ -881,6 +893,7 @@ describe('TelegramTransport 审批', () => {
       approvalId: 'auto-tg',
       command: 'Bash',
       detail: '{"cmd":"ls"}',
+      createdAt: Date.now(),
       autoApproveAt: Date.now() + 5_000,
       autoApproveSeconds: 9,
     })
@@ -917,6 +930,7 @@ describe('TelegramTransport 审批', () => {
       approvalId: 'ap3',
       command: 'Write',
       detail: '{"file_path":"a_b.txt","content":"x*y+z"}',
+      createdAt: Date.now(),
     })
     await tick()
 
@@ -942,6 +956,7 @@ describe('TelegramTransport 审批', () => {
       approvalId: 'ap4',
       command: 'Write',
       detail: '{"file_path":"D:\\\\Users\\\\sheepyu\\\\hello.txt","content":"hi"}',
+      createdAt: Date.now(),
     })
     await tick()
 

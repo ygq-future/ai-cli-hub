@@ -194,7 +194,15 @@ describe('SessionOrchestrator', () => {
     await orch.handler.onMessage('do', CID)
     fake.emitApproval({ approvalId: 'a1', command: 'Bash', detail: '{"cmd":"ls"}' })
 
-    expect(seen).toEqual([{ conversationId: CID, approvalId: 'a1', command: 'Bash', detail: '{"cmd":"ls"}' }])
+    expect(seen).toEqual([
+      expect.objectContaining({
+        conversationId: CID,
+        approvalId: 'a1',
+        command: 'Bash',
+        detail: '{"cmd":"ls"}',
+        createdAt: expect.any(Number),
+      }),
+    ])
 
     await orch.destroy()
     agg.destroy()

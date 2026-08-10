@@ -749,20 +749,27 @@ function formatAudit(conv: Conversation, records: AuditLog[]): string {
     ...records.map((record, index) =>
       [
         '',
-        `### ${index + 1}. ${formatAuditAction(record.action)}`,
+        `### ${index + 1}. ${formatAuditStatus(record.status)}`,
         `- **Time**: \`${formatDate(record.createdAt)}\``,
-        `- **Operator**: \`${record.operator}\``,
+        `- **Tool**: \`${record.request.command}\``,
+        `- **Mode**: ${record.status === 'pending' ? '—' : record.automatic ? 'automatic' : 'manual'}`,
+        `- **Operator**: \`${record.operator ?? '—'}\``,
         '',
         '```text',
-        truncateForAudit(record.command),
+        truncateForAudit(formatAuditDetail(record.request.detail)),
         '```',
       ].join('\n'),
     ),
   ].join('\n')
 }
 
-function formatAuditAction(action: AuditLog['action']): string {
-  return action === 'approve' ? '✅ approved' : '❌ rejected'
+function formatAuditStatus(status: AuditLog['status']): string {
+  if (status === 'pending') return '⏳ pending'
+  return status === 'approved' ? '✅ approved' : '❌ rejected'
+}
+
+function formatAuditDetail(detail: AuditLog['request']['detail']): string {
+  return typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)
 }
 
 function formatConversationFiles(

@@ -90,8 +90,28 @@ function createMockRepos() {
       },
     },
     audit: {
-      async record(a: NewAuditLog) {
+      async createPending(a: NewAuditLog) {
         auditLogs.push(a as AuditLog)
+      },
+      async resolve(input: {
+        conversationId: ConversationId
+        approvalId: string
+        status: 'approved' | 'rejected'
+        operator: string
+        automatic: boolean
+      }) {
+        const index = auditLogs.findIndex(
+          row => row.conversationId === input.conversationId && row.approvalId === input.approvalId,
+        )
+        if (index < 0) return null
+        const current = auditLogs[index]!
+        if (current.status !== 'pending') return current
+        const resolved = { ...current, ...input }
+        auditLogs[index] = resolved
+        return resolved
+      },
+      async findByIds(ids: readonly string[]) {
+        return auditLogs.filter(row => ids.includes(row.id))
       },
       async listByConversation(id: ConversationId) {
         return auditLogs.filter(a => a.conversationId === id)
@@ -1392,12 +1412,14 @@ describe('CommandRouter', () => {
       cwd: '/old',
       text: 'hi',
     })
-    await repos.audit.record({
+    await repos.audit.createPending({
       id: 'audit-1',
       conversationId: cid,
-      command: 'command=Bash\napprovalId=a1\ndetail={"cmd":"rm x"}',
-      action: 'approve',
+      approvalId: 'a1',
+      request: { command: 'Bash', detail: { cmd: 'rm x' } },
+      status: 'approved',
       operator: 'u1',
+      automatic: false,
       createdAt: 1_700_000_000_000,
     })
     const replies: unknown[] = []
@@ -1416,7 +1438,8 @@ describe('CommandRouter', () => {
     expect(content).toContain('审批审计')
     expect(content).toContain(`**Conversation**: \`${cid}\``)
     expect(content).toContain('approved')
-    expect(content).toContain('command=Bash')
+    expect(content).toContain('**Tool**: `Bash`')
+    expect(content).toContain('"cmd": "rm x"')
   })
 
   test('/audit <shortId> 可查看自己的历史会话', async () => {
@@ -1435,12 +1458,14 @@ describe('CommandRouter', () => {
       cwd: '/old',
       text: 'audit session',
     })
-    await repos.audit.record({
+    await repos.audit.createPending({
       id: 'audit-1',
       conversationId: cid,
-      command: 'command=Write',
-      action: 'reject',
+      approvalId: 'a1',
+      request: { command: 'Write', detail: 'file=x' },
+      status: 'rejected',
       operator: 'u1',
+      automatic: false,
       createdAt: 1_700_000_000_000,
     })
     const replies: unknown[] = []

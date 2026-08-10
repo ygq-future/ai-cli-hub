@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V4 Web Control Plane 与已选高优先级加固（✅ 完成）** |
-| 代码 | ✅ React Web Control Plane；Web 平台会话隔离；跨重启认证；HTTP 出站接口；live/readiness 探针；空 Token 默认拒绝；HTTP/上传/WebSocket 资源边界与同源校验；自更新 WebUI 暂存构建、原子提升和失败恢复；Tailwind Vite 构建链；既有 Telegram/QQ、Claude/OpenCode、审批、媒体、记忆和运维能力保持通过。 |
+| 代码 | ✅ React Web Control Plane；Web 平台会话隔离；结构化审批审计与单消息表时间线；跨重启认证；HTTP 出站接口；live/readiness 探针；空 Token 默认拒绝；HTTP/上传/WebSocket 资源边界与同源校验；自更新 WebUI 暂存构建、原子提升和失败恢复；Tailwind Vite 构建链；既有 Telegram/QQ、Claude/OpenCode、媒体、记忆和运维能力保持通过。 |
 | 文档 | ✅ README、接口契约、Web Control Plane 任务书、设计/实施计划和延期维护项已同步 |
 | 阻塞项 | 无 |
 | 下一步 | 按需处理延期维护项：PDF 解析安全、后端代码模块拆分、前端包拆分。 |
@@ -328,6 +328,7 @@
 | 2026-07-29 | **WebUI Graphite / Porcelain Glass 视觉重构**：移除原有大面积墨绿色基底，深色主题改为冷调石墨黑、浅色主题改为瓷白雾灰；新增统一 Glass 表面变量、冷色环境光、半透明面板、饱和模糊、内高光与克制阴影，覆盖登录面板、应用框架、弹窗、下拉、消息气泡、输入区、状态栏和设置卡片。默认强调色由 emerald 改为冷蓝，旧本地 emerald 偏好自动回退为 blue，其余强调色在深浅主题分别校准；站点图标同步换为石墨黑与冷蓝并提升缓存版本。自动验收：format、format check、typecheck、lint、Vite 生产构建、25 项定向回归通过；全量 `bun test` 449 pass / 7 skip / 0 fail。 |
 | 2026-07-30 | **HTTP 消息接口兼容未转义多行内容**：确认标准 JSON 只允许以 `\n` 等转义表示字符串内换行，部分 Webhook/自动化工具直接写入真实换行时会被严格 `JSON.parse` 拒绝。`/api/platform-msg` 与 `/api/session-msg` 现统一采用“严格解析优先、受限兼容回退”：仅转义字符串内部未转义的换行、Tab 等控制字符并保持转发内容不变，缺逗号、尾随逗号、引号不闭合等结构错误仍返回 HTTP 400。同步接口契约并新增正反回归测试。自动验收：format、format check、typecheck、lint、Vite 生产构建通过；全量测试输出 451 pass / 7 skip / 0 fail（Bun 已输出完成汇总，但测试进程因残留句柄未自行退出）。 |
 | 2026-08-10 | **已选高优先级加固完成**：`/update confirm` 改为 frozen install、静态检查、WebUI 暂存构建、配置/数据库迁移和最后原子提升，提升失败恢复旧资源；Tailwind v4 改接 `@tailwindcss/vite`，消除无效规则警告。空 `http.authToken` 时所有受保护 API/WS 默认拒绝；新增公开 `/health/live` 与 `/health/ready`（旧 `/health` 为 readiness 别名），并限制 HTTP body。Web 上传新增隔离暂存目录、启动清理、15 分钟 TTL、20 文件/总容量配额和整批消费回滚；WebSocket 新增同源校验、5 连接、128 KiB payload、256 KiB 背压、协议字段限制与 Web 审批会话隔离。README、接口契约、任务书与 AGENTS 技术栈同步。自动验收：format/format check/typecheck/lint、Vite 生产构建通过；全量测试 466 pass / 7 skip / 0 fail。构建仅保留前端 chunk 大小提示，对应已延期的前端包拆分。 |
+| 2026-08-10 | **Web 审批审计与单时间线完成**：`audit_logs` 改为 approvalId、request JSONB、pending/approved/rejected、operator、automatic、createdAt 的结构化生命周期记录；`messages` 通过 `messageType=approval` 与 `auditLogId` 引用审批且不进入 CLI 上下文。Web 历史仍只分页 messages，再批量补齐审批详情；WebSocket 新增 `approval_resolved` 终态与重复操作幂等反馈，React 将聊天和审批合并为单一时间线，自动/手动决议均在原位置转为不可操作的终态卡片。`/audit`、接口契约、数据模型和任务书同步。迁移 `0018` 会按已确认方案清空旧 packed 审计数据。自动验收：format、format check、typecheck、lint、Vite 生产构建和 175 项定向回归通过；全量测试 469 pass / 7 skip / 0 fail。Bun 在输出完整测试汇总后仍有既有残留句柄，外层超时仅终止未退出进程。 |
 
 ## 6. 开放问题（Open Questions）
 

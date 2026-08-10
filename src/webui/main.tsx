@@ -48,18 +48,47 @@ type MessageAttachment = {
   url: string
 }
 type Message = {
+  type: 'chat'
   id: string
   role: 'user' | 'assistant'
   content: string
   attachments?: MessageAttachment[]
   streaming?: boolean
+  createdAt: number
 }
-type ServerMessage = Omit<Message, 'attachments'> & {
+type ServerMessage = Omit<Message, 'type' | 'attachments'> & {
+  type?: 'chat'
   attachments?: Array<Omit<MessageAttachment, 'url'>>
 }
 type ComposerFile = { id: string; file: File; previewUrl: string | null }
 type PreviewImage = { name: string; url: string; size: number | null }
-type Approval = { approvalId: string; conversationId: string; command: string; detail: string }
+type ApprovalState = 'pending' | 'resolving' | 'approved' | 'rejected' | 'unavailable'
+type Approval = {
+  type: 'approval'
+  id: string
+  createdAt: number
+  approvalId: string
+  conversationId: string
+  command: string
+  detail: string
+  status: ApprovalState
+  operator: string | null
+  automatic: boolean
+}
+type TimelineItem = Message | Approval
+type ServerApproval = {
+  id: string
+  conversationId: string
+  approvalId: string
+  request: { command: string; detail: JsonValue }
+  status: 'pending' | 'approved' | 'rejected'
+  operator: string | null
+  automatic: boolean
+  createdAt: number
+}
+type ServerTimelineItem =
+  | (ServerMessage & { type: 'chat' })
+  | { type: 'approval'; id: string; createdAt: number; approval: ServerApproval | null }
 type Status = {
   platform: 'web'
   cli: string
@@ -83,6 +112,11 @@ type ServerEvent = {
   conversationId?: string
   command?: string
   detail?: string
+  createdAt?: number
+  status?: string
+  operator?: string
+  automatic?: boolean
+  alreadyHandled?: boolean
   message?: string | ServerMessage
   clientMessageId?: string
   attachments?: Array<Omit<MessageAttachment, 'url'>>
@@ -156,10 +190,9 @@ function App() {
   const [files, setFiles] = useState<ComposerFile[]>([])
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
+  const [timeline, setTimeline] = useState<TimelineItem[]>([])
   const [historyCursor, setHistoryCursor] = useState<string | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
-  const [approvals, setApprovals] = useState<Approval[]>([])
   const [status, setStatus] = useState<Status | null>(null)
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting')
   const [settings, setSettings] = useState(false)
@@ -176,6 +209,9 @@ function App() {
   const objectUrls = useRef(new Set<string>())
   const prependScrollHeight = useRef<number | null>(null)
   const historyLoadingRef = useRef(false)
+  const initialHistoryReady = useRef(false)
+  const bufferedTimelineEvents = useRef<ServerEvent[]>([])
+  const applyServerEventRef = useRef<(payload: ServerEvent) => void>(() => undefined)
 
   const zh = preferences.locale === 'zh-CN'
   const t: Translator = (cn, en) => (zh ? cn : en)
@@ -194,19 +230,20 @@ function App() {
       const response = await fetch(`/api/web/history?${query}`)
       if (!response.ok) return
       const value = (await response.json()) as {
-        messages: ServerMessage[]
+        messages: ServerTimelineItem[]
         nextCursor: string | null
       }
-      const page = value.messages.map(hydrateMessage)
-      setMessages(current => {
-        if (!before) return page
-        const existing = new Set(current.map(message => message.id))
-        return [...page.filter(message => !existing.has(message.id)), ...current]
-      })
+      const page = value.messages.map(hydrateTimelineItem)
+      setTimeline(current => prependHistory(page, current))
       setHistoryCursor(value.nextCursor)
     } finally {
       historyLoadingRef.current = false
       setHistoryLoading(false)
+      if (!before) {
+        initialHistoryReady.current = true
+        const pending = bufferedTimelineEvents.current.splice(0)
+        for (const payload of pending) applyServerEventRef.current(payload)
+      }
     }
   }
   const addFiles = (incoming: readonly File[]) => {
@@ -240,9 +277,85 @@ function App() {
     new Notification(title, { body: body.slice(0, 180), icon: '/webui/assets/icon.svg' })
   }
 
+  applyServerEventRef.current = payload => {
+    if (payload.type === 'output' && typeof payload.content === 'string') {
+      const content = payload.content
+      setTimeline(current =>
+        appendOutput(current, content, payload.final === true, hydrateAttachments(payload.attachments)),
+      )
+      if (payload.final === true)
+        showNotification(document.documentElement.lang === 'en' ? 'New reply' : '收到新回复', plainTextPreview(content))
+    }
+    if (
+      payload.type === 'user_message' &&
+      typeof payload.clientMessageId === 'string' &&
+      typeof payload.message === 'object' &&
+      payload.message !== null
+    ) {
+      const canonical = hydrateMessage(payload.message)
+      setTimeline(current => {
+        const withoutCanonical = current.filter(item => item.id !== canonical.id)
+        const optimisticIndex = withoutCanonical.findIndex(
+          item => item.type === 'chat' && item.id === payload.clientMessageId,
+        )
+        if (optimisticIndex < 0) return [...withoutCanonical, canonical]
+        return withoutCanonical.map((item, index) => (index === optimisticIndex ? canonical : item))
+      })
+    }
+    if (
+      payload.type === 'approval' &&
+      typeof payload.approvalId === 'string' &&
+      typeof payload.conversationId === 'string' &&
+      typeof payload.command === 'string' &&
+      typeof payload.detail === 'string'
+    ) {
+      const approval: Approval = {
+        type: 'approval',
+        id: `approval:${payload.approvalId}`,
+        createdAt: typeof payload.createdAt === 'number' ? payload.createdAt : Date.now(),
+        approvalId: payload.approvalId,
+        conversationId: payload.conversationId,
+        command: payload.command,
+        detail: payload.detail,
+        status: 'pending',
+        operator: null,
+        automatic: false,
+      }
+      setTimeline(current => upsertApproval(current, approval))
+      showNotification(document.documentElement.lang === 'en' ? 'Approval required' : '需要审批', approval.command)
+    }
+    if (
+      payload.type === 'approval_resolved' &&
+      typeof payload.approvalId === 'string' &&
+      (payload.status === 'approved' || payload.status === 'rejected') &&
+      typeof payload.operator === 'string'
+    ) {
+      setTimeline(current =>
+        current.map(item =>
+          item.type === 'approval' && item.approvalId === payload.approvalId
+            ? {
+                ...item,
+                status: payload.status as 'approved' | 'rejected',
+                operator: payload.operator as string,
+                automatic: payload.automatic === true,
+              }
+            : item,
+        ),
+      )
+      if (payload.alreadyHandled === true) setError(t('此次审批已处理。', 'This approval was already handled.'))
+    }
+    if (payload.type === 'error')
+      setError(
+        typeof payload.message === 'string' ? payload.message : t('服务器返回错误。', 'The server returned an error.'),
+      )
+    void statusLoad()
+  }
+
   useEffect(() => {
     if (!ready) return
     let disposed = false
+    initialHistoryReady.current = false
+    bufferedTimelineEvents.current = []
     const scheduleReconnect = () => {
       attempts.current += 1
       setConnection('reconnecting')
@@ -272,6 +385,7 @@ function App() {
         attempts.current = 0
         setConnection('connected')
         void statusLoad()
+        if (!initialHistoryReady.current && !historyLoadingRef.current) void historyLoad().catch(() => undefined)
       }
       ws.onmessage = event => {
         let payload: ServerEvent
@@ -280,63 +394,18 @@ function App() {
         } catch {
           return
         }
-        if (payload.type === 'output' && typeof payload.content === 'string') {
-          const content = payload.content
-          setMessages(current =>
-            appendOutput(current, content, payload.final === true, hydrateAttachments(payload.attachments)),
-          )
-          if (payload.final === true)
-            showNotification(
-              document.documentElement.lang === 'en' ? 'New reply' : '收到新回复',
-              plainTextPreview(content),
-            )
+        if (!initialHistoryReady.current && isTimelineServerEvent(payload)) {
+          bufferedTimelineEvents.current.push(payload)
+          return
         }
-        if (
-          payload.type === 'user_message' &&
-          typeof payload.clientMessageId === 'string' &&
-          typeof payload.message === 'object' &&
-          payload.message !== null
-        ) {
-          const canonical = hydrateMessage(payload.message)
-          setMessages(current => {
-            const withoutCanonical = current.filter(message => message.id !== canonical.id)
-            const optimisticIndex = withoutCanonical.findIndex(message => message.id === payload.clientMessageId)
-            if (optimisticIndex < 0) return [...withoutCanonical, canonical]
-            return withoutCanonical.map((message, index) => (index === optimisticIndex ? canonical : message))
-          })
-        }
-        if (
-          payload.type === 'approval' &&
-          typeof payload.approvalId === 'string' &&
-          typeof payload.conversationId === 'string' &&
-          typeof payload.command === 'string' &&
-          typeof payload.detail === 'string'
-        ) {
-          const approval: Approval = {
-            approvalId: payload.approvalId,
-            conversationId: payload.conversationId,
-            command: payload.command,
-            detail: payload.detail,
-          }
-          setApprovals(current => [...current.filter(item => item.approvalId !== approval.approvalId), approval])
-          showNotification(document.documentElement.lang === 'en' ? 'Approval required' : '需要审批', approval.command)
-        }
-        if (payload.type === 'error')
-          setError(
-            typeof payload.message === 'string'
-              ? payload.message
-              : t('服务器返回错误。', 'The server returned an error.'),
-          )
-        void statusLoad()
+        applyServerEventRef.current(payload)
       }
       ws.onclose = () => {
         if (disposed) return
         void verifySessionAndReconnect()
       }
     }
-    void historyLoad()
-      .catch(() => undefined)
-      .finally(connect)
+    connect()
     return () => {
       disposed = true
       if (retryTimer.current !== null) window.clearTimeout(retryTimer.current)
@@ -354,7 +423,7 @@ function App() {
     }
     const frame = requestAnimationFrame(() => element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' }))
     return () => cancelAnimationFrame(frame)
-  }, [messages, approvals])
+  }, [timeline])
   useEffect(
     () => () => {
       for (const url of objectUrls.current) URL.revokeObjectURL(url)
@@ -409,9 +478,10 @@ function App() {
       uploadIds.push(((await response.json()) as { upload: { id: string } }).upload.id)
     }
     socket.current.send(JSON.stringify({ v: 1, type: 'message', text, uploadIds, clientMessageId }))
-    setMessages(current => [
+    setTimeline(current => [
       ...current,
       {
+        type: 'chat',
         id: clientMessageId,
         role: 'user',
         content:
@@ -428,6 +498,7 @@ function App() {
           fileSize: item.file.size,
           url: item.previewUrl ?? '',
         })),
+        createdAt: Date.now(),
       },
     ])
     setText('')
@@ -446,7 +517,11 @@ function App() {
     socket.current.send(
       JSON.stringify({ v: 1, type, approvalId: approval.approvalId, conversationId: approval.conversationId }),
     )
-    setApprovals(current => current.filter(item => item.approvalId !== approval.approvalId))
+    setTimeline(current =>
+      current.map(item =>
+        item.type === 'approval' && item.approvalId === approval.approvalId ? { ...item, status: 'resolving' } : item,
+      ),
+    )
   }
   const requestNotifications = async () => {
     if (typeof Notification === 'undefined') return
@@ -519,24 +594,25 @@ function App() {
                 )}
               </div>
             )}
-            {!messages.length && !approvals.length && (
+            {!timeline.length && (
               <div className="empty-state">
                 <span>✦</span>
                 <p>{t('从这里开始一段新的远程对话。', 'Start a new remote conversation here.')}</p>
               </div>
             )}
-            {messages.map(message => (
-              <article className={`message ${message.role}`} key={message.id}>
-                <div className="markdown">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-                </div>
-                <MessageAttachments attachments={message.attachments} onPreview={setPreviewImage} t={t} />
-                <span className={message.streaming ? 'stream-caret' : ''} />
-              </article>
-            ))}
-            {approvals.map(approval => (
-              <ApprovalCard key={approval.approvalId} approval={approval} decide={decide} t={t} />
-            ))}
+            {timeline.map(item =>
+              item.type === 'chat' ? (
+                <article className={`message ${item.role}`} key={item.id}>
+                  <div className="markdown">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                  </div>
+                  <MessageAttachments attachments={item.attachments} onPreview={setPreviewImage} t={t} />
+                  <span className={item.streaming ? 'stream-caret' : ''} />
+                </article>
+              ) : (
+                <ApprovalCard key={item.approvalId} approval={item} decide={decide} t={t} />
+              ),
+            )}
           </div>
           <form className="composer-wrap" onSubmit={send}>
             <div className="compose">
@@ -833,22 +909,46 @@ function ApprovalCard({
   decide: (approval: Approval, action: 'approve' | 'reject') => void
   t: Translator
 }) {
+  const terminal = approval.status === 'approved' || approval.status === 'rejected' || approval.status === 'unavailable'
+  const statusText =
+    approval.status === 'approved'
+      ? approval.automatic
+        ? t('已自动批准', 'Automatically approved')
+        : t('已批准', 'Approved')
+      : approval.status === 'rejected'
+        ? t('已拒绝', 'Rejected')
+        : approval.status === 'resolving'
+          ? t('正在处理', 'Resolving')
+          : approval.status === 'unavailable'
+            ? t('审批记录不可用', 'Approval record unavailable')
+            : t('需要授权', 'Authorization required')
   return (
-    <article className="approval-card">
+    <article className={`approval-card ${approval.status}`}>
       <div>
-        <span>{t('需要授权', 'Authorization required')}</span>
+        <span>{statusText}</span>
         <b>{approval.command}</b>
         <pre>{approval.detail}</pre>
+        {terminal && approval.operator && (
+          <small>
+            {t('操作人', 'Operator')} · {approval.operator}
+          </small>
+        )}
       </div>
-      <footer>
-        <Button variant="secondary" type="button" onClick={() => decide(approval, 'reject')}>
-          {t('拒绝', 'Reject')}
-        </Button>
-        <Button type="button" onClick={() => decide(approval, 'approve')}>
-          <Check size={16} />
-          {t('允许', 'Allow')}
-        </Button>
-      </footer>
+      {!terminal && (
+        <footer>
+          <Button
+            variant="secondary"
+            type="button"
+            disabled={approval.status === 'resolving'}
+            onClick={() => decide(approval, 'reject')}>
+            {t('拒绝', 'Reject')}
+          </Button>
+          <Button type="button" disabled={approval.status === 'resolving'} onClick={() => decide(approval, 'approve')}>
+            {approval.status === 'resolving' ? <LoaderCircle size={16} /> : <Check size={16} />}
+            {approval.status === 'resolving' ? t('处理中', 'Resolving') : t('允许', 'Allow')}
+          </Button>
+        </footer>
+      )}
     </article>
   )
 }
@@ -1172,21 +1272,28 @@ function ArrayField({
   )
 }
 
-function appendOutput(messages: Message[], content: string, final: boolean, attachments: MessageAttachment[] = []) {
-  const last = messages.at(-1)
-  if (last?.role === 'assistant' && last.streaming)
+function appendOutput(
+  timeline: TimelineItem[],
+  content: string,
+  final: boolean,
+  attachments: MessageAttachment[] = [],
+) {
+  const last = timeline.at(-1)
+  if (last?.type === 'chat' && last.role === 'assistant' && last.streaming)
     return [
-      ...messages.slice(0, -1),
+      ...timeline.slice(0, -1),
       { ...last, content, attachments: attachments.length ? attachments : last.attachments, streaming: !final },
     ]
   return [
-    ...messages,
+    ...timeline,
     {
+      type: 'chat' as const,
       id: crypto.randomUUID(),
       role: 'assistant' as const,
       content,
       attachments,
       streaming: !final,
+      createdAt: Date.now(),
     },
   ]
 }
@@ -1204,7 +1311,63 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 function hydrateMessage(message: ServerMessage): Message {
-  return { ...message, attachments: hydrateAttachments(message.attachments) }
+  return { ...message, type: 'chat', attachments: hydrateAttachments(message.attachments) }
+}
+function hydrateTimelineItem(item: ServerTimelineItem): TimelineItem {
+  if (item.type === 'chat') return hydrateMessage(item)
+  if (!item.approval) {
+    return {
+      type: 'approval',
+      id: item.id,
+      createdAt: item.createdAt,
+      approvalId: `unavailable:${item.id}`,
+      conversationId: '',
+      command: '—',
+      detail: '',
+      status: 'unavailable',
+      operator: null,
+      automatic: false,
+    }
+  }
+  return {
+    type: 'approval',
+    id: item.id,
+    createdAt: item.createdAt,
+    approvalId: item.approval.approvalId,
+    conversationId: item.approval.conversationId,
+    command: item.approval.request.command,
+    detail: formatApprovalDetail(item.approval.request.detail),
+    status: item.approval.status,
+    operator: item.approval.operator,
+    automatic: item.approval.automatic,
+  }
+}
+function formatApprovalDetail(detail: JsonValue): string {
+  return typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)
+}
+function timelineKey(item: TimelineItem): string {
+  return item.type === 'approval' ? `approval:${item.approvalId}` : `chat:${item.id}`
+}
+function prependHistory(page: TimelineItem[], current: TimelineItem[]): TimelineItem[] {
+  const currentKeys = new Set(current.map(timelineKey))
+  return [...page.filter(item => !currentKeys.has(timelineKey(item))), ...current]
+}
+function upsertApproval(timeline: TimelineItem[], incoming: Approval): TimelineItem[] {
+  const index = timeline.findIndex(item => item.type === 'approval' && item.approvalId === incoming.approvalId)
+  if (index < 0) return [...timeline, incoming]
+  return timeline.map((item, itemIndex) => {
+    if (itemIndex !== index || item.type !== 'approval') return item
+    if (item.status === 'approved' || item.status === 'rejected') return item
+    return { ...incoming, id: item.id, createdAt: item.createdAt }
+  })
+}
+function isTimelineServerEvent(payload: ServerEvent): boolean {
+  return (
+    payload.type === 'output' ||
+    payload.type === 'user_message' ||
+    payload.type === 'approval' ||
+    payload.type === 'approval_resolved'
+  )
 }
 function hydrateAttachments(attachments: Array<Omit<MessageAttachment, 'url'>> | undefined): MessageAttachment[] {
   return (attachments ?? []).map(attachment => ({

@@ -265,3 +265,80 @@ test('WebSocket transport 只允许已知 Web 会话提交审批', async () => {
   expect(approved).toEqual([{ conversationId, approvalId: 'approval-2', operator: 'web-admin' }])
   await transport.stop()
 })
+
+test('WebSocket transport 下发手动与自动审批终态，并对重复操作返回已处理', async () => {
+  const bus = createEventBus()
+  const { gateway, peer, sent } = createGateway()
+  const approved: unknown[] = []
+  const rejected: unknown[] = []
+  bus.on('ApprovalApproved', event => approved.push(event))
+  bus.on('ApprovalRejected', event => rejected.push(event))
+  const transport = createWebSocketTransport({ bus, gateway, userId: 'web-admin' })
+  await transport.start()
+  const conversationId = 'web-conversation' as ConversationId
+  bus.emit('SessionMapped', { conversationId, platform: 'web', userId: 'web-admin' })
+
+  bus.emit('ApprovalRequested', {
+    conversationId,
+    approvalId: 'approval-auto',
+    command: 'Bash',
+    detail: '{"command":"git pull"}',
+    createdAt: 100,
+  })
+  bus.emit('ApprovalApproved', {
+    conversationId,
+    approvalId: 'approval-auto',
+    operator: 'auto:web-admin',
+    automatic: true,
+  })
+  bus.emit('ApprovalRejected', {
+    conversationId,
+    approvalId: 'approval-manual',
+    operator: 'web-admin',
+  })
+
+  expect(sent.map(data => JSON.parse(data))).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        v: 1,
+        type: 'approval',
+        approvalId: 'approval-auto',
+        createdAt: 100,
+      }),
+      {
+        v: 1,
+        type: 'approval_resolved',
+        conversationId,
+        approvalId: 'approval-auto',
+        status: 'approved',
+        operator: 'auto:web-admin',
+        automatic: true,
+      },
+      {
+        v: 1,
+        type: 'approval_resolved',
+        conversationId,
+        approvalId: 'approval-manual',
+        status: 'rejected',
+        operator: 'web-admin',
+        automatic: false,
+      },
+    ]),
+  )
+
+  const approvedBeforeDuplicate = approved.length
+  gateway.receive(peer, JSON.stringify({ v: 1, type: 'approve', conversationId, approvalId: 'approval-auto' }))
+  expect(approved).toHaveLength(approvedBeforeDuplicate)
+  expect(JSON.parse(sent.at(-1) ?? '{}')).toEqual({
+    v: 1,
+    type: 'approval_resolved',
+    conversationId,
+    approvalId: 'approval-auto',
+    status: 'approved',
+    operator: 'auto:web-admin',
+    automatic: true,
+    alreadyHandled: true,
+  })
+  expect(rejected).toHaveLength(1)
+  await transport.stop()
+})
