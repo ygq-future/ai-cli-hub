@@ -136,6 +136,7 @@
 | D81 | **`/reset` 恢复默认值而非删除偏好**：保留 `(platform,userId)` 的 `user_preferences` 与已接入 CLI 偏好记录，以 upsert/update 恢复 `zh/claude/关闭自动审批/5 秒`，Claude/OpenCode cwd 恢复 `~/ai-workspace/.<cli>-<platform>`，model ID/name 置空；同一用户所有未关闭（含 idle）conversation 的 cwd 按 CLI 同步后停止 adapter，下一条消息从默认 cwd 干净启动。 | 2026-07-14 |
 | D82 | **个人部署加固按实际风险取舍实施**：本轮执行自更新暂存构建、空 HTTP Token 全部拒绝受保护请求、上传/WS 资源边界、WebSocket 同源与审批隔离、live/readiness 健康探针及 Tailwind Vite 构建修复。生产 `/update` 不运行测试；私人日志、首消息并发和数据库 CI 明确不改且不列入延期。延期项只保留 PDF 解析漏洞、后端代码模块拆分和 WebUI 包拆分。详细设计见 `docs/superpowers/specs/2026-08-10-selected-hardening-design.md`。 | 2026-08-10 |
 | D83 | **代码拆分只改善文件职责，不重构现有解耦架构**：延期任务包含前后端两部分，并按“先 WebUI、后 Bun 后端”执行。WebUI 先把 `main.tsx`/`react.css` 按页面、聊天、设置、附件、状态、hooks/API/WebSocket、设计令牌和组件样式拆开，再对设置与 Markdown 等做懒加载和 bundle 分包；后端只在现有依赖矩阵内拆 `server.ts`、`main.ts`、`commands.ts`、大型 Transport/Orchestrator 等超大文件，`main.ts` 继续作为唯一 Composition Root，EventBus、抽象接口和模块依赖方向不变。当前继续延期，优先修复 Web 审批状态与历史时间线。 | 2026-08-10 |
+| D84 | **Web 审批通过 messages 引用结构化 audit 进入单表时间线**：`audit_logs` 改为 approvalId + request JSONB + pending/approved/rejected + operator + automatic + createdAt 的生命周期记录；0018 一次性清空旧 packed command 数据，迁移后恢复永久不可删约束。Web 审批在 messages 写 `messageType=approval`、`auditLogId`、`contextEligible=false` 的引用行，历史继续只分页 messages，再批量补齐 audit，避免双表游标和 N+1。实时 WebSocket 转发终态，React 就地更新卡片；Telegram/QQ 不变。设计见 `docs/superpowers/specs/2026-08-10-web-approval-timeline-design.md`。 | 2026-08-10 |
 
 ---
 
