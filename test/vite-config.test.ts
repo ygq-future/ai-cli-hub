@@ -7,8 +7,9 @@ test('WebUI 构建资源使用 /webui/ 公共路径', async () => {
 })
 
 test('WebUI 通过 Tailwind Vite 插件构建并提供暂存构建入口', async () => {
-  const [config, packageJson] = await Promise.all([
+  const [config, eslintConfig, packageJson] = await Promise.all([
     readFile('vite.config.ts', 'utf8'),
+    readFile('eslint.config.js', 'utf8'),
     readFile('package.json', 'utf8').then(value => JSON.parse(value) as Record<string, Record<string, string>>),
   ])
 
@@ -19,6 +20,7 @@ test('WebUI 通过 Tailwind Vite 插件构建并提供暂存构建入口', async
   )
   expect(packageJson.devDependencies?.['@tailwindcss/vite']).toBeDefined()
   expect(packageJson.devDependencies?.['@tailwindcss/cli']).toBeUndefined()
+  expect(eslintConfig).toContain("'.data/**'")
 })
 
 test('应用运行时不触发 WebUI 构建', async () => {
