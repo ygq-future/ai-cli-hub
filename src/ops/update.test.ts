@@ -34,9 +34,10 @@ describe('update runner', () => {
     expect(preview).toContain('git status --short')
     expect(preview).toContain('git pull --ff-only')
     expect(preview).toContain('bun install --frozen-lockfile')
-    expect(preview).toContain('bun run webui:build')
+    expect(preview).toContain('bun run webui:build:staged')
     expect(preview).toContain('bun run setting:migrate')
     expect(preview).toContain('bun run db:migrate')
+    expect(preview).toContain('bun run webui:promote')
     expect(preview).toContain('`pm2 restart ai-cli-hub after 1500ms`')
     expect(preview).toContain('/update confirm')
   })
@@ -114,21 +115,22 @@ describe('update runner', () => {
       'git status --short',
       'git pull --ff-only',
       'bun install --frozen-lockfile',
-      'bun run webui:build',
-      'bun run setting:migrate',
-      'bun run db:migrate',
       'bun run format:check',
       'bun run typecheck',
       'bun run lint',
+      'bun run webui:build:staged',
+      'bun run setting:migrate',
+      'bun run db:migrate',
+      'bun run webui:promote',
     ])
     expect(notices).toEqual(['chat-1/msg-1'])
     expect(restarts).toEqual(['pm2 restart ai-cli-hub | /app/ai-cli-hub | 1500'])
     expect(report).toContain('自更新完成')
-    expect(report).toContain('已完成 **9** 项检查与更新')
+    expect(report).toContain('已完成 **10** 项检查与更新')
     expect(report).toContain('**命令**: `pm2 restart ai-cli-hub`')
   })
 
-  test('restart notice failure stops before scheduling restart', async () => {
+  test('restart notice failure warns but still schedules restart', async () => {
     const restarts: string[] = []
     const runner = createUpdateRunner({
       config: config(),
@@ -146,9 +148,9 @@ describe('update runner', () => {
 
     const report = await runner.run({ platform: 'telegram', chatId: 'chat-1', nativeId: 'msg-1' })
 
-    expect(restarts).toEqual([])
-    expect(report).toContain('自更新失败')
-    expect(report).toContain('写入重启通知标记失败：disk full')
+    expect(restarts).toEqual(['pm2'])
+    expect(report).toContain('自更新完成')
+    expect(report).toContain('写入重启通知失败：disk full')
   })
 
   test('failed step stops and does not schedule restart', async () => {

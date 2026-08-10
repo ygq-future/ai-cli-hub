@@ -139,7 +139,7 @@ git commit -m "build: wire Tailwind into Vite"
 - Produces: `webui:promote` package script。
 - Consumes: Task 1 的 `webui:build:staged`。
 
-- [ ] **Step 1: 写提升脚本失败测试**
+- [x] **Step 1: 写提升脚本失败测试**
 
 使用临时目录覆盖三种行为：
 
@@ -158,13 +158,13 @@ test('rejects a staged build without index and preserves target', async () => {
 })
 ```
 
-- [ ] **Step 2: 验证提升测试失败**
+- [x] **Step 2: 验证提升测试失败**
 
 Run: `bun test scripts/promote-webui.test.ts`
 
 Expected: 模块不存在。
 
-- [ ] **Step 3: 实现提升脚本**
+- [x] **Step 3: 实现提升脚本**
 
 使用 `node:fs/promises` 的 `access`、`rename`、`rm`：
 
@@ -190,7 +190,7 @@ export async function promoteWebUi(input: PromoteWebUiInput): Promise<void> {
 "webui:promote": "bun scripts/promote-webui.ts"
 ```
 
-- [ ] **Step 4: 写更新顺序失败测试**
+- [x] **Step 4: 写更新顺序失败测试**
 
 将 `src/ops/update.test.ts` 成功调用顺序更新为：
 
@@ -211,13 +211,13 @@ expect(calls).toEqual([
 
 增加通知写入失败仍安排重启并返回警告的测试。
 
-- [ ] **Step 5: 验证更新测试失败**
+- [x] **Step 5: 验证更新测试失败**
 
 Run: `bun test src/ops/update.test.ts`
 
 Expected: 顺序和通知降级断言失败。
 
-- [ ] **Step 6: 实现更新顺序与通知降级**
+- [x] **Step 6: 实现更新顺序与通知降级**
 
 `createUpdateSteps()` 按上述顺序返回命令。步骤完成后：
 
@@ -234,7 +234,7 @@ deps.scheduleRestart(...)
 return formatUpdateSuccess(results, restart, delayMs, restartNoticeWarning)
 ```
 
-- [ ] **Step 7: 定向验证、格式化并提交**
+- [x] **Step 7: 定向验证、格式化并提交**
 
 ```bash
 bun test scripts/promote-webui.test.ts src/ops/update.test.ts

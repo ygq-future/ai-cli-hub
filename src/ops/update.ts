@@ -82,14 +82,12 @@ export function createUpdateRunner(deps: UpdateRunnerDeps): UpdateRunner {
 
       const restart = formatCommand(deps.config.UPDATE_RESTART_COMMAND, deps.config.UPDATE_RESTART_ARGS)
       if (deps.config.UPDATE_RESTART_COMMAND.trim()) {
+        let restartNoticeWarning: string | null = null
         if (ref && deps.writeRestartNotice) {
           try {
             await deps.writeRestartNotice(ref)
           } catch (err) {
-            return formatUpdateFailure(
-              results,
-              `写入重启通知标记失败：${err instanceof Error ? err.message : String(err)}`,
-            )
+            restartNoticeWarning = `写入重启通知失败：${err instanceof Error ? err.message : String(err)}`
           }
         }
         deps.scheduleRestart(
@@ -98,7 +96,7 @@ export function createUpdateRunner(deps: UpdateRunnerDeps): UpdateRunner {
           deps.config.UPDATE_WORKDIR,
           deps.config.UPDATE_RESTART_DELAY_MS,
         )
-        return formatUpdateSuccess(results, restart, deps.config.UPDATE_RESTART_DELAY_MS)
+        return formatUpdateSuccess(results, restart, deps.config.UPDATE_RESTART_DELAY_MS, restartNoticeWarning)
       }
 
       return formatUpdateSuccess(results, null, null)
@@ -110,12 +108,13 @@ function createUpdateSteps(): CommandSpec[] {
   return [
     { label: 'git pull', command: 'git', args: ['pull', '--ff-only'], critical: true },
     { label: 'install dependencies', command: 'bun', args: ['install', '--frozen-lockfile'], critical: true },
-    { label: 'build webui', command: 'bun', args: ['run', 'webui:build'], critical: true },
-    { label: 'settings migration', command: 'bun', args: ['run', 'setting:migrate'], critical: true },
-    { label: 'database migration', command: 'bun', args: ['run', 'db:migrate'], critical: true },
     { label: 'format check', command: 'bun', args: ['run', 'format:check'], critical: true },
     { label: 'typecheck', command: 'bun', args: ['run', 'typecheck'], critical: true },
     { label: 'lint', command: 'bun', args: ['run', 'lint'], critical: true },
+    { label: 'build staged webui', command: 'bun', args: ['run', 'webui:build:staged'], critical: true },
+    { label: 'settings migration', command: 'bun', args: ['run', 'setting:migrate'], critical: true },
+    { label: 'database migration', command: 'bun', args: ['run', 'db:migrate'], critical: true },
+    { label: 'promote webui', command: 'bun', args: ['run', 'webui:promote'], critical: true },
   ]
 }
 
@@ -167,7 +166,12 @@ function formatUpdatePreview(input: {
   ].join('\n')
 }
 
-function formatUpdateSuccess(results: UpdateStepResult[], restart: string | null, delayMs: number | null): string {
+function formatUpdateSuccess(
+  results: UpdateStepResult[],
+  restart: string | null,
+  delayMs: number | null,
+  warning: string | null = null,
+): string {
   return [
     '## ✅ 自更新完成',
     '',
@@ -175,6 +179,7 @@ function formatUpdateSuccess(results: UpdateStepResult[], restart: string | null
     '',
     '### 执行结果',
     ...results.map(formatStepSuccess),
+    warning ? `> ⚠️ ${warning}` : '',
     '',
     '### 重启安排',
     restart && delayMs != null
@@ -221,7 +226,8 @@ function formatStepLabel(label: string): string {
     'check clean worktree': '工作树检查',
     'git pull': '拉取最新代码',
     'install dependencies': '同步依赖',
-    'build webui': '构建 WebUI',
+    'build staged webui': '暂存构建 WebUI',
+    'promote webui': '切换 WebUI 构建产物',
     'settings migration': '同步配置模板',
     'database migration': '数据库迁移',
     'format check': '代码格式检查',

@@ -13,6 +13,7 @@
     "format:check": "prettier --check .",
     "webui:build": "vite build",
     "webui:build:staged": "vite build --outDir ../../.data/update/webui-next --emptyOutDir",
+    "webui:promote": "bun scripts/promote-webui.ts",
     "setting:migrate": "bun scripts/setting-migrate.ts",
     "setting": "tsx scripts/setting.ts",
     "db:generate": "drizzle-kit generate",
