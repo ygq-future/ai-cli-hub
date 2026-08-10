@@ -134,6 +134,7 @@
 | D79 | **`/clear`/`/reset` 通过停止 Adapter 清除 CLI 上下文**：不分别调用 Claude `/clear` 或 OpenCode `/new` 等平台私有命令；持久内容清理完成后发 `ConversationContextReset`，orchestrator 立即摘除并停止当前会话 adapter。conversation 不关闭，下一条消息按原配置（`/reset` 为默认配置）懒启动干净 CLI。 | 2026-07-14 |
 | D80 | **CLI 默认工作目录按平台隔离**：未保存 cwd 时使用 `~/ai-workspace/.<cli>-<platform>`，例如 Telegram Claude 为 `.claude-telegram`、QQ Claude 为 `.claude-qq`，避免不同 Transport 的并行 Adapter 共享磁盘工作区。已有 `user_cli_preferences.cwd` 不自动迁移，防止静默切走正在使用的项目；`/reset` 会回到新的平台默认目录。 | 2026-07-14 |
 | D81 | **`/reset` 恢复默认值而非删除偏好**：保留 `(platform,userId)` 的 `user_preferences` 与已接入 CLI 偏好记录，以 upsert/update 恢复 `zh/claude/关闭自动审批/5 秒`，Claude/OpenCode cwd 恢复 `~/ai-workspace/.<cli>-<platform>`，model ID/name 置空；同一用户所有未关闭（含 idle）conversation 的 cwd 按 CLI 同步后停止 adapter，下一条消息从默认 cwd 干净启动。 | 2026-07-14 |
+| D82 | **个人部署加固按实际风险取舍实施**：本轮执行自更新暂存构建、空 HTTP Token 全部拒绝受保护请求、上传/WS 资源边界、WebSocket 同源与审批隔离、live/readiness 健康探针及 Tailwind Vite 构建修复。生产 `/update` 不运行测试；私人日志、首消息并发和数据库 CI 明确不改且不列入延期。延期项只保留 PDF 解析漏洞、后端代码模块拆分和 WebUI 包拆分。详细设计见 `docs/superpowers/specs/2026-08-10-selected-hardening-design.md`。 | 2026-08-10 |
 
 ---
 
@@ -155,6 +156,12 @@
 
 - **JSON setting 迁移**：`scripts/setting-migrate.ts` + `scripts/setting.ts`，把 `.env.example` 结构化配置项迁移为 `settings.json`（13 分类嵌套 JSON），`loadConfig` 改为读 JSON 不再读 env。✅ 已完成（2026-07-11）。
 - **日常维护**：依赖升级、测试稳态、日志降噪、性能微调。后续需求按需排入。
+
+### 延期维护项
+
+- **PDF 解析安全**：当前 `pdf-to-img@6.2.0 -> pdfjs-dist@5.6.205` 命中 GHSA-hq66-cqwq-w95j；个人部署暂时接受风险，后续再决定禁用、隔离或替换渲染路径。
+- **代码模块拆分**：后端大型文件按业务边界拆分，当前不影响功能，后续维护时处理。
+- **前端包拆分**：WebUI 设置、Markdown 等按需加载和 bundle 分包延期处理。
 
 ---
 
