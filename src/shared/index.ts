@@ -1,3 +1,5 @@
+export { COMMAND_CATALOG, getCommandDescription, getPrimaryHelpCommands } from './command-catalog'
+export type { CommandCatalogCategory, CommandCatalogEntry } from './command-catalog'
 export {
   DEFAULT_AUTO_APPROVE_SECONDS,
   DEFAULT_MEMORY_NAMESPACE,

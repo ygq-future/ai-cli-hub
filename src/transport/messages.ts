@@ -1,5 +1,10 @@
 /** 所有 Transport 共用的静态命令文案。 */
-import type { UserLanguage } from '../shared'
+import {
+  getCommandDescription,
+  getPrimaryHelpCommands,
+  type CommandCatalogCategory,
+  type UserLanguage,
+} from '../shared'
 
 export function getStartText(language: UserLanguage): string {
   return language === 'en'
@@ -8,70 +13,46 @@ export function getStartText(language: UserLanguage): string {
 }
 
 export function getHelpText(language: UserLanguage): string {
-  if (language === 'en') {
-    return [
-      '## 📖 Available commands',
-      '',
-      '### Sessions',
-      '- `/chatid` — Show the current platform chat ID (not the internal conversation/session ID).',
-      '- `/switch <cli> [path]` — Resume that CLI session, or create one with its saved/default directory.',
-      '- `/model [model_name|model_id]` — List current CLI models or select and save one.',
-      '- `/close` — Close the current session.',
-      '- `/status` — Show the current session status.',
-      '- `/sessions` — List recent sessions.',
-      '- `/clear` — Clear messages, temporary files, and the current CLI context without closing the session; the CLI restarts on the next message.',
-      '- `/reset` — Clear the current session and CLI context, then reset language, CLI, directory, model, and auto-approval preferences.',
-      '',
-      '### Memory and operations',
-      '- `/audit [conversationId]` — View approval audit records.',
-      '- `/file <limit> [keyword]` — List recent temporary files, optionally filtering by filename.',
-      '- `/autoapprove on|off [seconds]` — Persist automatic approval and its 1–300 second countdown; omitted seconds reset to 5.',
-      '- `/remember <text>` — Save a long-term memory.',
-      '- `/memory` — View long-term memories.',
-      '- `/forget <memoryId>` — Delete a long-term memory.',
-      '- `/env` — Refresh and view the environment snapshot.',
-      '- `/health` — Run a service health check.',
-      '- `/update` — Preview self-update; `/update confirm` executes it.',
-      '- `/restart` — Preview restart; `/restart confirm` executes it.',
-      '- `/lang zh|en` — Change the reply language.',
-      '',
-      '> You can also say “remember this” naturally. The hub summarizes recent user/assistant messages with the configured memory model and saves a session-derived memory; it does not send that request to the CLI.',
-      '> A path passed to `/switch` is used only when that CLI has no open session. To change an existing CLI directory, run `/close`, then `/switch <cli> <path>`.',
-      '> Shell pipelines and command lists run without approval only when every AST node is confirmed read-only. Mutating or unknown commands still require approval.',
-      '> Images are OCRed automatically. Other files are stored without being sent to the AI; use `@read1` to read file 1, `@file1` to pass its path, or `@view1` to preview it in chat.',
-    ].join('\n')
-  }
+  const section = (title: string, categories: readonly CommandCatalogCategory[]) => [
+    `### ${title}`,
+    ...getPrimaryHelpCommands()
+      .filter(entry => categories.includes(entry.category))
+      .map(entry => `- \`${entry.insertText}\` — ${getCommandDescription(entry, language)}`),
+  ]
+  const headings =
+    language === 'en'
+      ? {
+          title: '## 📖 Available commands',
+          general: 'General',
+          sessions: 'Sessions',
+          operations: 'Memory and operations',
+        }
+      : { title: '## 📖 可用命令', general: '常用', sessions: '会话', operations: '记忆与运维' }
+  const notes =
+    language === 'en'
+      ? [
+          '> You can also say “remember this” naturally. The hub summarizes recent user/assistant messages with the configured memory model and saves a session-derived memory; it does not send that request to the CLI.',
+          '> A path passed to `/switch` is used only when that CLI has no open session. To change an existing CLI directory, run `/close`, then `/switch <cli> <path>`.',
+          '> Shell pipelines and command lists run without approval only when every AST node is confirmed read-only. Mutating or unknown commands still require approval.',
+          '> Images are OCRed automatically. Other files are stored without being sent to the AI; use `@read1` to read file 1, `@file1` to pass its path, or `@view1` to preview it in chat.',
+        ]
+      : [
+          '> 也可自然地说“记住这个/记一下”。系统会用记忆模型总结当前会话最近的用户与助手消息，写入会话派生记忆；该请求不会发送给 CLI。',
+          '> `/switch` 的 path 仅在目标 CLI 没有未关闭会话时生效。若要更换已有 CLI 的目录，请先执行 `/close`，再执行 `/switch <cli> <path>`。',
+          '> Shell 管道和组合命令仅在 AST 的每个节点都确认只读时免审批；写操作及无法确认安全性的命令仍会请求审批。',
+          '> 图片会自动 OCR；其他文件只暂存且不会告知 AI。使用 `@read1` 读取文件、`@file1` 引用路径，或用 `@view1` 在聊天中预览。',
+        ]
 
   return [
-    '## 📖 可用命令',
+    headings.title,
     '',
-    '### 会话',
-    '- `/chatid` — 查看当前平台的 Chat ID（不是项目内部的 conversation/session ID）。',
-    '- `/switch <cli> [path]` — 恢复该 CLI 的会话；不存在时按已保存/指定目录创建。',
-    '- `/model [model_name|model_id]` — 列出当前 CLI 可用模型，或按名称/ID 切换并保存偏好。',
-    '- `/close` — 关闭当前会话。',
-    '- `/status` — 查看当前会话状态。',
-    '- `/sessions` — 查看最近会话。',
-    '- `/clear` — 清空当前会话消息、暂存文件和 CLI 上下文，但不关闭会话；下一条消息重新启动 CLI。',
-    '- `/reset` — 清空当前会话及 CLI 上下文，并重置语言、CLI、目录、模型和自动审批偏好。',
+    ...section(headings.general, ['general']),
     '',
-    '### 记忆与运维',
-    '- `/audit [conversationId]` — 查看审批审计。',
-    '- `/file <limit> [keyword]` — 查看最近暂存文件，可按文件名关键词筛选。',
-    '- `/autoapprove on|off [seconds]` — 持久化自动审批及 1–300 秒倒计时；省略秒数时重置为 5 秒。',
-    '- `/remember <text>` — 写入长期记忆。',
-    '- `/memory` — 查看长期记忆。',
-    '- `/forget <memoryId>` — 删除长期记忆。',
-    '- `/env` — 刷新并查看环境快照。',
-    '- `/health` — 执行服务健康检查。',
-    '- `/update` — 查看自更新计划；`/update confirm` 执行。',
-    '- `/restart` — 查看重启计划；`/restart confirm` 执行。',
-    '- `/lang zh|en` — 切换回复语言。',
+    ...section(headings.sessions, ['session']),
     '',
-    '> 也可自然地说“记住这个/记一下”。系统会用记忆模型总结当前会话最近的用户与助手消息，写入会话派生记忆；该请求不会发送给 CLI。',
-    '> `/switch` 的 path 仅在目标 CLI 没有未关闭会话时生效。若要更换已有 CLI 的目录，请先执行 `/close`，再执行 `/switch <cli> <path>`。',
-    '> Shell 管道和组合命令仅在 AST 的每个节点都确认只读时免审批；写操作及无法确认安全性的命令仍会请求审批。',
-    '> 图片会自动 OCR；其他文件只暂存且不会告知 AI。使用 `@read1` 读取文件、`@file1` 引用路径，或用 `@view1` 在聊天中预览。',
+    ...section(headings.operations, ['memory', 'operations']),
+    '',
+    ...notes,
   ].join('\n')
 }
 

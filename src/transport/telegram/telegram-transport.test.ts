@@ -254,7 +254,7 @@ describe('TelegramTransport 入站', () => {
     expect(replies.at(-1)).toContain('Available commands')
     expect(replies.at(-1)).toContain('/clear')
     expect(replies.at(-1)).toContain('/reset')
-    expect(replies.at(-1)).toContain('/file <limit> [keyword]')
+    expect(replies.at(-1)).toContain('/file [limit] [keyword]')
     expect(replies.at(-1)).toContain('@read1')
     expect(replies.at(-1)).toContain('@file1')
   })
