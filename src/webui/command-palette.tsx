@@ -77,7 +77,10 @@ export function CommandPalette({
               role="option"
               aria-selected={active}
               onMouseEnter={() => onSelectedIndexChange(index)}
-              onMouseDown={event => event.preventDefault()}
+              onPointerDown={event => {
+                event.preventDefault()
+                onSelectedIndexChange(index)
+              }}
               onClick={() => onSelect(item)}>
               <code className="command-name">{item.command}</code>
               <MarqueeDescription>{getCommandDescription(item, language)}</MarqueeDescription>

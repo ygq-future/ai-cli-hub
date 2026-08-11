@@ -427,6 +427,7 @@ small {
 .app-header {
   display: flex;
   align-items: center;
+  gap: 7px;
   height: 61px;
   padding: 0 16px 0 20px;
   border: 1px solid var(--line);
@@ -441,7 +442,7 @@ small {
   align-items: center;
   gap: 7px;
   margin-left: auto;
-  margin-right: 10px;
+  margin-right: 3px;
   color: var(--dim);
   font-size: 0.78rem;
 }
@@ -848,7 +849,7 @@ small {
   padding: 6px;
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
   border-radius: 16px;
-  background: color-mix(in srgb, var(--glass-raised) 91%, transparent);
+  background: color-mix(in srgb, var(--panel) 96%, var(--bg));
   box-shadow:
     0 -18px 55px rgb(0 0 0 / 0.24),
     0 12px 32px rgb(0 0 0 / 0.18),
@@ -857,22 +858,29 @@ small {
   animation: command-palette-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
   overscroll-behavior: contain;
 }
+.command-palette,
+.command-palette * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 .command-option {
   position: relative;
   display: grid;
   width: 100%;
-  min-height: 43px;
+  min-height: 38px;
   grid-template-columns: clamp(118px, 25%, 180px) minmax(0, 1fr);
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   overflow: hidden;
-  padding: 9px 13px;
+  padding: 6px 11px;
   border: 0;
   border-radius: 11px;
   background: transparent;
   color: var(--dim);
   text-align: left;
   cursor: pointer;
+  touch-action: manipulation;
   transition:
     color 0.16s ease,
     background-color 0.16s ease,
@@ -1439,7 +1447,7 @@ small {
   }
   .connection {
     gap: 0;
-    margin-right: 2px;
+    margin-right: 3px;
     font-size: 0;
   }
   .grid {
@@ -1470,10 +1478,10 @@ small {
     border-radius: 14px;
   }
   .command-option {
-    min-height: 46px;
+    min-height: 42px;
     grid-template-columns: minmax(104px, 34%) minmax(0, 1fr);
-    gap: 10px;
-    padding: 10px 11px;
+    gap: 9px;
+    padding: 7px 10px;
   }
   .compose .send {
     width: 44px;

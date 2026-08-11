@@ -7,6 +7,39 @@
     <link rel="icon" href="/webui/assets/icon.svg?v=5" type="image/svg+xml" sizes="any" />
     <link rel="shortcut icon" href="/webui/assets/icon.svg?v=5" type="image/svg+xml" />
     <title>AI CLI Hub</title>
+    <style>
+      html,
+      body,
+      #root {
+        min-height: 100%;
+      }
+      body {
+        margin: 0;
+      }
+      #root,
+      .login {
+        min-height: 100dvh;
+      }
+      .login {
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      .login > section {
+        width: min(100%, 510px);
+        box-sizing: border-box;
+      }
+      @media (max-width: 760px) {
+        .login {
+          align-items: start;
+          padding: 15px;
+        }
+        .login > section {
+          margin-top: max(25px, 8dvh);
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

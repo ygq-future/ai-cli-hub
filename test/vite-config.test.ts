@@ -109,3 +109,24 @@ test('Web 输入框提供命令面板、聚焦快捷键和通知高亮', async (
   expect(styles).toContain('.command-palette')
   expect(styles).toContain('.notification-trigger.active')
 })
+
+test('命令面板支持触摸安全关闭，头部与登录首帧布局稳定', async () => {
+  const [source, palette, styles, html] = await Promise.all([
+    readFile('src/webui/main.tsx', 'utf8'),
+    readFile('src/webui/command-palette.tsx', 'utf8'),
+    readFile('src/webui/react.css', 'utf8'),
+    readFile('src/webui/index.html', 'utf8'),
+  ])
+
+  expect(source).toContain("document.addEventListener('pointerdown', dismissPalette, true)")
+  expect(source).toContain('composer.current?.blur()')
+  expect(source).toContain('onBlur={() => setCommandPaletteOpen(false)}')
+  expect(source).toContain("onFocus={() => setCommandPaletteOpen(text.startsWith('/'))}")
+  expect(palette).toContain('onPointerDown={event =>')
+  expect(styles).toContain('user-select: none')
+  expect(styles).toContain('-webkit-touch-callout: none')
+  expect(styles).toContain('background: color-mix(in srgb, var(--panel) 96%, var(--bg))')
+  expect(styles).toMatch(/\.app-header\s*{[^}]*gap:\s*7px/s)
+  expect(styles).toMatch(/\.command-option\s*{[^}]*min-height:\s*38px/s)
+  expect(html).toMatch(/\.login\s*{[^}]*display:\s*grid;[^}]*place-items:\s*center/s)
+})

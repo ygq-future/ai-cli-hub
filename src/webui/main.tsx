@@ -214,6 +214,7 @@ function App() {
   const attempts = useRef(0)
   const picker = useRef<HTMLInputElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
+  const composerWrap = useRef<HTMLFormElement>(null)
   const feed = useRef<HTMLDivElement>(null)
   const objectUrls = useRef(new Set<string>())
   const prependScrollHeight = useRef<number | null>(null)
@@ -468,6 +469,17 @@ function App() {
     if (commandSelection >= commandSuggestions.length) setCommandSelection(0)
   }, [commandSelection, commandSuggestions.length])
   useEffect(() => {
+    if (!commandPaletteOpen) return
+    const dismissPalette = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node) || composerWrap.current?.contains(target)) return
+      setCommandPaletteOpen(false)
+      composer.current?.blur()
+    }
+    document.addEventListener('pointerdown', dismissPalette, true)
+    return () => document.removeEventListener('pointerdown', dismissPalette, true)
+  }, [commandPaletteOpen])
+  useEffect(() => {
     if (!ready) return
     const focusComposer = (event: globalThis.KeyboardEvent) => {
       if (event.key.toLowerCase() !== 'i' || (!event.ctrlKey && !event.metaKey) || event.altKey || event.shiftKey)
@@ -701,7 +713,7 @@ function App() {
               ),
             )}
           </div>
-          <form className="composer-wrap" onSubmit={send}>
+          <form ref={composerWrap} className="composer-wrap" onSubmit={send}>
             {commandPaletteOpen && text.startsWith('/') && (
               <CommandPalette
                 items={commandSuggestions}
@@ -787,6 +799,8 @@ function App() {
                     setCommandPaletteOpen(value.startsWith('/'))
                     setCommandSelection(0)
                   }}
+                  onBlur={() => setCommandPaletteOpen(false)}
+                  onFocus={() => setCommandPaletteOpen(text.startsWith('/'))}
                   onKeyDown={handleComposerKeyDown}
                   onPaste={event => {
                     const pasted = Array.from(event.clipboardData.files)

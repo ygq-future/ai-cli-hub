@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V4 Web Control Plane 与已选高优先级加固（✅ 完成）** |
-| 代码 | ✅ React Web Control Plane；Web 平台会话隔离；共享双语斜杠命令目录、前缀优先/模糊兜底提示面板与输入聚焦快捷键；结构化审批审计与单消息表时间线；Bun SQL 原生 JSONB 写入与数据库形状约束；跨重启认证；HTTP 出站接口；live/readiness 探针；空 Token 默认拒绝；HTTP/上传/WebSocket 资源边界与同源校验；自更新 WebUI 暂存构建、原子提升和失败恢复；Tailwind Vite 构建链；既有 Telegram/QQ、Claude/OpenCode、媒体、记忆和运维能力保持通过。 |
+| 代码 | ✅ React Web Control Plane；Web 平台会话隔离；共享双语斜杠命令目录、前缀优先/模糊兜底提示面板、触摸安全关闭与输入聚焦快捷键；结构化审批审计与单消息表时间线；Bun SQL 原生 JSONB 写入与数据库形状约束；跨重启认证；HTTP 出站接口；live/readiness 探针；空 Token 默认拒绝；HTTP/上传/WebSocket 资源边界与同源校验；自更新 WebUI 暂存构建、原子提升和失败恢复；Tailwind Vite 构建链；既有 Telegram/QQ、Claude/OpenCode、媒体、记忆和运维能力保持通过。 |
 | 文档 | ✅ README、接口契约、Web Control Plane 任务书、设计/实施计划和延期维护项已同步 |
 | 阻塞项 | 无 |
 | 下一步 | 按需处理延期维护项：PDF 解析安全、后端代码模块拆分、前端包拆分。 |
@@ -337,6 +337,7 @@
 | 2026-08-10 | **Web 通知开关与自更新变更摘要完成**：浏览器通知新增本地持久开关，头部铃铛与设置页可随时开启/关闭，浏览器拒绝权限时明确指向站点权限；旧用户已授予权限时保持原行为。`/update confirm` 成功消息改为代码、配置模板、数据库迁移和重启安排四类，只显示 pull 的 commit/文件/增删行、实际新增删除配置 key 及实际应用的数据库迁移操作；依赖、检查、暂存构建和产物切换成功时静默，失败时保留阶段与诊断。配置/数据库 CLI 仅在内部 `--report-json` 参数下输出机器 marker，手工执行保持简洁。接口契约、命令 UX、Web 任务书与设计文档同步。自动验收：format、format check、typecheck、lint、Vite 生产构建、diff check 通过；全量测试 477 pass / 7 skip / 0 fail，仅保留已延期的前端包拆分 chunk 提示。 |
 | 2026-08-10 | **自更新无新提交提前退出完成**：`/update confirm` 在成功 pull 后比较前后 HEAD，未变化时只返回当前短版本并明确无需重启，不再执行依赖同步、格式/类型/lint、WebUI 暂存构建、配置迁移、数据库迁移和产物提升；有新提交时完整部署、失败中止与重启通知行为保持不变。接口契约、命令 UX、设计与实施计划同步。自动验收：format、format check、typecheck、lint、diff check 通过；目标测试 8 pass / 0 fail，全量测试 477 pass / 7 skip / 0 fail。 |
 | 2026-08-11 | **Web 命令提示、输入快捷键与通知高亮完成**：新增 `shared/` 双语斜杠命令目录，Web 提示面板与 `/help` 共用主命令元数据；首字符 `/` 时前缀匹配优先、无结果再做双语关键词模糊搜索，方向键循环选择，Enter/点击只回填模板并选中第一段完整参数占位符。`/update confirm`、`/restart confirm` 独立展示，超长描述仅在选中/悬停时通过 CSS transform 滚动。聊天主界面支持 `Ctrl+I` / `Cmd+I` 聚焦输入框且不抢弹窗焦点；通知开启时头部和设置项同步使用强调色高亮，关闭保持普通 Glass。命令 UX、Web 任务书、设计与实施计划同步。自动验收：format、format check、typecheck、lint、依赖矩阵、Vite 生产构建和 diff check 通过；全量测试 488 pass / 7 skip / 0 fail，仅保留已延期的前端包拆分 chunk 提示。 |
+| 2026-08-11 | **Web 命令面板与首帧体验修正**：命令提示面板改为不透出消息内容的实色 Glass 表面，桌面/移动 item 高度收敛至 38/42px；命令与描述禁用文本选择、iOS 长按 callout，并由 pointer/blur 双路径在点击页面外部时关闭，外部点击显式释放输入焦点，重新聚焦仍可恢复面板。头部加入统一动作间距，移动端连接状态点与通知按钮不再贴合。入口 HTML 新增最小登录关键布局，完整 CSS 到达前即稳定居中，消除左上角到中间的首帧跳动。真实浏览器完成桌面与 390×844 移动回归；format、format check、typecheck、lint、依赖矩阵、Vite 生产构建和 diff check 通过，全量测试 489 pass / 7 skip / 0 fail，仅保留已延期的前端包拆分 chunk 提示。 |
 
 ## 6. 开放问题（Open Questions）
 
