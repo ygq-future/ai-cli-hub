@@ -130,3 +130,21 @@ test('命令面板支持触摸安全关闭，头部与登录首帧布局稳定',
   expect(styles).toMatch(/\.command-option\s*{[^}]*min-height:\s*38px/s)
   expect(html).toMatch(/\.login\s*{[^}]*display:\s*grid;[^}]*place-items:\s*center/s)
 })
+
+test('登录标题使用稳定的独立行距与视觉强调', async () => {
+  const [source, styles, html] = await Promise.all([
+    readFile('src/webui/main.tsx', 'utf8'),
+    readFile('src/webui/react.css', 'utf8'),
+    readFile('src/webui/index.html', 'utf8'),
+  ])
+
+  expect(source).toContain('className="login-title-line"')
+  expect(source).toContain('className="login-title-line login-title-line-accent"')
+  expect(styles).toMatch(/\.login h1\s*{[^}]*line-height:\s*1\.03/s)
+  expect(styles).toMatch(/\.login section\s*{[^}]*animation:\s*login-in/s)
+  expect(styles).toMatch(/@keyframes login-in\s*{[^}]*translateY\(8px\)/s)
+  expect(styles).not.toMatch(/\.login section\s*{[^}]*animation:\s*dialog-in/s)
+  expect(styles).toContain('.login-title-line-accent::after')
+  expect(html).toMatch(/\.login h1\s*{[^}]*line-height:\s*1\.03/s)
+  expect(html).toMatch(/\.login > section\s*{[^}]*padding:\s*clamp\(27px, 7vw, 52px\)/s)
+})

@@ -891,10 +891,9 @@ function Login({
           <img src="/webui/assets/icon.svg" alt="" />
           AI CLI HUB
         </a>
-        <h1>
-          {t('你的私有', 'Your private')}
-          <br />
-          {t('AI 控制台。', 'AI control plane.')}
+        <h1 className="login-title">
+          <span className="login-title-line">{t('你的私有', 'Your private')}</span>
+          <span className="login-title-line login-title-line-accent">{t('AI 控制台。', 'AI control plane.')}</span>
         </h1>
         <p>
           {t(

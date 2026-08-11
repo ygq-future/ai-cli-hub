@@ -28,7 +28,21 @@
       }
       .login > section {
         width: min(100%, 510px);
+        padding: clamp(27px, 7vw, 52px);
+        border: 1px solid transparent;
+        border-radius: 28px;
         box-sizing: border-box;
+      }
+      .login h1 {
+        display: grid;
+        gap: 0.16em;
+        margin: 31px 0 17px;
+        font-size: clamp(2.45rem, 9vw, 4.2rem);
+        line-height: 1.03;
+        letter-spacing: -0.055em;
+      }
+      .login-title-line {
+        display: block;
       }
       @media (max-width: 760px) {
         .login {
@@ -37,6 +51,8 @@
         }
         .login > section {
           margin-top: max(25px, 8dvh);
+          padding: 30px 24px;
+          border-radius: 23px;
         }
       }
     </style>
