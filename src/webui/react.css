@@ -460,6 +460,15 @@ small {
 .mobile-status-trigger {
   display: none;
 }
+.notification-trigger.active {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
+  background: color-mix(in srgb, var(--accent) 16%, var(--glass-raised));
+  color: var(--accent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 8px 24px color-mix(in srgb, var(--accent) 20%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 12%, transparent);
+}
 .grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -821,10 +830,131 @@ small {
   gap: 8px;
 }
 .composer-wrap {
+  position: relative;
+  z-index: 4;
   padding: 13px clamp(18px, 8vw, 130px) 17px;
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--glass) 94%, transparent);
   backdrop-filter: blur(24px) saturate(135%);
+}
+.command-palette {
+  position: absolute;
+  z-index: 5;
+  right: clamp(18px, 8vw, 130px);
+  bottom: calc(100% - 13px);
+  left: clamp(18px, 8vw, 130px);
+  max-height: min(340px, calc(100dvh - 190px));
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--glass-raised) 91%, transparent);
+  box-shadow:
+    0 -18px 55px rgb(0 0 0 / 0.24),
+    0 12px 32px rgb(0 0 0 / 0.18),
+    inset 0 1px 0 color-mix(in srgb, #fff 10%, transparent);
+  backdrop-filter: blur(28px) saturate(145%);
+  animation: command-palette-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  overscroll-behavior: contain;
+}
+.command-option {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 43px;
+  grid-template-columns: clamp(118px, 25%, 180px) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  overflow: hidden;
+  padding: 9px 13px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--dim);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    background-color 0.16s ease,
+    transform 0.16s ease;
+}
+.command-option::before {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 2px;
+  border-radius: 99px;
+  background: var(--accent);
+  content: '';
+  opacity: 0;
+  transform: scaleY(0.45);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+.command-option:hover,
+.command-option.selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--ink);
+  transform: translateX(2px);
+}
+.command-option.selected::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+.command-option:focus-visible {
+  outline: 0;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+.command-name {
+  overflow: hidden;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.79rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-description {
+  position: relative;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.command-description-static {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.command-description-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  opacity: 0;
+  white-space: nowrap;
+  will-change: transform;
+}
+.command-option:is(:hover, .selected) .command-description.overflowing .command-description-static {
+  opacity: 0;
+}
+.command-option:is(:hover, .selected) .command-description.overflowing .command-description-track {
+  opacity: 1;
+  animation: command-description-scroll var(--marquee-duration) ease-in-out 0.35s infinite alternate;
+}
+.command-empty {
+  padding: 18px 14px;
+  color: var(--dim);
+  font-size: 0.78rem;
+  text-align: center;
 }
 .compose {
   display: flex;
@@ -1097,6 +1227,27 @@ small {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
 }
+.notification-field {
+  margin: 0 -8px;
+  padding: 10px 8px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.notification-field.active {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow:
+    0 10px 24px color-mix(in srgb, var(--accent) 11%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent);
+}
+.notification-field.active b {
+  color: var(--accent);
+}
 .switch {
   position: relative;
   width: 44px;
@@ -1249,6 +1400,22 @@ small {
     transform: rotate(360deg);
   }
 }
+@keyframes command-palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.992);
+  }
+}
+@keyframes command-description-scroll {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+  88%,
+  100% {
+    transform: translateX(calc(-1 * var(--marquee-distance)));
+  }
+}
 @media (max-width: 760px) {
   .login {
     padding: 15px;
@@ -1294,6 +1461,19 @@ small {
   }
   .composer-wrap {
     padding: 11px 12px 14px;
+  }
+  .command-palette {
+    right: 12px;
+    bottom: calc(100% - 11px);
+    left: 12px;
+    max-height: min(300px, calc(100dvh - 170px));
+    border-radius: 14px;
+  }
+  .command-option {
+    min-height: 46px;
+    grid-template-columns: minmax(104px, 34%) minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px 11px;
   }
   .compose .send {
     width: 44px;
@@ -1348,5 +1528,10 @@ small {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+  .command-option,
+  .command-palette,
+  .command-description-track {
+    transform: none !important;
   }
 }

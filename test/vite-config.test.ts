@@ -88,3 +88,24 @@ test('浏览器通知权限与可持久关闭的应用开关分离', async () =>
   expect(source).toContain('notificationsEnabled: false')
   expect(source).toContain("t('浏览器通知', 'Browser notifications')")
 })
+
+test('Web 输入框提供命令面板、聚焦快捷键和通知高亮', async () => {
+  const [source, palette, styles] = await Promise.all([
+    readFile('src/webui/main.tsx', 'utf8'),
+    readFile('src/webui/command-palette.tsx', 'utf8'),
+    readFile('src/webui/react.css', 'utf8'),
+  ])
+
+  expect(source).toContain('<CommandPalette')
+  expect(source).toContain("event.key.toLowerCase() !== 'i'")
+  expect(source).toContain('composer.current?.focus()')
+  expect(source).toContain('setSelectionRange(range.start, range.end)')
+  expect(source).toContain("'notification-trigger active'")
+  expect(source).toContain("'notification-field active'")
+  expect(palette).toContain('role="listbox"')
+  expect(palette).toContain('role="option"')
+  expect(palette).toContain('aria-selected')
+  expect(palette).toContain('scrollIntoView')
+  expect(styles).toContain('.command-palette')
+  expect(styles).toContain('.notification-trigger.active')
+})

@@ -1,6 +1,7 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type Dispatch,
@@ -33,6 +34,9 @@ import {
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { CommandCatalogEntry } from '../shared'
+import { CommandPalette } from './command-palette'
+import { findFirstPlaceholderRange, searchCommandCatalog } from './command-palette-model'
 import { Button } from './components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './components/ui/dialog'
 import { Input } from './components/ui/input'
@@ -199,6 +203,8 @@ function App() {
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting')
   const [settings, setSettings] = useState(false)
   const [mobileStatus, setMobileStatus] = useState(false)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [commandSelection, setCommandSelection] = useState(0)
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() =>
     typeof Notification === 'undefined' ? 'denied' : Notification.permission,
   )
@@ -207,6 +213,7 @@ function App() {
   const retryTimer = useRef<number | null>(null)
   const attempts = useRef(0)
   const picker = useRef<HTMLInputElement>(null)
+  const composer = useRef<HTMLTextAreaElement>(null)
   const feed = useRef<HTMLDivElement>(null)
   const objectUrls = useRef(new Set<string>())
   const prependScrollHeight = useRef<number | null>(null)
@@ -217,6 +224,9 @@ function App() {
 
   const zh = preferences.locale === 'zh-CN'
   const t: Translator = (cn, en) => (zh ? cn : en)
+  const commandLanguage = zh ? 'zh' : 'en'
+  const commandSuggestions = useMemo(() => searchCommandCatalog(text, commandLanguage), [text, commandLanguage])
+  const notificationsActive = preferences.notificationsEnabled && notificationPermission === 'granted'
   const statusLoad = async () => {
     const response = await fetch('/api/web/status')
     if (response.ok) setStatus(((await response.json()) as { status: Status }).status)
@@ -454,6 +464,21 @@ function App() {
     document.documentElement.lang = preferences.locale
     localStorage.setItem(preferenceKey, JSON.stringify(preferences))
   }, [preferences])
+  useEffect(() => {
+    if (commandSelection >= commandSuggestions.length) setCommandSelection(0)
+  }, [commandSelection, commandSuggestions.length])
+  useEffect(() => {
+    if (!ready) return
+    const focusComposer = (event: globalThis.KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'i' || (!event.ctrlKey && !event.metaKey) || event.altKey || event.shiftKey)
+        return
+      if (settings || mobileStatus || previewImage !== null || event.isComposing) return
+      event.preventDefault()
+      composer.current?.focus()
+    }
+    window.addEventListener('keydown', focusComposer)
+    return () => window.removeEventListener('keydown', focusComposer)
+  }, [ready, settings, mobileStatus, previewImage])
 
   const login = async (event: FormEvent) => {
     event.preventDefault()
@@ -505,11 +530,44 @@ function App() {
       },
     ])
     setText('')
+    setCommandPaletteOpen(false)
     setFiles([])
     setSelectedFileId(null)
   }
+  const selectCommand = (entry: CommandCatalogEntry) => {
+    const range = findFirstPlaceholderRange(entry.insertText)
+    setText(entry.insertText)
+    setCommandPaletteOpen(false)
+    requestAnimationFrame(() => {
+      const element = composer.current
+      if (!element) return
+      element.focus()
+      if (range) element.setSelectionRange(range.start, range.end)
+      else element.setSelectionRange(entry.insertText.length, entry.insertText.length)
+    })
+  }
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+    if (event.nativeEvent.isComposing) return
+    if (commandPaletteOpen) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (!commandSuggestions.length) return
+        event.preventDefault()
+        const direction = event.key === 'ArrowDown' ? 1 : -1
+        setCommandSelection(current => (current + direction + commandSuggestions.length) % commandSuggestions.length)
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setCommandPaletteOpen(false)
+        return
+      }
+      if (event.key === 'Enter' && commandSuggestions[commandSelection]) {
+        event.preventDefault()
+        selectCommand(commandSuggestions[commandSelection])
+        return
+      }
+    }
+    if (event.key !== 'Enter') return
     const shouldSend = preferences.enterToSend ? !event.shiftKey : event.ctrlKey || event.metaKey
     if (!shouldSend) return
     event.preventDefault()
@@ -565,6 +623,7 @@ function App() {
           {connection === 'connected' ? t('实时连接', 'Live connection') : t('正在重连', 'Reconnecting')}
         </span>
         <Button
+          className={notificationsActive ? 'notification-trigger active' : 'notification-trigger'}
           variant="ghost"
           aria-label={
             preferences.notificationsEnabled
@@ -643,6 +702,15 @@ function App() {
             )}
           </div>
           <form className="composer-wrap" onSubmit={send}>
+            {commandPaletteOpen && text.startsWith('/') && (
+              <CommandPalette
+                items={commandSuggestions}
+                language={commandLanguage}
+                selectedIndex={commandSelection}
+                onSelectedIndexChange={setCommandSelection}
+                onSelect={selectCommand}
+              />
+            )}
             <div className="compose">
               <input
                 hidden
@@ -702,9 +770,23 @@ function App() {
                   </div>
                 )}
                 <textarea
+                  ref={composer}
                   rows={1}
                   value={text}
-                  onChange={event => setText(event.target.value)}
+                  aria-autocomplete="list"
+                  aria-controls="command-palette"
+                  aria-expanded={commandPaletteOpen && text.startsWith('/')}
+                  aria-activedescendant={
+                    commandPaletteOpen && commandSuggestions[commandSelection]
+                      ? `command-option-${commandSuggestions[commandSelection].id}`
+                      : undefined
+                  }
+                  onChange={event => {
+                    const value = event.target.value
+                    setText(value)
+                    setCommandPaletteOpen(value.startsWith('/'))
+                    setCommandSelection(0)
+                  }}
                   onKeyDown={handleComposerKeyDown}
                   onPaste={event => {
                     const pasted = Array.from(event.clipboardData.files)
@@ -1051,6 +1133,7 @@ function Settings({
   notificationPermission: NotificationPermission
   toggleNotifications: () => Promise<void>
 }) {
+  const notificationsActive = preferences.notificationsEnabled && notificationPermission === 'granted'
   const [data, setData] = useState<SettingsData | null>(null)
   const [savedSnapshot, setSavedSnapshot] = useState('')
   const [result, setResult] = useState('')
@@ -1115,7 +1198,10 @@ function Settings({
                     <i />
                   </button>
                 </label>
-                <label className="field switch-field">
+                <label
+                  className={`field switch-field ${
+                    notificationsActive ? 'notification-field active' : 'notification-field'
+                  }`}>
                   <span>
                     <b>{t('浏览器通知', 'Browser notifications')}</b>
                     <small>
