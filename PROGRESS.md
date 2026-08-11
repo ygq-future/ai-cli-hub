@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-08-10 · 阶段：**V4 Web Control Plane 与已选高优先级加固完成**
+> 最后更新：2026-08-11 · 阶段：**V4 Web Control Plane 与已选高优先级加固完成**
 
 ---
 
@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V4 Web Control Plane 与已选高优先级加固（✅ 完成）** |
-| 代码 | ✅ React Web Control Plane；Web 平台会话隔离；结构化审批审计与单消息表时间线；Bun SQL 原生 JSONB 写入与数据库形状约束；跨重启认证；HTTP 出站接口；live/readiness 探针；空 Token 默认拒绝；HTTP/上传/WebSocket 资源边界与同源校验；自更新 WebUI 暂存构建、原子提升和失败恢复；Tailwind Vite 构建链；既有 Telegram/QQ、Claude/OpenCode、媒体、记忆和运维能力保持通过。 |
+| 代码 | ✅ React Web Control Plane；Web 平台会话隔离；共享双语斜杠命令目录、前缀优先/模糊兜底提示面板与输入聚焦快捷键；结构化审批审计与单消息表时间线；Bun SQL 原生 JSONB 写入与数据库形状约束；跨重启认证；HTTP 出站接口；live/readiness 探针；空 Token 默认拒绝；HTTP/上传/WebSocket 资源边界与同源校验；自更新 WebUI 暂存构建、原子提升和失败恢复；Tailwind Vite 构建链；既有 Telegram/QQ、Claude/OpenCode、媒体、记忆和运维能力保持通过。 |
 | 文档 | ✅ README、接口契约、Web Control Plane 任务书、设计/实施计划和延期维护项已同步 |
 | 阻塞项 | 无 |
 | 下一步 | 按需处理延期维护项：PDF 解析安全、后端代码模块拆分、前端包拆分。 |
@@ -140,6 +140,7 @@
 | D85 | **Bun SQL 的 JSONB 列必须使用原生参数映射并由数据库约束形状**：Drizzle 0.45.2 内置 `jsonb()` 会先 `JSON.stringify`，Bun SQL 1.3.14 再序列化后把数组/对象存成 JSONB string；项目改用 `bunJsonb<T>()` 直接传原生值，读取兼容一层旧字符串。0019 将 `messages.attachments` 归一化为 array、`audit_logs.request` 归一化为 object，并增加 CHECK 阻止复发；不通过 Repository 兜底掩盖错误。设计见 `docs/superpowers/specs/2026-08-10-bun-jsonb-normalization-design.md`。 | 2026-08-10 |
 | D86 | **自更新结果只展示可行动变化，内部步骤以结构化报告交接**：`/update confirm` 比较 pull 前后 HEAD，以 commit log 与 shortstat 汇总代码更新；配置迁移通过内部 `--report-json` 返回新增/删除 key 路径；数据库迁移按目标库 Drizzle journal 确定实际待执行迁移，并把 SQL 归纳为表、字段、类型、约束、索引或数据操作。依赖/格式/类型/lint/WebUI 构建与提升成功时静默，失败时才显示阶段和诊断。Web 通知同时保留浏览器权限与本地持久开关，用户可关闭本站通知而无需撤销浏览器权限。设计见 `docs/superpowers/specs/2026-08-10-update-report-notification-design.md`。 | 2026-08-10 |
 | D87 | **自更新以 pull 前后 HEAD 判断是否需要部署**：干净工作树只表示本地没有未提交变更，不能代表远端没有更新；`/update confirm` 必须先成功执行 `git pull --ff-only`，再比较前后 HEAD。HEAD 相等时立即返回当前短版本，跳过依赖、检查、WebUI 构建、配置/数据库迁移和重启；HEAD 变化时才进入完整部署流程。 | 2026-08-10 |
+| D88 | **Web 命令提示与 `/help` 共用静态双语目录**：目录位于 `shared/` 且不参与 Core 路由，Web 首字符 `/` 时先按命令前缀筛选、无前缀结果才按命令/双语描述/关键词模糊评分。方向键选择，Enter/点击只回填且选中第一段完整参数占位符，不立即发送；固定确认动作独立成项。`Ctrl+I` / `Cmd+I` 仅在无弹窗的聊天主界面聚焦输入框。 | 2026-08-11 |
 
 ---
 
@@ -335,6 +336,7 @@
 | 2026-08-10 | **Bun SQL JSONB 双重序列化修复**：实测确认 Drizzle 0.45.2 内置 `jsonb()` 的预序列化与 Bun SQL 1.3.14 再序列化叠加，使显式写入的数组/对象落库为 JSONB string，而迁移默认值仍是原生 array，造成混合数据。新增 storage 专用 `bunJsonb<T>()`，`messages.attachments` 和 `audit_logs.request` 改为向 Bun SQL 传原生值并兼容读取一层旧字符串。迁移 0019 将旧值分别归一化为 array/object，再增加 CHECK 防止复发；临时 PostgreSQL 表验证迁移后类型和两个约束均正确。自动验收：format、format check、typecheck、lint、Vite 生产构建、diff check 通过；全量测试 471 pass / 7 skip / 0 fail。 |
 | 2026-08-10 | **Web 通知开关与自更新变更摘要完成**：浏览器通知新增本地持久开关，头部铃铛与设置页可随时开启/关闭，浏览器拒绝权限时明确指向站点权限；旧用户已授予权限时保持原行为。`/update confirm` 成功消息改为代码、配置模板、数据库迁移和重启安排四类，只显示 pull 的 commit/文件/增删行、实际新增删除配置 key 及实际应用的数据库迁移操作；依赖、检查、暂存构建和产物切换成功时静默，失败时保留阶段与诊断。配置/数据库 CLI 仅在内部 `--report-json` 参数下输出机器 marker，手工执行保持简洁。接口契约、命令 UX、Web 任务书与设计文档同步。自动验收：format、format check、typecheck、lint、Vite 生产构建、diff check 通过；全量测试 477 pass / 7 skip / 0 fail，仅保留已延期的前端包拆分 chunk 提示。 |
 | 2026-08-10 | **自更新无新提交提前退出完成**：`/update confirm` 在成功 pull 后比较前后 HEAD，未变化时只返回当前短版本并明确无需重启，不再执行依赖同步、格式/类型/lint、WebUI 暂存构建、配置迁移、数据库迁移和产物提升；有新提交时完整部署、失败中止与重启通知行为保持不变。接口契约、命令 UX、设计与实施计划同步。自动验收：format、format check、typecheck、lint、diff check 通过；目标测试 8 pass / 0 fail，全量测试 477 pass / 7 skip / 0 fail。 |
+| 2026-08-11 | **Web 命令提示、输入快捷键与通知高亮完成**：新增 `shared/` 双语斜杠命令目录，Web 提示面板与 `/help` 共用主命令元数据；首字符 `/` 时前缀匹配优先、无结果再做双语关键词模糊搜索，方向键循环选择，Enter/点击只回填模板并选中第一段完整参数占位符。`/update confirm`、`/restart confirm` 独立展示，超长描述仅在选中/悬停时通过 CSS transform 滚动。聊天主界面支持 `Ctrl+I` / `Cmd+I` 聚焦输入框且不抢弹窗焦点；通知开启时头部和设置项同步使用强调色高亮，关闭保持普通 Glass。命令 UX、Web 任务书、设计与实施计划同步。自动验收：format、format check、typecheck、lint、依赖矩阵、Vite 生产构建和 diff check 通过；全量测试 488 pass / 7 skip / 0 fail，仅保留已延期的前端包拆分 chunk 提示。 |
 
 ## 6. 开放问题（Open Questions）
 

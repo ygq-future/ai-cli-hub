@@ -43,7 +43,7 @@ flowchart TD
 | `/clear` | — | 清空当前会话 | 删除当前 conversation 的 messages、文件映射、受控临时文件并停止当前 CLI adapter；不关闭 conversation，不修改 CLI/模型/用户偏好；下一条消息以干净上下文重新启动 CLI，文件编号从 1 重新开始 |
 | `/reset` | — | 重置当前会话与用户/CLI 偏好 | 在 `/clear` 基础上以默认值覆盖语言、默认 CLI、各 CLI cwd/model 与自动审批偏好（不删除偏好记录）；当前用户所有未关闭会话按各自 CLI 同步为平台隔离的默认 cwd，并停止对应 adapter；长期 memories 保留 |
 | `/audit` | `[conversationId]` | 查看审批审计 | 无参数查看当前会话；带完整或短会话 ID 查看指定会话最近审批记录 |
-| `/file` | `<limit> [keyword]` | 查询当前会话文件 | 不传 keyword 时列出最近 limit 条；传入后按文件名模糊匹配；limit 默认 10、最大 50 |
+| `/file` | `[limit] [keyword]` | 查询当前会话文件 | 不传 keyword 时列出最近 limit 条；传入后按文件名模糊匹配；limit 默认 10、最大 50 |
 | `/autoapprove` | `[on\|off] [seconds]` | 查看或持久化自动审批 | 默认关闭、5 秒；秒数为 1–300 整数，省略则重置为 5 秒 |
 | `/remember` | `<text>` | 写入实例级全局长期记忆 | 默认写入 `semantic`；`preference:` / `偏好:` 前缀写入 `preference`；memory 不关联 conversation/message |
 | `/memory` | — | 查看实例级全局长期记忆 | Markdown 列表；每条仅展示短 ID、namespace 与 content |
@@ -55,6 +55,14 @@ flowchart TD
 
 > 用户目标按 `(platform,userId)` 持久化：语言、当前选中 CLI、自动审批开关及倒计时、每个 CLI 的 cwd/model ID/model name 彼此隔离。首次访问默认 `language=zh`、`default_cli=claude`、`auto_approve_enabled=false`、`auto_approve_seconds=5`，未配置目录时自动使用并创建 `~/ai-workspace/.<cli>-<platform>`（如 `.claude-telegram`、`.claude-qq`）；已有持久化 cwd 不自动改写，模型为空表示沿用 CLI 默认。`/switch <cli> [path]` 更新当前选中 CLI；普通消息与 `/status` 读取该目标，`/status` 同时展示模型名称与 ID。当前已接入 `claude` 与 `opencode`。
 > 普通文本里的“记住/记一下/记录/remember this”等自然语言记忆请求不是 `/remember`：它不会直接写入 global 记忆，也不会进入 Claude SDK；系统会按 `MEMORY_REQUESTED_SUMMARY_MESSAGE_LIMIT` 读取当前 conversation 最近的 user/assistant 消息调用配置的记忆 LLM 摘要，摘要语言跟随持久化的 `/lang` 偏好，长度上限由 `MEMORY_SUMMARY_MAX_CHARS` 控制，并要求第三人称或中性事实陈述，写入 conversation-derived episodic 记忆并用于后续 embedding 召回。
+
+### Web 命令发现与输入快捷键
+
+- Web 输入框首字符为 `/` 时显示共享命令目录；先按命令前缀匹配，前缀无结果时再对命令、中英文描述和关键词进行模糊搜索。
+- 上下方向键循环选择，`Enter` 或鼠标/触摸点击只把命令模板写回输入框，不立即发送；`Escape` 关闭当前提示面板。
+- 参数型模板回填后选中第一段完整占位符（包含 `[]` 或 `<>`），输入实际值会整体替换占位段；`/update confirm`、`/restart confirm` 等固定动作作为独立命令项。
+- 聊天主界面且没有设置、状态或图片预览弹窗时，`Ctrl+I` / `Cmd+I` 快速聚焦消息输入框。
+- 浏览器通知开启时，头部入口和设置项除图标/开关位置外还必须显示强调色高亮；关闭时恢复普通 Glass 状态，浏览器拒绝权限时显示独立阻止状态。
 
 ---
 
