@@ -44,10 +44,11 @@ import {
   type HealthCheckResult,
 } from './ops'
 import { createSessionOrchestrator } from './orchestrator'
+import { createWebAdmin } from './web-admin'
 import { createUserPreferences } from './preferences'
 import { createQQTransport, createTelegramTransport, createWebSocketTransport } from './transport'
 import { createServer, createWebSocketGateway, type WebHistoryMessage } from './server'
-import type { ConversationId, Transport } from './shared'
+import type { ConversationId, Transport, WebAdmin } from './shared'
 
 const APP_ROOT = path.resolve(import.meta.dir, '..')
 
@@ -186,114 +187,116 @@ async function main() {
   if (!transports.length) {
     throw new Error('At least one transport must be configured: TELEGRAM_BOT_TOKEN or QQBOT_APP_ID/QQBOT_APP_SECRET.')
   }
-  const appServer = createServer({
-    host: config.HTTP_HOST,
-    port: config.HTTP_PORT,
-    authToken: config.HTTP_AUTH_TOKEN,
-    maxRequestBodyBytes: config.MEDIA_MAX_FILE_BYTES + 1024 * 1024,
-    staticAssetsRoot: path.join(APP_ROOT, 'public', 'webui'),
-    staticIndexPath: path.join(APP_ROOT, 'public', 'webui', 'index.html'),
-    whitelistUserIds: config.WHITELIST_USER_IDS,
-    transports,
-    resolveConversation: async (conversationId: ConversationId) => {
-      const conversation = await repos.conversations.findById(conversationId)
-      if (!conversation || conversation.status === 'closed') return null
-      const transport = transports.find(item => item.platform === conversation.platform)
-      return transport ? { transport } : null
-    },
-    secureCookie: config.HTTP_SECURE_COOKIE,
-    health: { ready: health.check },
-    webSocketGateway,
-    settings,
-    restart: {
-      preview: restarter.preview,
-      run: async () =>
-        restarter.run({
-          platform: 'web',
-          chatId: config.WHITELIST_USER_IDS[0] ?? '',
-          nativeId: crypto.randomUUID(),
-        }),
-    },
-    webStatus: {
-      async get() {
-        const userId = config.WHITELIST_USER_IDS[0] ?? ''
-        const target = await userPreferences.getTarget('web', userId)
-        const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
-        const [model, autoApprove] = await Promise.all([
-          userPreferences.getModel('web', userId, target.cli),
-          userPreferences.getAutoApprove('web', userId),
-        ])
-        return {
-          platform: 'web' as const,
-          conversationId: conversation?.id ?? null,
-          cli: target.cli,
-          cwd: target.cwd,
-          sessionStatus: conversation?.status ?? 'idle',
-          model: model ? { id: model.modelId, name: model.modelName } : null,
-          autoApprove,
-        }
+  const createAppServer = (webAdmin: WebAdmin) =>
+    createServer({
+      host: config.HTTP_HOST,
+      port: config.HTTP_PORT,
+      authToken: config.HTTP_AUTH_TOKEN,
+      maxRequestBodyBytes: config.MEDIA_MAX_FILE_BYTES + 1024 * 1024,
+      staticAssetsRoot: path.join(APP_ROOT, 'public', 'webui'),
+      staticIndexPath: path.join(APP_ROOT, 'public', 'webui', 'index.html'),
+      whitelistUserIds: config.WHITELIST_USER_IDS,
+      transports,
+      resolveConversation: async (conversationId: ConversationId) => {
+        const conversation = await repos.conversations.findById(conversationId)
+        if (!conversation || conversation.status === 'closed') return null
+        const transport = transports.find(item => item.platform === conversation.platform)
+        return transport ? { transport } : null
       },
-    },
-    webHistory: {
-      async get({ limit, before }) {
-        const userId = config.WHITELIST_USER_IDS[0] ?? ''
-        const target = await userPreferences.getTarget('web', userId)
-        const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
-        if (!conversation) return { messages: [], nextCursor: null }
-        const cursor = before ? parseMessageCursor(before) : undefined
-        const page = await repos.messages.listByConversation(conversation.id as ConversationId, limit + 1, cursor)
-        const hasMore = page.length > limit
-        const messages = hasMore ? page.slice(-limit) : page
-        const auditIds = messages.flatMap(message =>
-          message.messageType === 'approval' && message.auditLogId ? [message.auditLogId] : [],
-        )
-        const audits = await repos.audit.findByIds(auditIds)
-        const auditById = new Map(audits.map(audit => [audit.id, audit]))
-        const timeline = messages.flatMap<WebHistoryMessage>(message => {
-          if (message.messageType === 'approval') {
-            const approval = message.auditLogId ? (auditById.get(message.auditLogId) ?? null) : null
-            if (!approval) {
-              bus.emit('ErrorOccurred', {
-                scope: 'server:webHistoryApproval',
-                message: `审批消息 ${message.id} 缺少可用的 audit_logs 引用`,
-                conversationId: conversation.id as ConversationId,
-              })
-            }
-            return [{ type: 'approval', id: message.id, createdAt: message.createdAt, approval }]
+      secureCookie: config.HTTP_SECURE_COOKIE,
+      health: { ready: health.check },
+      webSocketGateway,
+      settings,
+      restart: {
+        preview: restarter.preview,
+        run: async () =>
+          restarter.run({
+            platform: 'web',
+            chatId: config.WHITELIST_USER_IDS[0] ?? '',
+            nativeId: crypto.randomUUID(),
+          }),
+      },
+      webStatus: {
+        async get() {
+          const userId = config.WHITELIST_USER_IDS[0] ?? ''
+          const target = await userPreferences.getTarget('web', userId)
+          const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
+          const [model, autoApprove] = await Promise.all([
+            userPreferences.getModel('web', userId, target.cli),
+            userPreferences.getAutoApprove('web', userId),
+          ])
+          return {
+            platform: 'web' as const,
+            conversationId: conversation?.id ?? null,
+            cli: target.cli,
+            cwd: target.cwd,
+            sessionStatus: conversation?.status ?? 'idle',
+            model: model ? { id: model.modelId, name: model.modelName } : null,
+            autoApprove,
           }
-          if (message.role !== 'user' && message.role !== 'assistant') return []
-          return [
-            {
-              type: 'chat',
-              id: message.id,
-              role: message.role,
-              content: message.content,
-              attachments: message.attachments,
-              createdAt: message.createdAt,
-            },
-          ]
-        })
-        return {
-          messages: timeline,
-          nextCursor: hasMore && messages[0] ? `${messages[0].createdAt}:${messages[0].id}` : null,
-        }
+        },
       },
-    },
-    webFiles: {
-      async get(id) {
-        const userId = config.WHITELIST_USER_IDS[0] ?? ''
-        const target = await userPreferences.getTarget('web', userId)
-        const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
-        if (!conversation) return null
-        const record = await repos.conversationFiles.findById(conversation.id as ConversationId, id)
-        if (!record) return null
-        const body = Bun.file(record.localPath)
-        if (!(await body.exists())) return null
-        return { body, fileName: record.fileName, mimeType: record.mimeType }
+      webHistory: {
+        async get({ limit, before }) {
+          const userId = config.WHITELIST_USER_IDS[0] ?? ''
+          const target = await userPreferences.getTarget('web', userId)
+          const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
+          if (!conversation) return { messages: [], nextCursor: null }
+          const cursor = before ? parseMessageCursor(before) : undefined
+          const page = await repos.messages.listByConversation(conversation.id as ConversationId, limit + 1, cursor)
+          const hasMore = page.length > limit
+          const messages = hasMore ? page.slice(-limit) : page
+          const auditIds = messages.flatMap(message =>
+            message.messageType === 'approval' && message.auditLogId ? [message.auditLogId] : [],
+          )
+          const audits = await repos.audit.findByIds(auditIds)
+          const auditById = new Map(audits.map(audit => [audit.id, audit]))
+          const timeline = messages.flatMap<WebHistoryMessage>(message => {
+            if (message.messageType === 'approval') {
+              const approval = message.auditLogId ? (auditById.get(message.auditLogId) ?? null) : null
+              if (!approval) {
+                bus.emit('ErrorOccurred', {
+                  scope: 'server:webHistoryApproval',
+                  message: `审批消息 ${message.id} 缺少可用的 audit_logs 引用`,
+                  conversationId: conversation.id as ConversationId,
+                })
+              }
+              return [{ type: 'approval', id: message.id, createdAt: message.createdAt, approval }]
+            }
+            if (message.role !== 'user' && message.role !== 'assistant') return []
+            return [
+              {
+                type: 'chat',
+                id: message.id,
+                role: message.role,
+                content: message.content,
+                attachments: message.attachments,
+                createdAt: message.createdAt,
+              },
+            ]
+          })
+          return {
+            messages: timeline,
+            nextCursor: hasMore && messages[0] ? `${messages[0].createdAt}:${messages[0].id}` : null,
+          }
+        },
       },
-    },
-    uploads: webUploads,
-  })
+      webFiles: {
+        async get(id) {
+          const userId = config.WHITELIST_USER_IDS[0] ?? ''
+          const target = await userPreferences.getTarget('web', userId)
+          const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
+          if (!conversation) return null
+          const record = await repos.conversationFiles.findById(conversation.id as ConversationId, id)
+          if (!record) return null
+          const body = Bun.file(record.localPath)
+          if (!(await body.exists())) return null
+          return { body, fileName: record.fileName, mimeType: record.mimeType }
+        },
+      },
+      uploads: webUploads,
+      webAdmin,
+    })
   const getUserLanguage = userPreferences.getLanguage
   const claudeExecutablePath = resolveSystemClaudeExecutable(config.CLAUDE_EXECUTABLE_PATH)
   const openCodeServerPool = createOpenCodeServerPool()
@@ -330,6 +333,20 @@ async function main() {
     recentContextLimit: config.RECENT_CONTEXT_LIMIT,
     recentContextMessageMaxChars: config.RECENT_CONTEXT_MESSAGE_MAX_CHARS,
   })
+
+  const webAdmin = createWebAdmin({
+    repos,
+    bus,
+    preferences: userPreferences,
+    stopConversation: orch.stopConversation,
+    removeManagedFiles: conversationFileLifecycle.removeManagedFiles,
+    mediaDirectory: config.MEDIA_DOWNLOAD_DIR,
+    refreshEnvironmentMemories: memory.refreshEnvironmentSnapshot,
+    listModels: orch.listModels,
+    setModel: orch.setModel,
+    resolveCwd,
+  })
+  const appServer = createAppServer(webAdmin)
 
   // —— 10. Core Hub（SessionManager + Auth + MessageRouter）——
   const coreHub = createCoreHub({

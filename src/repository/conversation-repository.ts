@@ -159,6 +159,22 @@ export function createConversationRepository(db: Db): ConversationRepository {
       }
     },
 
+    async findAdminById(id: ConversationId): Promise<ConversationAdminSummary | null> {
+      const [row] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1)
+      if (!row) return null
+      const [messageCount, fileCount, auditCount] = await Promise.all([
+        db.select({ count: count() }).from(messages).where(eq(messages.conversationId, id)),
+        db.select({ count: count() }).from(conversationFiles).where(eq(conversationFiles.conversationId, id)),
+        db.select({ count: count() }).from(auditLogs).where(eq(auditLogs.conversationId, id)),
+      ])
+      return {
+        ...row,
+        messageCount: Number(messageCount[0]?.count ?? 0),
+        fileCount: Number(fileCount[0]?.count ?? 0),
+        auditCount: Number(auditCount[0]?.count ?? 0),
+      }
+    },
+
     async deleteAggregate(id: ConversationId): Promise<ConversationDeletionAggregate | null> {
       return db.transaction(async tx => {
         const [existing] = await tx.select({ id: conversations.id }).from(conversations).where(eq(conversations.id, id))

@@ -7,6 +7,7 @@ import type { ConversationId, Unsubscribe } from '../shared'
 
 export interface ConversationFileLifecycle {
   clear(conversationId: ConversationId): Promise<void>
+  removeManagedFiles(localPaths: readonly string[]): Promise<void>
   destroy(): void
 }
 
@@ -30,7 +31,7 @@ export function createConversationFileLifecycle(options: ConversationFileLifecyc
   async function clearConversationFiles(conversationId: ConversationId, reportError = false): Promise<void> {
     try {
       const files = await options.repos.conversationFiles.deleteByConversation(conversationId)
-      await Promise.all(files.map(file => removeManagedFile(file.localPath)))
+      await removeManagedFiles(files.map(file => file.localPath))
     } catch (err) {
       if (reportError) {
         options.bus.emit('ErrorOccurred', {
@@ -58,8 +59,13 @@ export function createConversationFileLifecycle(options: ConversationFileLifecyc
     }
   }
 
+  async function removeManagedFiles(localPaths: readonly string[]): Promise<void> {
+    await Promise.all(localPaths.map(removeManagedFile))
+  }
+
   return {
     clear: conversationId => clearConversationFiles(conversationId),
+    removeManagedFiles,
     destroy() {
       for (const unsub of unsubs) unsub()
       unsubs.length = 0

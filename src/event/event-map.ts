@@ -30,6 +30,8 @@ export interface EventMap {
   ConversationCleared: { conversationId: ConversationId }
   /** 持久内容已清空，运行中的当前 CLI adapter 必须停止并丢弃上下文。 */
   ConversationContextReset: { conversationId: ConversationId }
+  /** 管理员硬删除已完成，所有运行期/浏览器会话应移除该 ID。 */
+  ConversationDeleted: { conversationId: ConversationId }
 
   // —— 消息 ——
   /**
@@ -153,6 +155,7 @@ const EVENT_TYPE_REGISTRY: Record<EventType, true> = {
   SessionClosed: true,
   ConversationCleared: true,
   ConversationContextReset: true,
+  ConversationDeleted: true,
   MessageReceived: true,
   MessageGenerated: true,
   MessagePersisted: true,

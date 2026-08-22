@@ -120,6 +120,24 @@ function createFakeRepos(cwd = '/work', initialStatus: 'idle' | 'running' = 'idl
 }
 
 describe('SessionOrchestrator', () => {
+  test('stopConversation 会停止并清理指定会话的运行时', async () => {
+    const fake = createFakeAdapter()
+    const bus = createEventBus()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
+
+    await orch.handler.onMessage('需要停止', CID)
+    await orch.stopConversation(CID)
+
+    expect(fake.calls.stop).toBe(1)
+    await orch.stopConversation(CID)
+    expect(fake.calls.stop).toBe(1)
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
   test('模型操作懒启动 adapter，并把持久化模型传给 start', async () => {
     const bus = createEventBus()
     const repos = createFakeRepos()

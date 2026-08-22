@@ -177,6 +177,35 @@ test('WebSocket transport 将已知会话的流式输出回传浏览器', async 
   await transport.stop()
 })
 
+test('WebSocket transport 收到会话删除事件后撤销会话和审批缓存', async () => {
+  const bus = createEventBus()
+  const { gateway, peer, sent } = createGateway()
+  const transport = createWebSocketTransport({ bus, gateway, userId: 'web-admin' })
+  await transport.start()
+  const conversationId = 'web-deleted-conversation' as ConversationId
+
+  bus.emit('SessionCreated', {
+    conversationId,
+    platform: 'web',
+    userId: 'web-admin',
+    cli: 'claude',
+    cwd: '/',
+  })
+  bus.emit('ApprovalApproved', { conversationId, approvalId: 'approval-1', operator: 'web-admin' })
+  bus.emit('ConversationDeleted', { conversationId })
+
+  expect(JSON.parse(sent.at(-1) ?? '{}')).toEqual({
+    v: 1,
+    type: 'conversation_deleted',
+    conversationId,
+  })
+
+  gateway.receive(peer, JSON.stringify({ v: 1, type: 'approve', conversationId, approvalId: 'approval-1' }))
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(JSON.parse(sent.at(-1) ?? '{}')).toEqual({ v: 1, type: 'error', code: 'conversation_unavailable' })
+  await transport.stop()
+})
+
 test('WebSocket transport 回传规范化用户消息和预览附件', async () => {
   const bus = createEventBus()
   const { gateway, sent } = createGateway()

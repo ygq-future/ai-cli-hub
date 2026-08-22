@@ -84,6 +84,7 @@ export interface ConversationRepository {
   listAdminPage(
     query: CursorQuery & { platform?: Platform; userId?: string; cli?: CliType; status?: SessionStatus },
   ): Promise<ConversationAdminPage>
+  findAdminById(id: ConversationId): Promise<ConversationAdminSummary | null>
   deleteAggregate(id: ConversationId): Promise<ConversationDeletionAggregate | null>
 }
 

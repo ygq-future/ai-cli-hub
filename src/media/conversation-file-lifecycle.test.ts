@@ -13,6 +13,23 @@ afterEach(async () => {
 })
 
 describe('conversation file lifecycle', () => {
+  test('公开删除入口只删除受控媒体目录中的文件', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'ai-cli-hub-files-'))
+    temporaryDirectories.push(directory)
+    const localPath = path.join(directory, 'managed.txt')
+    await writeFile(localPath, 'managed')
+    const lifecycle = createConversationFileLifecycle({
+      bus: createEventBus(),
+      repos: {} as never,
+      mediaDirectory: directory,
+    })
+
+    await lifecycle.removeManagedFiles([localPath])
+
+    expect(await Bun.file(localPath).exists()).toBe(false)
+    lifecycle.destroy()
+  })
+
   test('clear 等待删除数据库映射和受控目录中的文件', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'ai-cli-hub-files-'))
     temporaryDirectories.push(directory)

@@ -33,6 +33,8 @@ export interface SessionOrchestrator {
   handler: MessageHandler
   listModels(conversationId: ConversationId): Promise<CliModel[]>
   setModel(conversationId: ConversationId, modelId: string): Promise<string>
+  /** 停止指定会话的 adapter，并丢弃其聚合器、审批和计时器状态。 */
+  stopConversation(conversationId: ConversationId): Promise<void>
   /** 停止所有 adapter 与订阅（优雅关闭）。 */
   destroy(): Promise<void>
 }
@@ -152,6 +154,14 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     } catch (err) {
       reportError('orchestrator:stop', err, cid)
     }
+  }
+
+  async function stopConversation(cid: ConversationId): Promise<void> {
+    aggregator.discard(cid)
+    for (const key of [...resolvedApprovals]) {
+      if (key.startsWith(`${cid}:`)) resolvedApprovals.delete(key)
+    }
+    await stopEntry(cid)
   }
 
   async function stopEntriesForUser(userId: string, platform?: Platform) {
@@ -567,6 +577,11 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     }),
   )
   globalUnsubs.push(
+    bus.on('ConversationDeleted', p => {
+      void stopConversation(p.conversationId)
+    }),
+  )
+  globalUnsubs.push(
     bus.on('UserLanguageChanged', p => {
       void stopEntriesForUser(p.userId, p.platform)
     }),
@@ -653,6 +668,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       resetIdleTimer(conversationId, result.entry)
       return result.entry.adapter.setModel(modelId)
     },
+    stopConversation,
     async destroy() {
       for (const u of globalUnsubs) u()
       globalUnsubs.length = 0

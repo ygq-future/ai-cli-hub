@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-08-22 · 阶段：**V5 Web 可视化管理控制面已完成执行规划，待实施**
+> 最后更新：2026-08-22 · 阶段：**V5 Web 可视化管理控制面实施中**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V5 Web 可视化管理控制面（🟡 执行计划完成，代码待实施）** |
-| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 尚未修改功能代码。 |
-| 文档 | 🟡 V5 具体执行计划已新增；共享 WebAdmin DTO、管理员接口契约、纯时间线模型和 WebUI bootstrap/模块基线已落地，后续继续同步数据模型、架构、Web 任务书与交付文档。 |
+| 当前里程碑 | **V5 Web 可视化管理控制面（🟡 实施中）** |
+| 代码 | 🟡 V4 React Web Control Plane 与既有加固保持完成；V5 已完成契约、WebUI 基线、级联迁移、仓储能力、运行时删除联动和 WebAdmin 深模块，Server 路由与管理页面待实施。 |
+| 文档 | 🟡 V5 执行计划、共享 WebAdmin DTO、管理员接口契约、纯时间线模型、数据模型和进度已同步；后续继续同步架构、Web 任务书与交付文档。 |
 | 阻塞项 | 无 |
-| 下一步 | 按 `docs/superpowers/plans/2026-08-22-web-administration-control-plane.md` 进入 runtime/media 删除接口、WebAdmin 深模块和 Composition Root 装配。 |
+| 下一步 | 按 `docs/superpowers/plans/2026-08-22-web-administration-control-plane.md` 进入 Server 管理路由与 HTTP 错误映射。 |
 
 ---
 
@@ -40,7 +40,7 @@
 | V2-R2 | 运维自更新 / 自检测 / 自动拉起 | ✅ 完成 | `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启链路测试入口（Windows 直接拒绝）、重启后主动通知已接入；部署自检与自动拉起留待 V3 按需补强 |
 | V2-R3 | Transport 和 CLI 扩展 | ✅ 完成 | `OpenCodeSdkAdapter` 已完成；官方 QQ Bot C2C Transport 已完成并通过真机联调，含 Gateway 连接(指数退避重连 + `HttpsProxyAgent` 代理注入)、C2C 私聊、Markdown 消息渲染(`msg_type=2`)、流式消息、审批按钮(`INTERACTION_CREATE`)、ACK 5s 回调、重复点击提示、审批详情精简摘要；QQ 媒体能力已完成（附件下载/OCR/懒加载/语音 ASR/emoji 归一化）；opencode `permissionToApproval` 与 `summarizeApprovalDetail` 已按官方 SDK 类型对齐修复重复行/无意义字段；`QQBOT_WS_PROXY` 新增配置；`main.ts` 起動耐故障化（单 Transport 失败不拖垮进程）；Telegram/QQ 并列装配，混合白名单，platform 过滤防串路由 |
 | V4 | Web Control Plane | ✅ 完成 | 后端服务、浏览器 WebSocket Transport、单管理员 React WebUI、历史/附件/设置/重启闭环和高优先级资源边界加固均已完成；任务书见 `docs/08-Web-Control-Plane-Task-Book.md`。 |
-| V5 | Web 可视化管理控制面 | 🟡 实施中 | 管理全部平台/用户会话及其历史和文件；会话硬删除级联消息、文件映射与审批审计；可视化管理用户/CLI 偏好、全局记忆和全局审批审计。已完成共享 DTO、`WebAdmin` 接口、管理员时间线 hydration、bootstrap-only `main.tsx`、WebUI 模块基线、级联迁移和仓储分页/聚合删除契约；后端管理模块和新页面仍在实施。 |
+| V5 | Web 可视化管理控制面 | 🟡 实施中 | 管理全部平台/用户会话及其历史和文件；会话硬删除级联消息、文件映射与审批审计；可视化管理用户/CLI 偏好、全局记忆和全局审批审计。已完成共享 DTO、`WebAdmin` 接口、管理员时间线 hydration、bootstrap-only `main.tsx`、WebUI 模块基线、级联迁移、仓储分页/聚合删除、运行时删除联动和 `web-admin/` 深模块；Server 路由与新页面仍在实施。 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
 
@@ -352,6 +352,7 @@
 | 2026-08-22 | **V5 节点 1a：共享管理契约与时间线模型**：新增 `shared/types/web-admin.ts`，冻结游标分页、会话/文件/偏好/记忆/审计 DTO 与 `WebAdmin` 接口；新增纯 `hydrateTimeline`，将聊天和结构化审批引用稳定合并，缺失审计仍保留时间线位置。同步接口契约文档。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun test src/web-admin/timeline.test.ts`、`git diff --check` 通过。 |
 | 2026-08-22 | **V5 节点 1b：WebUI 稳定模块基线**：将 `src/webui/main.tsx` 收口为 StrictMode + `createRoot` + 全局样式入口；现有 Web 聊天/设置实现迁移到 `app/app.tsx`，新增 AppShell、URL/hash 导航模型、认证 JSON client、聊天 API 和本地偏好 hook；`react.css` 迁入 `styles/shell.css`，同步静态结构测试，保留现有登录、流式、上传、审批、命令面板和设置行为。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、WebUI 相关测试 23 pass / 0 fail、`git diff --check` 通过。 |
 | 2026-08-22 | **V5 节点 2：级联删除与仓储管理分页**：新增迁移 `0020_conversation_cascade`，`audit_logs.conversation_id` 改为级联、`messages.audit_log_id` 改为 `set null`，并新增 `(created_at,id)` 全局审计索引。Repository 新增会话管理分页及精确计数、事务硬删除（返回受控文件路径和删除计数）、文件/审计/记忆游标分页、记忆编辑清空旧 embedding、偏好 scope/CLI 列表能力；补充离线 schema/migration 断言和 PostgreSQL 集成覆盖。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、schema/审计/仓储定向测试 18 pass / 9 skip / 0 fail、`git diff --check` 通过；未配置 `TEST_DATABASE_URL`，集成组按约定 skip。 |
+| 2026-08-22 | **V5 节点 3：运行时、媒体与 WebAdmin 深模块装配**：新增 `stopConversation` 运行时清理接口和 `ConversationDeleted` 事件，删除会话时停止 adapter、丢弃聚合输出与审批缓存；WebSocket 收到删除事件后撤销会话映射与审批缓存并广播 `conversation_deleted`；媒体生命周期开放受控批量文件删除；新增 `web-admin/` 注入式深模块，覆盖会话/时间线/文件、偏好、记忆和审计业务编排，并在 Composition Root 装配。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（503 pass / 9 skip / 0 fail / 1689 expect）、`git diff --check` 全部通过。 |
 
 ## 6. 开放问题（Open Questions）
 

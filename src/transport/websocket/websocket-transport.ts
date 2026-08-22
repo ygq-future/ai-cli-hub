@@ -245,6 +245,15 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
             send('error', { code: 'server_error', message: event.message })
         }),
       )
+      unsubs.push(
+        deps.bus.on('ConversationDeleted', event => {
+          conversations.delete(event.conversationId)
+          for (const key of [...resolvedApprovals.keys()]) {
+            if (key.startsWith(`${event.conversationId}:`)) resolvedApprovals.delete(key)
+          }
+          send('conversation_deleted', { conversationId: event.conversationId })
+        }),
+      )
     },
     async stop() {
       for (const unsub of unsubs.splice(0)) unsub()

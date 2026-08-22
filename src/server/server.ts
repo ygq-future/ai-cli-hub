@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { ApprovalAuditRequest, ApprovalStatus, ConversationId, Platform, Transport } from '../shared'
+import type { WebAdmin } from '../shared'
 
 const MAX_REQUEST_BYTES = 1_048_576
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
@@ -101,6 +102,7 @@ export interface AppServerDeps {
     get(id: string): Promise<{ body: Blob; fileName: string | null; mimeType: string | null } | null>
   }
   uploads?: { stage(file: File): Promise<{ id: string; name: string; mimeType: string; size: number }> }
+  webAdmin?: WebAdmin
 }
 
 export interface AppServer {
