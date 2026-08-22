@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, lt, or } from 'drizzle-orm'
 import type { Db } from '../storage'
 import { userCliPreferences, userPreferences } from '../storage/schema'
 import type { UserPreferenceRepository } from './types'
@@ -52,6 +52,48 @@ export function createUserPreferenceRepository(db: Db): UserPreferenceRepository
             eq(userCliPreferences.cli, cli),
           ),
         )
+        .limit(1)
+      return row ?? null
+    },
+
+    async listCliPreferences(platform, userId) {
+      return db
+        .select()
+        .from(userCliPreferences)
+        .where(and(eq(userCliPreferences.platform, platform), eq(userCliPreferences.userId, userId)))
+        .orderBy(asc(userCliPreferences.cli))
+    },
+
+    async listScopes(query) {
+      const conditions = []
+      if (query.before) {
+        conditions.push(
+          or(
+            lt(userPreferences.updatedAt, query.before.timestamp),
+            and(eq(userPreferences.updatedAt, query.before.timestamp), lt(userPreferences.userId, query.before.id)),
+          ),
+        )
+      }
+      const rows = await db
+        .select()
+        .from(userPreferences)
+        .where(and(...conditions))
+        .orderBy(desc(userPreferences.updatedAt), desc(userPreferences.userId), desc(userPreferences.platform))
+        .limit(query.limit + 1)
+      const hasMore = rows.length > query.limit
+      const items = hasMore ? rows.slice(0, query.limit) : rows
+      const last = items.at(-1)
+      return {
+        items,
+        nextCursor: hasMore && last ? { timestamp: last.updatedAt, id: last.userId } : null,
+      }
+    },
+
+    async find(platform, userId) {
+      const [row] = await db
+        .select()
+        .from(userPreferences)
+        .where(and(eq(userPreferences.platform, platform), eq(userPreferences.userId, userId)))
         .limit(1)
       return row ?? null
     },

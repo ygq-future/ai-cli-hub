@@ -2,7 +2,7 @@
  * MemoryRepository —— Drizzle 实现（docs/03 §5 / docs/04 §6）。
  * V1：关系 + FTS 关键词召回；V1.5：pgvector 近邻召回。
  */
-import { and, eq, isNotNull, sql } from 'drizzle-orm'
+import { and, desc, eq, ilike, isNotNull, lt, or, sql } from 'drizzle-orm'
 import type { Db } from '../storage'
 import { memories } from '../storage/schema'
 import type { MemoryRepository, Memory, NewMemory } from './types'
@@ -91,6 +91,40 @@ export function createMemoryRepository(db: Db): MemoryRepository {
 
     async delete(id: string): Promise<void> {
       await db.delete(memories).where(eq(memories.id, id))
+    },
+
+    async listPage(query) {
+      const conditions = [eq(memories.namespace, query.namespace)]
+      if (query.type) conditions.push(eq(memories.type, query.type))
+      if (query.search) conditions.push(ilike(memories.content, `%${query.search}%`))
+      if (query.before) {
+        const cursorCondition = or(
+          lt(memories.createdAt, query.before.timestamp),
+          and(eq(memories.createdAt, query.before.timestamp), lt(memories.id, query.before.id)),
+        )
+        if (cursorCondition) conditions.push(cursorCondition)
+      }
+      const rows = await db
+        .select()
+        .from(memories)
+        .where(and(...conditions))
+        .orderBy(desc(memories.createdAt), desc(memories.id))
+        .limit(query.limit + 1)
+      const hasMore = rows.length > query.limit
+      const items = hasMore ? rows.slice(0, query.limit) : rows
+      const last = items.at(-1)
+      return { items, nextCursor: hasMore && last ? { timestamp: last.createdAt, id: last.id } : null }
+    },
+
+    async update(id, input) {
+      const changes: { content?: string; type?: Memory['type']; importance?: number; embedding?: null } = {}
+      if (input.content !== undefined) changes.content = input.content
+      if (input.type !== undefined) changes.type = input.type
+      if (input.importance !== undefined) changes.importance = input.importance
+      if (input.content !== undefined || input.type !== undefined) changes.embedding = null
+      if (!Object.keys(changes).length) return this.findById(id)
+      const [row] = await db.update(memories).set(changes).where(eq(memories.id, id)).returning()
+      return row ?? null
     },
   }
 }

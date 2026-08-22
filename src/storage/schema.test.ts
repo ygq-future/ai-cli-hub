@@ -37,12 +37,12 @@ describe('schema — 表结构与契约', () => {
     expect(t.columns.find(column => column.name === 'message_type')?.default).toBe('chat')
     expect(t.columns.find(column => column.name === 'audit_log_id')?.notNull).toBe(false)
     expect(t.foreignKeys).toHaveLength(2)
-    expect(t.foreignKeys.map(key => key.onDelete)).toEqual(expect.arrayContaining(['cascade', 'no action']))
+    expect(t.foreignKeys.map(key => key.onDelete)).toEqual(expect.arrayContaining(['cascade', 'set null']))
     expect(t.indexes.map(index => index.config.name)).toContain('uniq_msg_audit_log')
     expect(t.checks.map(check => check.name)).toContain('messages_attachments_array')
   })
 
-  test('audit_logs：外键不级联删除（审计永久）', () => {
+  test('audit_logs：会话硬删除级联，消息审批引用置空', () => {
     const t = getTableConfig(auditLogs)
     expect(t.name).toBe('audit_logs')
     const columns = t.columns.map(column => column.name)
@@ -64,9 +64,9 @@ describe('schema — 表结构与契约', () => {
     expect(t.columns.find(column => column.name === 'automatic')?.default).toBe(false)
     expect(t.foreignKeys).toHaveLength(1)
     // onDelete = no action（非 cascade）→ 审计不随会话删除
-    expect(t.foreignKeys[0]!.onDelete).toBe('no action')
+    expect(t.foreignKeys[0]!.onDelete).toBe('cascade')
     expect(t.indexes.map(index => index.config.name)).toEqual(
-      expect.arrayContaining(['idx_audit_conv', 'uniq_audit_conversation_approval']),
+      expect.arrayContaining(['idx_audit_conv', 'idx_audit_global_order', 'uniq_audit_conversation_approval']),
     )
     expect(t.checks.map(check => check.name)).toContain('audit_logs_request_object')
   })
@@ -173,6 +173,14 @@ describe('schema — 表结构与契约', () => {
     expect(migration).toContain(`jsonb_typeof("request") = 'string'`)
     expect(migration).toContain(`jsonb_typeof("attachments") = 'array'`)
     expect(migration).toContain(`jsonb_typeof("request") = 'object'`)
+  })
+
+  test('会话级联迁移重建审计与消息审批外键，并登记全局审计索引', async () => {
+    const migration = await readFile(path.resolve('drizzle/0020_conversation_cascade.sql'), 'utf8')
+    expect(migration).toContain('DROP CONSTRAINT IF EXISTS "audit_logs_conversation_id_conversations_id_fk"')
+    expect(migration).toContain('ON DELETE cascade')
+    expect(migration).toContain('ON DELETE set null')
+    expect(migration).toContain('CREATE INDEX IF NOT EXISTS "idx_audit_global_order"')
   })
 
   test('pgvector 序列化：number[] → 文本字面量 [a,b,c]', () => {

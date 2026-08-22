@@ -84,7 +84,7 @@ export const messages = pgTable('messages', {
   attachments:    bunJsonb<StoredMessageAttachment[]>('attachments').notNull().default([]),
   contextEligible: boolean('context_eligible').notNull().default(true),
   messageType:    messageTypeEnum('message_type').notNull().default('chat'),
-  auditLogId:     text('audit_log_id').references(() => auditLogs.id),
+  auditLogId:     text('audit_log_id').references(() => auditLogs.id, { onDelete: 'set null' }),
   createdAt:      bigint('created_at', { mode: 'number' }).notNull(),
 }, (t) => ({
   byConv: index('idx_msg_conv').on(t.conversationId, t.createdAt),
@@ -108,7 +108,7 @@ export type NewMessage = typeof messages.$inferInsert;
 export const auditLogs = pgTable('audit_logs', {
   id:             text('id').primaryKey(),
   conversationId: text('conversation_id').notNull()
-                    .references(() => conversations.id),   // 注意：不 cascade delete，审计不随会话删除
+                    .references(() => conversations.id, { onDelete: 'cascade' }),
   approvalId:     text('approval_id').notNull(),
   request:        bunJsonb<ApprovalAuditRequest>('request').notNull(),
   status:         approvalStatusEnum('status').notNull().default('pending'),
@@ -125,7 +125,7 @@ export type AuditLog    = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
 ```
 
-> `request` 是 `{ command, detail }` JSONB object；合法 JSON detail 保存为结构化值，否则保留原字符串。该列使用 Bun SQL 专用 JSONB 映射和 object CHECK。`createdAt` 是请求创建/时间线排序时间，不另设 requestedAt/resolvedAt。pending 行的 operator 为 NULL、automatic=false；决议更新同一行。**强约束**：Repository 不提供 delete；`conversationId` 不设 `onDelete: cascade`，保证会话归档后审计仍在。迁移 0018 经用户明确批准一次性清空旧 packed command 审计，迁移完成后恢复永久不可删约束。
+> `request` 是 `{ command, detail }` JSONB object；合法 JSON detail 保存为结构化值，否则保留原字符串。该列使用 Bun SQL 专用 JSONB 映射和 object CHECK。`createdAt` 是请求创建/时间线排序时间，不另设 requestedAt/resolvedAt。pending 行的 operator 为 NULL、automatic=false；决议更新同一行。**强约束**：Repository 不提供单条 delete；管理员硬删除 conversation 时通过外键级联清理该会话的审批审计，避免遗留无法定位的孤儿审计；消息的 `audit_log_id` 以 `set null` 保证删除顺序不被时间线引用阻塞。迁移 0018 经用户明确批准一次性清空旧 packed command 审计，迁移 0020 重建级联约束并增加全局排序索引。
 
 ---
 
@@ -201,6 +201,7 @@ user_cli_preferences: (platform, user_id, cli) → cwd, model_id nullable, model
 | messages | `(conversation_id, created_at)` | 历史查看、审计与后续摘要；当前不做完整上下文回放 |
 | messages | unique `(audit_log_id)` | Web 时间线审批引用；NULL 不冲突 |
 | audit_logs | `(conversation_id, created_at)` | 审计查询 |
+| audit_logs | `(created_at, id)` | 跨所有平台/用户的管理员审计分页 |
 | audit_logs | unique `(conversation_id, approval_id)` | 同一审批的唯一生命周期记录 |
 | conversation_files | unique `(conversation_id, sequence)` | 会话内文件编号；会话关闭或清空时删除映射和临时文件 |
 | memories | `(namespace, type)` | 实例级全局记忆取回 |

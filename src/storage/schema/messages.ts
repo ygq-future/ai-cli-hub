@@ -22,7 +22,7 @@ export const messages = pgTable(
     attachments: bunJsonb<StoredMessageAttachment[]>('attachments').notNull().default([]),
     contextEligible: boolean('context_eligible').notNull().default(true),
     messageType: messageTypeEnum('message_type').notNull().default('chat'),
-    auditLogId: text('audit_log_id').references(() => auditLogs.id),
+    auditLogId: text('audit_log_id').references(() => auditLogs.id, { onDelete: 'set null' }),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
   },
   t => [

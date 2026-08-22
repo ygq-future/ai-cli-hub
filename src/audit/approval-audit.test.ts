@@ -56,6 +56,9 @@ function createFakeAuditRepository(opts?: { failCreate?: boolean; createGate?: P
     async listByConversation(id): Promise<AuditLog[]> {
       return [...records.values()].filter(record => record.conversationId === id)
     },
+    async listAdminPage() {
+      return { items: [], nextCursor: null }
+    },
   }
   return { records, timelineMessages, repo }
 }

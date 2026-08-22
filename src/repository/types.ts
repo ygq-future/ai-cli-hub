@@ -5,7 +5,16 @@
  * 实体类型（Conversation/Message/...）源自 storage/ 的 $inferSelect/$inferInsert（docs/04），
  * 在此再导出，令 core/ 经 repository/ 获取领域类型而无需直连 storage/（遵依赖矩阵）。
  */
-import type { CliType, Platform, SessionStatus, ConversationId, MessageId, InboundAttachmentKind } from '../shared'
+import type {
+  CliType,
+  CursorPosition,
+  InboundAttachmentKind,
+  MemoryType,
+  Platform,
+  SessionStatus,
+  ConversationId,
+  MessageId,
+} from '../shared'
 import type {
   Conversation,
   NewConversation,
@@ -37,6 +46,28 @@ export type {
 }
 export type { CliType, Platform, SessionStatus, ConversationId, MessageId }
 
+export interface CursorQuery {
+  limit: number
+  before?: CursorPosition
+}
+
+export interface ConversationAdminSummary extends Conversation {
+  messageCount: number
+  fileCount: number
+  auditCount: number
+}
+
+export interface ConversationAdminPage {
+  items: ConversationAdminSummary[]
+  nextCursor: CursorPosition | null
+}
+
+export interface ConversationDeletionAggregate {
+  conversationId: ConversationId
+  managedFilePaths: string[]
+  deleted: { messages: number; audits: number; files: number }
+}
+
 export interface ConversationRepository {
   create(c: NewConversation): Promise<Conversation>
   /** scope=(platform,userId,cli) 内最新可复用会话。 */
@@ -50,6 +81,10 @@ export interface ConversationRepository {
   reconcileRuntimeStatuses(now: number): Promise<void>
   /** 归档扫描：updatedAt < beforeTs 的 idle 会话。 */
   listStaleIdle(beforeTs: number): Promise<Conversation[]>
+  listAdminPage(
+    query: CursorQuery & { platform?: Platform; userId?: string; cli?: CliType; status?: SessionStatus },
+  ): Promise<ConversationAdminPage>
+  deleteAggregate(id: ConversationId): Promise<ConversationDeletionAggregate | null>
 }
 
 export interface CliCwdDefault {
@@ -75,6 +110,13 @@ export interface ConversationFileRepository {
   findBySequence(conversationId: ConversationId, sequence: number): Promise<ConversationFile | null>
   findById(conversationId: ConversationId, id: string): Promise<ConversationFile | null>
   listByConversation(conversationId: ConversationId, limit: number, keyword?: string): Promise<ConversationFile[]>
+  listPage(
+    conversationId: ConversationId,
+    query: CursorQuery & { keyword?: string },
+  ): Promise<{
+    items: ConversationFile[]
+    nextCursor: CursorPosition | null
+  }>
   /** 返回待清理的磁盘路径，供业务层删除实体文件。 */
   deleteByConversation(conversationId: ConversationId): Promise<ConversationFile[]>
 }
@@ -91,6 +133,27 @@ export interface AuditRepository {
   }): Promise<AuditLog | null>
   findByIds(ids: readonly string[]): Promise<AuditLog[]>
   listByConversation(id: ConversationId): Promise<AuditLog[]>
+  listAdminPage(
+    query: CursorQuery & {
+      conversationId?: ConversationId
+      platform?: Platform
+      userId?: string
+      cli?: CliType
+      status?: 'pending' | 'approved' | 'rejected'
+    },
+  ): Promise<AuditAdminPage>
+}
+
+export interface AuditAdminRow extends AuditLog {
+  platform: Platform
+  userId: string
+  cli: CliType
+  cwd: string
+}
+
+export interface AuditAdminPage {
+  items: AuditAdminRow[]
+  nextCursor: CursorPosition | null
 }
 
 export interface MemoryRepository {
@@ -113,6 +176,13 @@ export interface MemoryRepository {
   /** 命中记忆时更新 accessCount / lastAccessedAt。 */
   touch(id: string): Promise<void>
   delete(id: string): Promise<void>
+  listPage(query: CursorQuery & { namespace: string; type?: MemoryType; search?: string }): Promise<MemoryPage>
+  update(id: string, input: { content?: string; type?: MemoryType; importance?: number }): Promise<Memory | null>
+}
+
+export interface MemoryPage {
+  items: Memory[]
+  nextCursor: CursorPosition | null
 }
 
 export interface UserPreferenceRepository {
@@ -126,8 +196,17 @@ export interface UserPreferenceRepository {
   setDefaultCli(platform: Platform, userId: string, cli: CliType): Promise<void>
   setAutoApprove(platform: Platform, userId: string, enabled: boolean, seconds: number): Promise<void>
   findCliPreference(platform: Platform, userId: string, cli: CliType): Promise<UserCliPreference | null>
+  listCliPreferences(platform: Platform, userId: string): Promise<UserCliPreference[]>
+  listScopes(query: CursorQuery): Promise<{ items: UserPreference[]; nextCursor: CursorPosition | null }>
+  find(platform: Platform, userId: string): Promise<UserPreference | null>
   upsertCwd(platform: Platform, userId: string, cli: CliType, cwd: string): Promise<void>
-  setModel(platform: Platform, userId: string, cli: CliType, modelId: string, modelName: string): Promise<void>
+  setModel(
+    platform: Platform,
+    userId: string,
+    cli: CliType,
+    modelId: string | null,
+    modelName: string | null,
+  ): Promise<void>
   /** 以默认值覆盖用户级与各 CLI 偏好；记录保留，模型选择清空。 */
   reset(platform: Platform, userId: string, defaults: ReadonlyArray<CliCwdDefault>): Promise<void>
 }

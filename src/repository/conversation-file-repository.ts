@@ -1,7 +1,7 @@
 /**
  * ConversationFileRepository —— 会话内文件映射的 Drizzle 实现。
  */
-import { and, desc, eq, ilike, max, sql } from 'drizzle-orm'
+import { and, desc, eq, ilike, lt, max, or, sql } from 'drizzle-orm'
 import type { Db } from '../storage'
 import { conversationFiles } from '../storage/schema'
 import type { ConversationFileRepository, ConversationFile } from './types'
@@ -58,6 +58,31 @@ export function createConversationFileRepository(db: Db): ConversationFileReposi
         .where(where)
         .orderBy(desc(conversationFiles.createdAt), desc(conversationFiles.sequence))
         .limit(limit)
+    },
+
+    async listPage(conversationId, query) {
+      const conditions = [eq(conversationFiles.conversationId, conversationId)]
+      if (query.keyword) conditions.push(ilike(conversationFiles.fileName, `%${query.keyword}%`))
+      if (query.before) {
+        const cursorCondition = or(
+          lt(conversationFiles.createdAt, query.before.timestamp),
+          and(eq(conversationFiles.createdAt, query.before.timestamp), lt(conversationFiles.id, query.before.id)),
+        )
+        if (cursorCondition) conditions.push(cursorCondition)
+      }
+      const rows = await db
+        .select()
+        .from(conversationFiles)
+        .where(and(...conditions))
+        .orderBy(desc(conversationFiles.createdAt), desc(conversationFiles.id))
+        .limit(query.limit + 1)
+      const hasMore = rows.length > query.limit
+      const items = hasMore ? rows.slice(0, query.limit) : rows
+      const last = items.at(-1)
+      return {
+        items,
+        nextCursor: hasMore && last ? { timestamp: last.createdAt, id: last.id } : null,
+      }
     },
 
     async deleteByConversation(conversationId): Promise<ConversationFile[]> {

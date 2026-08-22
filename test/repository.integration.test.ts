@@ -21,6 +21,7 @@ const url = process.env.TEST_DATABASE_URL
 const cid = crypto.randomUUID() as string as ConversationId
 const startingCid = crypto.randomUUID() as string as ConversationId
 const closingCid = crypto.randomUUID() as string as ConversationId
+const cascadeCid = crypto.randomUUID() as string as ConversationId
 const now = Date.now()
 const testNamespace = `test-${crypto.randomUUID()}`
 
@@ -39,7 +40,7 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     await repos.messages.deleteByConversation(cid)
     await db.delete(auditLogs).where(inArray(auditLogs.conversationId, [cid]))
     await db.delete(memories).where(eq(memories.namespace, testNamespace))
-    await db.delete(conversations).where(inArray(conversations.id, [cid, startingCid, closingCid]))
+    await db.delete(conversations).where(inArray(conversations.id, [cid, startingCid, closingCid, cascadeCid]))
     await closeDb(db)
   })
 
@@ -178,6 +179,80 @@ describe.skipIf(!url)('Repositories 集成 CRUD', () => {
     const logs = await repos.audit.listByConversation(cid)
     expect(logs).toHaveLength(1)
     expect(logs[0]).toMatchObject({ approvalId: 'approval-int', status: 'approved', operator: 'u-int' })
+  })
+
+  test('管理员会话页与硬删除：分页计数准确，级联只影响目标聚合', async () => {
+    await repos.conversations.create({
+      id: cascadeCid,
+      platform: 'qq',
+      userId: 'u-cascade',
+      cli: 'claude',
+      cwd: '/tmp/cascade',
+      status: 'idle',
+      createdAt: now + 20,
+      updatedAt: now + 20,
+    })
+    await repos.messages.append({
+      id: crypto.randomUUID(),
+      conversationId: cascadeCid,
+      role: 'user',
+      content: 'cascade me',
+      createdAt: now + 20,
+    })
+    const auditId = crypto.randomUUID()
+    await repos.audit.createPending({
+      id: auditId,
+      conversationId: cascadeCid,
+      approvalId: 'cascade-approval',
+      request: { command: 'Bash', detail: { command: 'pwd' } },
+      status: 'pending',
+      operator: null,
+      automatic: false,
+      createdAt: now + 21,
+    })
+    await repos.conversationFiles.createNext({
+      conversationId: cascadeCid,
+      kind: 'document',
+      fileId: null,
+      fileName: 'cascade.txt',
+      mimeType: 'text/plain',
+      fileSize: 10,
+      localPath: `/tmp/${cascadeCid}.txt`,
+    })
+
+    const page = await repos.conversations.listAdminPage({ limit: 1, platform: 'qq', userId: 'u-cascade' })
+    expect(page.items[0]).toMatchObject({ id: cascadeCid, messageCount: 1, fileCount: 1, auditCount: 1 })
+    expect(page.nextCursor).toBeNull()
+
+    const deleted = await repos.conversations.deleteAggregate(cascadeCid)
+    expect(deleted).toMatchObject({
+      conversationId: cascadeCid,
+      managedFilePaths: [`/tmp/${cascadeCid}.txt`],
+      deleted: { messages: 1, files: 1, audits: 1 },
+    })
+    expect(await repos.conversations.findById(cascadeCid)).toBeNull()
+    expect(await repos.messages.listByConversation(cascadeCid)).toEqual([])
+    expect(await repos.audit.listByConversation(cascadeCid)).toEqual([])
+    expect(await repos.conversationFiles.listByConversation(cascadeCid, 10)).toEqual([])
+    expect(await repos.conversations.findById(cid)).toBeNull()
+  })
+
+  test('管理员全局页：记忆更新会清空旧 embedding，游标边界可用', async () => {
+    const memory = await repos.memories.insert({
+      id: crypto.randomUUID(),
+      namespace: testNamespace,
+      type: 'episodic',
+      content: 'cursor memory',
+      embedding: Array(1024).fill(0),
+      createdAt: now + 30,
+    })
+    const page = await repos.memories.listPage({ namespace: testNamespace, limit: 1 })
+    expect(page.items[0]?.id).toBe(memory.id)
+    expect(page.nextCursor).toBeNull()
+    const updated = await repos.memories.update(memory.id, { content: 'updated memory' })
+    expect(updated?.content).toBe('updated memory')
+    expect(updated?.embedding).toBeNull()
+    await repos.memories.delete(memory.id)
   })
 
   test('MemoryRepository：insert → listGlobal → searchByKeyword → searchByVector → touch/delete/upsert', async () => {
