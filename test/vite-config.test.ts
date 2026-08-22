@@ -45,6 +45,7 @@ test('管理端移动导航与筛选控件提供紧凑交互', async () => {
   expect(source).not.toContain("['settings',")
   expect(input).toContain('className="ui-input-clear"')
   expect(select).toContain('className="ui-select-clear"')
+  expect(select).toContain("'ui-select-control has-clear'")
   expect(styles).toContain('.brand-label')
   expect(styles).toContain('.ui-dialog-content.nav-drawer')
 })

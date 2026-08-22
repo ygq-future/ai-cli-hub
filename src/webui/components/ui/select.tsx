@@ -17,7 +17,7 @@ export function Select({
   clearLabel?: string
 }) {
   return (
-    <span className={`ui-select-control${onClear ? 'has-clear' : ''}`}>
+    <span className={onClear ? 'ui-select-control has-clear' : 'ui-select-control'}>
       <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
         <SelectPrimitive.Trigger className="ui-select-trigger" {...props}>
           <SelectPrimitive.Value />{' '}
