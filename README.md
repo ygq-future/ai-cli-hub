@@ -124,6 +124,8 @@ Use the probes according to their purpose:
 
 For WebSocket proxying, preserve `Host` and `X-Forwarded-Host`, pass the browser `Origin`, and enable WebSocket upgrade support. The server rejects cross-origin upgrades and limits connection count, frame size, request bodies, and staged uploads.
 
+The authenticated administration pages are available from the WebUI navigation: conversations and files across all platforms/users, stored user and CLI preferences, global memories, and approval audits. Conversation deletion is an explicit hard-delete operation; `env.*` environment memories remain read-only.
+
 ### systemd
 
 The sample unit is in `deploy/ai-cli-hub.service`. Adjust `User` and `WorkingDirectory` for your VPS path, then install it:
@@ -151,6 +153,7 @@ The project strictly follows a decoupled architectural pattern:
 │   ├── config/       # Config Module: The ONLY place allowed to read environment variables (Zod validation).
 │   ├── server/       # HTTP API, WebSocket upgrade, authentication, health probes, and WebUI assets.
 │   ├── transport/    # Transport Layer: Client integration (telegram/, qq/, websocket/).
+│   ├── web-admin/    # Full-instance administration orchestration behind shared interfaces.
 │   ├── webui/        # React/TypeScript Web control plane source.
 │   ├── cli/          # CLI Adapters: Interface implementations for target CLIs (base/, claude/).
 │   ├── runtime/      # Optional: added with node-pty when a CLI has no SDK.

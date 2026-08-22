@@ -26,6 +26,8 @@
 
 > 因为这是个人 VPS 上的 AI Hub，同一个操作者可能来自 Telegram、QQ 或 WebSocket；这些渠道的 `user_id` 不应制造多套记忆。若未来需要多套人格/工作区，可扩展 `namespace`（如 `personal` / `work` / `client-a`），而不是复用平台用户 ID。
 
+Web 管理控制面读取 `namespace='global'` 的全部记忆，并允许管理员编辑或删除非环境记忆。带 `env.` 前缀的环境快照由服务端判定为只读；环境刷新沿用稳定 tag 的幂等 upsert，不提供浏览器侧的任意覆盖路径。记忆编辑若改变 content 或 type，会清空旧 embedding，由后台任务重新生成，不阻塞管理页面响应。
+
 ---
 
 ## 3. 记忆分型

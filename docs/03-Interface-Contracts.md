@@ -432,7 +432,7 @@ HTTP 服务默认监听 `127.0.0.1:8787`，`http.host` 也支持配置为 `0.0.0
 
 浏览器在已登录 Cookie 下升级 WebSocket。升级请求必须带 `Origin`，其 host 必须匹配请求 URL、`Host` 或反向代理传入的 `X-Forwarded-Host`，否则返回 403。单进程最多保留 5 个浏览器连接；第 6 个以 1013 关闭。Bun 层限制单帧 128 KiB、发送背压 256 KiB，并在超限时关闭连接；协议层进一步限制消息正文 64 KiB、单条消息最多 10 个上传 ID，标识符最长 128 字符。
 
-JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`、`clientMessageId`、可选 `uploadIds`）与 `approve`/`reject`（`conversationId`、`approvalId`）；下行 `connected`、`user_message`、`output`、`approval`、`approval_resolved`、`error`。`approval_resolved` 携带 `status=approved|rejected`、`operator`、`automatic`，自动或手动决议都会发送；同进程内重复操作不会再次发 EventBus 决议，而是重发既有终态并标记 `alreadyHandled=true`。`user_message` 将服务端规范化消息 ID 和持久化附件回执给浏览器，用于替换乐观消息；`output` 同时承载会话流式输出、持久化预览附件、服务重启通知和 `/help` 等命令回复。审批决定只接受当前 Web 连接已观察到的 Web 会话 ID，禁止借 WebSocket 操作 Telegram/QQ 或未知会话。浏览器断线后先检查认证状态：服务暂时不可达时使用指数退避重连，明确返回 `401` 时停止重连并回到登录页。重启完成通知在 Web 客户端重新连入前保持待发送状态，实际发送成功后才清除持久化通知标记。
+JSON 信封为 `{ "v": 1, "type": "..." }`：上行 `message`（`text`、`clientMessageId`、可选 `uploadIds`）与 `approve`/`reject`（`conversationId`、`approvalId`）；下行 `connected`、`user_message`、`output`、`approval`、`approval_resolved`、`conversation_deleted`、`error`。`conversation_deleted` 携带被删除的 `conversationId`，浏览器应从会话列表、详情和相关审计视图移除该会话。`approval_resolved` 携带 `status=approved|rejected`、`operator`、`automatic`，自动或手动决议都会发送；同进程内重复操作不会再次发 EventBus 决议，而是重发既有终态并标记 `alreadyHandled=true`。`user_message` 将服务端规范化消息 ID 和持久化附件回执给浏览器，用于替换乐观消息；`output` 同时承载会话流式输出、持久化预览附件、服务重启通知和 `/help` 等命令回复。审批决定只接受当前 Web 连接已观察到的 Web 会话 ID，禁止借 WebSocket 操作 Telegram/QQ 或未知会话。浏览器断线后先检查认证状态：服务暂时不可达时使用指数退避重连，明确返回 `401` 时停止重连并回到登录页。重启完成通知在 Web 客户端重新连入前保持待发送状态，实际发送成功后才清除持久化通知标记。
 
 ### `GET` / `PUT /api/settings` 与 `/api/restart`
 

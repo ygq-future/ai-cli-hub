@@ -52,6 +52,9 @@ core/ ──❌禁止──▶ 任何具体实现(telegraf/node-pty/drizzle)
 | `storage/` | Drizzle, `shared/` | 其它全部业务模块 |
 | `audit/` | `event/`, `repository/`, `shared/` | `core/`, `transport/`, `cli/`, `runtime/`, `storage/` |
 | `memory/` | `event/`, `repository/`, `shared/`, `config/` | `core/`, `transport/` |
+| `web-admin/` | `event/`, `repository/`, `shared/`, `config/`，注入的运行时/媒体/偏好抽象 | `core/` 内部、`transport/`、`storage/`、Drizzle |
+| `server/` | `event/`, `shared/`, `config/`，注入的抽象接口与 `web-admin/` | `core/` 内部、`repository/`、`storage/`、具体 CLI/Transport |
+| `webui/` | 浏览器端 `shared/` DTO、API 客户端、React/UI 依赖 | Bun 运行时、SQL、Repository、Core 内部 |
 | `config/` | `settings.json`, Zod；仅代理运行时适配可写 `process.env` | 无（叶子） |
 | `shared/` | 无 | 一切业务模块 |
 
@@ -69,6 +72,7 @@ src/
 ├── config/       # settings.json 唯一配置入口（Zod 校验，fail-fast）
 ├── server/        # HTTP API、WebSocket 承载、WebUI 静态资源与认证
 ├── transport/    # 客户端接入 (telegram, qq, websocket)
+├── web-admin/     # 全实例管理编排：会话、文件、偏好、记忆、审批审计
 ├── webui/         # React + TypeScript 的浏览器端源码
 ├── cli/          # CLI 适配器 (base, Codex=SDK 家族)；语义接缝 CLIAdapter，两家族同实现
 ├── runtime/      # 按需目录：接入无 SDK CLI 时再加入 PTY 字节容器
@@ -130,6 +134,8 @@ bun run lint                # 依赖矩阵 + 风格校验
 - ❌ 本地跑嵌入模型（一律走 API）
 - ❌ 把"杀进程"当成"关会话"
 - ❌ 让审批/记忆的后台逻辑阻塞对话主链路
+- ❌ 让 Server 路由或 WebUI 绕过 `WebAdmin` 直接访问 Repository/Storage
+- ❌ 让管理集合接口无界加载数据；列表统一使用有界 cursor 分页
 - ❌ 非白名单用户的请求进入 Core（必须在 Transport 层丢弃）
 - ❌ 未经用户明确指令就 `git commit` / `git push`
 - ❌ 完成阶段性任务后不对齐 PROGRESS.md

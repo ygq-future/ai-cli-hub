@@ -103,10 +103,21 @@ flowchart LR
 | `cli/claude` | `event/`, `shared/`, `config/`, `runtime/`, `approval/`, **该 CLI 的 SDK（如 `@anthropic-ai/claude-agent-sdk`）** | `transport/`, `storage/`, `core/` 内部 |
 | `repository/` | `storage/`, `shared/` | `core/`, `transport/` |
 | `storage/` | Drizzle, `shared/` | 其它全部业务模块 |
+| `web-admin/` | `event/`, `repository/`, `shared/`, `config/`，注入的运行时/媒体/偏好抽象 | `core/` 内部、`transport/`、`storage/`、Drizzle |
+| `server/` | `event/`, `shared/`, `config/`，注入的抽象接口与 `web-admin/` | `core/` 内部、`repository/`、`storage/`、具体 CLI/Transport |
+| `webui/` | 浏览器端共享 DTO、API 客户端、React/UI 依赖 | Bun 运行时、SQL、Repository、Core 内部 |
 | `config/` | `settings.json`、Zod；仅代理运行时适配可写 `process.env` | 无（叶子模块） |
 | `shared/` | 无（纯类型与工具） | 一切业务模块 |
 
 > **落地验证**：可通过 ESLint `no-restricted-imports` 或 `dependency-cruiser` 在 CI 中强制校验上述矩阵，防止架构腐化。
+
+### 2.2 Web 管理控制面边界
+
+`web-admin/` 是全实例管理的深模块：它把会话聚合删除、文件清理、偏好校验、全局记忆和审批审计编排收口在 `WebAdmin` 接口后。它只接收 Repository、EventBus、运行时、媒体和偏好等抽象注入，不包含 SQL 或具体 Transport/CLI 依赖。
+
+`server/` 是已认证 HTTP/WebSocket 适配器，只负责请求解析、权限、状态码和响应映射；管理路由统一调用 `WebAdmin`，不直接访问 Repository/Storage。所有管理集合接口使用有界 cursor 分页，浏览器提交的 ID、枚举和 cursor 在服务端重新校验。`webui/` 仅负责浏览器状态、API 客户端和页面呈现，`src/webui/main.tsx` 保持 bootstrap-only。
+
+管理员硬删除遵循“停止运行时 → 数据库事务删除会话聚合 → 清理受控媒体 → 发布 `ConversationDeleted`”顺序。数据库外键级联 messages、conversation_files 与 approval audit；物理文件失败不回滚已提交事务，而是以受控警告返回并记录。`/close` 仍是关闭会话并立即清理文件的生命周期动作，不等同于硬删除。
 
 ---
 
@@ -567,6 +578,9 @@ flowchart TB
 | `approval/` | PTY 家族审批 scraping（SDK 家族无需） | 正则匹配 |
 | `repository/` | 数据抽象 | Repository 接口 |
 | `storage/` | 持久化实现 | **Postgres + Drizzle ORM**（V1.5 加 `pgvector`） |
+| `web-admin/` | 全实例管理编排 | `WebAdmin` 抽象 + 注入式运行时/媒体/偏好能力 |
+| `server/` | HTTP API、认证、WebSocket、静态资源 | Bun HTTP/WebSocket |
+| `webui/` | 浏览器端控制面与管理页面 | React 19 + TypeScript + Vite |
 | `memory/` | 长期记忆子系统 | 嵌入 API（默认 `BAAI/bge-m3`）+ pgvector |
 | `logger/` | 全局日志 | Pino |
 | `shared/` | 类型与工具 | 纯 TypeScript |
@@ -584,6 +598,8 @@ flowchart TD
     BUS --> DB[初始化 Storage + Repositories]
     DB --> CORE[创建 Core Hub 注入 Bus/Repo]
     CORE --> REG[注册 Adapters: ClaudeSdkAdapter / OpenCodeSdkAdapter]
+    DB --> ADMIN[创建 WebAdmin 注入 Repository/运行时/媒体/偏好]
+    ADMIN --> HTTP[创建 Server 注入 WebAdmin]
     REG --> TP[启动已启用的 Transports: TelegramTransport / QQTransport]
     TP --> READY[系统就绪]
 ```

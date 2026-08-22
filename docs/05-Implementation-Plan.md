@@ -171,3 +171,25 @@ flowchart TD
 - ✅ 会话边界（CLI 目标 / `/switch` / `/close` / 归档）
 - ✅ 记忆基础：实例级环境快照记忆 + 命令式全局记忆注入（向量列预留待 V1.5）
 - ✅ 全程满足依赖矩阵、无 env/SQL 越界、优雅关闭
+
+---
+
+## 6. V5 Web 可视化管理控制面（2026-08-22）
+
+V5 按 `docs/superpowers/plans/2026-08-22-web-administration-control-plane.md` 执行，目标是为单管理员提供全实例会话、文件、偏好、全局记忆和审批审计管理，同时保持既有 Web 聊天与 Telegram/QQ 行为不变。每个关键节点在完整质量门禁通过后独立提交。
+
+| 节点 | 交付内容 | 提交 |
+|---|---|---|
+| 1 | 共享 WebAdmin DTO/接口、时间线 hydration、bootstrap-only WebUI 与模块边界 | `ccfab01`, `e4ed1df` |
+| 2 | 会话级联迁移、Repository cursor 页面、聚合硬删除与记忆/偏好/审计查询 | `0979d9b` |
+| 3 | awaited runtime stop、受控媒体清理、删除事件/WebSocket 联动、WebAdmin 深模块装配 | `fa45fab` |
+| 4 | 认证管理 API、统一请求校验、状态码映射与现有 Server 兼容 | `84d676f` |
+| 5 | 懒加载管理导航、会话/偏好/记忆/审计/服务设置页面与 typed API clients | `25bd460` |
+| 6 | 架构/契约/数据模型/任务书/README/进度对齐与最终全量门禁 | 本次最终交付提交 |
+
+### V5 验收边界
+
+- 管理集合均使用有界 opaque cursor；Repository 接收解析后的 `{ timestamp, id }` 稳定游标。
+- 会话硬删除停止运行时，事务删除消息、文件映射和审批审计，随后清理受控媒体并广播 `ConversationDeleted`；`/close` 仍保留关闭会话和文件即时清理语义。
+- `namespace='global'` 的记忆可见，`env.*` 记忆服务端只读；用户/CLI 偏好按已存储 platform/user scope 管理。
+- `src/main.ts` 仅负责装配，`src/webui/main.tsx` 仅负责 React 启动，Server 路由不包含 SQL/业务持久化逻辑。

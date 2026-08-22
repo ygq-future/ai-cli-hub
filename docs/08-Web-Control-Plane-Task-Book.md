@@ -1,6 +1,6 @@
 # 08 - Web Control Plane 任务书
 
-> 状态：W5 已完成；Web Control Plane 已交付并完成资源边界与部署更新加固。
+> 状态：W5 已完成；V5 全实例 Web 管理控制面已完成实现并通过质量门禁。
 > 范围：将单用途 HTTP 出站模块演进为 Hub 的 Web 后端服务，并交付单管理员 WebUI。
 
 ---
@@ -23,6 +23,9 @@
 | 配置生效 | `SettingsJsonSchema` 校验、原子写入；保存后必须显式受控重启，不做热重载。 |
 | 敏感数据 | API 永不回传 token/password/secret 明文；只显示“已配置”，可显式覆盖。 |
 | Web 偏好 | 语言、主题、强调色、输入行为和浏览器通知开关仅保存于浏览器本地，不写服务器业务配置。浏览器通知权限与应用开关分离：应用可随时停止通知，撤销浏览器权限仍由站点权限管理；开启状态必须在头部与设置项同步高亮。 |
+| 管理范围 | 单管理员可查看全部平台/用户的会话、文件、持久化偏好、全局记忆和审批审计；管理集合统一使用有界 cursor 分页。 |
+| 删除语义 | 硬删除会话停止运行时并删除数据库聚合及受控文件；`/close` 仍只关闭会话并即时清理文件。数据库删除后向 WebSocket 广播 `conversation_deleted`。 |
+| 记忆保护 | 仅展示 `namespace='global'`；`env.*` 环境记忆由服务端强制只读，其余记忆允许编辑/删除，内容或类型变化会触发 embedding 重建。 |
 
 ## 3. 架构边界
 
@@ -37,6 +40,7 @@ flowchart LR
 ```
 
 - `server/` 只依赖 `config/`、`event/`、`shared/` 和 Composition Root 注入的抽象；不得 import Core 内部、具体 CLI 或 Drizzle。
+- `web-admin/` 收口会话、文件、偏好、记忆和审计编排；Server 路由只依赖 `WebAdmin`，不直接访问 Repository/Storage。
 - `transport/websocket` 通过 WebSocket 协议承载 `web` 平台，按现有 `Transport` 契约处理白名单、入站 `MessageReceived`、出站流式消息和审批事件。
 - `main.ts` 是 server、websocket transport、repositories 与运维能力的唯一装配点。
 - 设置文件读写与 schema 校验收敛在 `config/` 的受控能力中；HTTP handler 不直接操作 SQL。
@@ -126,6 +130,12 @@ flowchart LR
 
 补单元/集成测试，更新架构、接口、命令 UX、设置模板、README 与 HTTPS 反向代理示例。自更新采用 WebUI 暂存构建与最后提升，普通启动不构建前端；Tailwind 由 Vite 插件处理。验收：format、typecheck、lint、生产构建和全量测试通过，VPS HTTPS 真机回归完成。
 
+### V5 — 全实例 Web 管理控制面
+
+在既有聊天控制面上增加管理导航与懒加载页面：会话/文件、用户与 CLI 偏好、全局记忆、审批审计和服务设置。后端提供认证的 `/api/web/*` 路由，所有集合使用 opaque cursor，所有 ID/枚举/body 在 Server 边界重新校验。会话硬删除按“停止运行时 → 数据库级联删除 → 受控媒体清理 → `ConversationDeleted` 广播”完成；物理清理失败返回警告但不回滚数据库事务。
+
+验收：管理员可跨平台/用户浏览和删除会话、查看 timeline 与文件，编辑已有偏好，维护非 `env.*` 全局记忆并刷新环境快照，分页筛选全局审批审计；现有 Web 聊天、审批、设置、上传、Telegram、QQ 和兼容 HTTP API 保持可用。`src/webui/main.tsx` 仅保留 React bootstrap，`src/main.ts` 仅负责装配。
+
 ## 7. 完成定义
 
-管理员能通过 HTTPS WebUI 登录，在任意目标设备实时聊天、查看并处理审批、安全编辑配置、切换中英文/主题/强调色，且 Telegram、QQ 与既有 HTTP API 无回归时，本任务完成。
+管理员能通过 HTTPS WebUI 登录，在任意目标设备实时聊天、查看并处理审批，管理全实例会话/文件、用户与 CLI 偏好、全局记忆和审批审计，安全编辑配置、切换中英文/主题/强调色，且 Telegram、QQ 与既有 HTTP API 无回归时，本任务完成。
