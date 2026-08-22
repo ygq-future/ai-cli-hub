@@ -2,6 +2,7 @@
 // 禁止依赖任何业务模块（见 CLAUDE.md 依赖矩阵）。
 export { closeDb, createDb } from './db'
 export type { Db } from './db'
+export { migrateWebUserIdentity, type WebUserMigrationResult } from './web-user-migration'
 export {
   DB_MIGRATION_REPORT_PREFIX,
   inspectPendingMigrations,

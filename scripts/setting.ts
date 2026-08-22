@@ -59,6 +59,7 @@ export const CATEGORIES: CategoryDef[] = [
         typeTag: 'bool',
       },
       { jsonPath: ['transport', 'whitelistUserIds'], label: 'Whitelist User IDs', type: 'string[]', typeTag: 'list' },
+      { jsonPath: ['transport', 'webUserId'], label: 'Web User ID', type: 'string', typeTag: 'str' },
     ],
   },
   {

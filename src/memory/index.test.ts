@@ -16,6 +16,7 @@ const CONFIG = loadConfig({
     qqBotWsProxy: '',
     qqBotOpenIdDiscovery: false,
     whitelistUserIds: ['u1'],
+    webUserId: 'web-admin',
   },
   database: { host: '127.0.0.1', port: 5432, db: 'ai_cli_hub', username: 'user', password: 'pass' },
   memory: {

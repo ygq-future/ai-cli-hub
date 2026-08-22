@@ -13,6 +13,7 @@ function validJson() {
       qqBotWsProxy: '',
       qqBotOpenIdDiscovery: false,
       whitelistUserIds: ['111', '222', '333'],
+      webUserId: 'web-admin',
     },
     database: {
       host: '127.0.0.1',
@@ -100,6 +101,7 @@ describe('loadConfig', () => {
     expect(c.QQBOT_APP_ID).toBe('')
     expect(c.QQBOT_APP_SECRET).toBe('')
     expect(c.QQBOT_OPENID_DISCOVERY).toBe(false)
+    expect(c.WEB_USER_ID).toBe('web-admin')
     expect(c.DATABASE_URL).toBe('postgres://u:p@127.0.0.1:5432/test_db')
     expect(c.CLAUDE_EXECUTABLE_PATH).toBe('')
     expect(c.EMBEDDING_API_BASE_URL).toBe('https://api.openai.com/v1')
@@ -307,6 +309,21 @@ describe('loadConfig', () => {
       loadConfig({ ...validJson(), transport: { ...validJson().transport, qqBotOpenIdDiscovery: true } })
         .QQBOT_OPENID_DISCOVERY,
     ).toBe(true)
+  })
+
+  test('Web userId 独立于白名单并支持自定义稳定值', () => {
+    const c = loadConfig({
+      ...validJson(),
+      transport: { ...validJson().transport, whitelistUserIds: ['telegram-user'], webUserId: 'stable-web-admin' },
+    })
+    expect(c.WHITELIST_USER_IDS).toEqual(['telegram-user'])
+    expect(c.WEB_USER_ID).toBe('stable-web-admin')
+  })
+
+  test('Web userId 不能是空白字符串', () => {
+    expect(() => loadConfig({ ...validJson(), transport: { ...validJson().transport, webUserId: '  ' } })).toThrow(
+      /Invalid config/,
+    )
   })
 
   test('非法 LOG_LEVEL 枚举时抛错', () => {

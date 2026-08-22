@@ -19,6 +19,7 @@ function fakeConfig(extra?: Partial<ReturnType<typeof loadConfig>>) {
       qqBotWsProxy: '',
       qqBotOpenIdDiscovery: false,
       whitelistUserIds: ['qq-openid', 'tg-id'],
+      webUserId: 'web-admin',
     },
     database: { host: '127.0.0.1', port: 5432, db: 'ai_cli_hub', username: 'u', password: 'p' },
     memory: {

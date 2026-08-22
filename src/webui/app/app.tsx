@@ -187,6 +187,12 @@ const fieldMeta: Record<string, [string, string, string, string]> = {
     '只有列表中的平台用户可进入会话。',
     'Only listed platform users can enter a session.',
   ],
+  webUserId: [
+    'Web 用户 ID',
+    'Web user ID',
+    'Web 控制台使用的稳定身份，不随白名单顺序变化。',
+    'Stable identity for the Web console; independent from allow-list ordering.',
+  ],
   enabled: ['启用', 'Enabled', '是否启用此能力。', 'Whether this capability is enabled.'],
   seconds: ['等待秒数', 'Wait seconds', '自动审批前的等待时长。', 'Delay before automatic approval.'],
   cwd: ['默认工作目录', 'Default directory', '新会话使用的工作目录。', 'Working directory for new sessions.'],

@@ -9,7 +9,8 @@
     "qqBotAppSecret": "",
     "qqBotWsProxy": "",
     "qqBotOpenIdDiscovery": false,
-    "whitelistUserIds": []
+    "whitelistUserIds": [],
+    "webUserId": "web-admin"
   },
   "database": {
     "host": "127.0.0.1",

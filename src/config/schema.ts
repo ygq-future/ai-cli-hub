@@ -21,6 +21,7 @@ const TransportJsonSchema = z.object({
   qqBotWsProxy: z.string().default(''),
   qqBotOpenIdDiscovery: z.boolean().default(false),
   whitelistUserIds: z.array(z.string()).default([]),
+  webUserId: z.string().trim().min(1).default('web-admin'),
 })
 
 const DatabaseJsonSchema = z.object({
@@ -149,6 +150,7 @@ export type AppConfig = {
   QQBOT_OPENID_DISCOVERY: boolean
   QQBOT_WS_PROXY: string
   WHITELIST_USER_IDS: string[]
+  WEB_USER_ID: string
   // database
   DATABASE_URL: string
   // memory / embedding
@@ -242,6 +244,7 @@ function flattenSettings(json: SettingsJson): AppConfig {
     QQBOT_OPENID_DISCOVERY: transport.qqBotOpenIdDiscovery,
     QQBOT_WS_PROXY: transport.qqBotWsProxy,
     WHITELIST_USER_IDS: transport.whitelistUserIds,
+    WEB_USER_ID: transport.webUserId,
 
     DATABASE_URL: buildDatabaseUrl(database),
 

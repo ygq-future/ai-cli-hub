@@ -9,7 +9,7 @@
  */
 import { migrate } from 'drizzle-orm/bun-sql/migrator'
 import { loadConfig } from '../src/config'
-import { createDb, DB_MIGRATION_REPORT_PREFIX, inspectPendingMigrations } from '../src/storage'
+import { createDb, DB_MIGRATION_REPORT_PREFIX, inspectPendingMigrations, migrateWebUserIdentity } from '../src/storage'
 
 const config = loadConfig()
 const db = createDb(config.DATABASE_URL)
@@ -17,6 +17,13 @@ const report = await (async () => {
   try {
     const pending = await inspectPendingMigrations(db)
     await migrate(db, { migrationsFolder: './drizzle' })
+    const webUserMigration = await migrateWebUserIdentity(db, config.WEB_USER_ID)
+    if (webUserMigration.changed) {
+      pending.applied.push({
+        tag: 'web_user_identity',
+        changes: [`Web 用户身份迁移至 ${webUserMigration.userId}`],
+      })
+    }
     return pending
   } finally {
     await db.$client.end()

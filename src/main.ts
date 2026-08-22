@@ -167,7 +167,7 @@ async function main() {
   const webSocketTransport = createWebSocketTransport({
     bus,
     gateway: webSocketGateway,
-    userId: config.WHITELIST_USER_IDS[0] ?? '',
+    userId: config.WEB_USER_ID,
     resolveUserTarget: userPreferences.getTarget,
     resolveUploads: webUploads.consume,
     mediaPreprocessor,
@@ -212,13 +212,13 @@ async function main() {
         run: async () =>
           restarter.run({
             platform: 'web',
-            chatId: config.WHITELIST_USER_IDS[0] ?? '',
+            chatId: config.WEB_USER_ID,
             nativeId: crypto.randomUUID(),
           }),
       },
       webStatus: {
         async get() {
-          const userId = config.WHITELIST_USER_IDS[0] ?? ''
+          const userId = config.WEB_USER_ID
           const target = await userPreferences.getTarget('web', userId)
           const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
           const [model, autoApprove] = await Promise.all([
@@ -238,7 +238,7 @@ async function main() {
       },
       webHistory: {
         async get({ limit, before }) {
-          const userId = config.WHITELIST_USER_IDS[0] ?? ''
+          const userId = config.WEB_USER_ID
           const target = await userPreferences.getTarget('web', userId)
           const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
           if (!conversation) return { messages: [], nextCursor: null }
@@ -283,7 +283,7 @@ async function main() {
       },
       webFiles: {
         async get(id) {
-          const userId = config.WHITELIST_USER_IDS[0] ?? ''
+          const userId = config.WEB_USER_ID
           const target = await userPreferences.getTarget('web', userId)
           const conversation = await repos.conversations.findLatestOpen('web', userId, target.cli)
           if (!conversation) return null
