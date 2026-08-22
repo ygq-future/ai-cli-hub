@@ -13,9 +13,9 @@
 |---|---|
 | 当前里程碑 | **V5 Web 可视化管理控制面（🟡 执行计划完成，代码待实施）** |
 | 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 尚未修改功能代码。 |
-| 文档 | 🟡 V5 具体执行计划已新增，实施时按任务同步接口契约、数据模型、架构、Web 任务书与交付文档。 |
+| 文档 | 🟡 V5 具体执行计划已新增；共享 WebAdmin DTO、管理员接口契约和纯时间线模型已落地，后续继续同步数据模型、架构、Web 任务书与交付文档。 |
 | 阻塞项 | 无 |
-| 下一步 | 按 `docs/superpowers/plans/2026-08-22-web-administration-control-plane.md` 从共享契约和 WebUI 基线拆分开始实施。 |
+| 下一步 | 按 `docs/superpowers/plans/2026-08-22-web-administration-control-plane.md` 继续完成 WebUI 基线拆分，再进入级联删除与仓储分页。 |
 
 ---
 
@@ -40,7 +40,7 @@
 | V2-R2 | 运维自更新 / 自检测 / 自动拉起 | ✅ 完成 | `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启链路测试入口（Windows 直接拒绝）、重启后主动通知已接入；部署自检与自动拉起留待 V3 按需补强 |
 | V2-R3 | Transport 和 CLI 扩展 | ✅ 完成 | `OpenCodeSdkAdapter` 已完成；官方 QQ Bot C2C Transport 已完成并通过真机联调，含 Gateway 连接(指数退避重连 + `HttpsProxyAgent` 代理注入)、C2C 私聊、Markdown 消息渲染(`msg_type=2`)、流式消息、审批按钮(`INTERACTION_CREATE`)、ACK 5s 回调、重复点击提示、审批详情精简摘要；QQ 媒体能力已完成（附件下载/OCR/懒加载/语音 ASR/emoji 归一化）；opencode `permissionToApproval` 与 `summarizeApprovalDetail` 已按官方 SDK 类型对齐修复重复行/无意义字段；`QQBOT_WS_PROXY` 新增配置；`main.ts` 起動耐故障化（单 Transport 失败不拖垮进程）；Telegram/QQ 并列装配，混合白名单，platform 过滤防串路由 |
 | V4 | Web Control Plane | ✅ 完成 | 后端服务、浏览器 WebSocket Transport、单管理员 React WebUI、历史/附件/设置/重启闭环和高优先级资源边界加固均已完成；任务书见 `docs/08-Web-Control-Plane-Task-Book.md`。 |
-| V5 | Web 可视化管理控制面 | 🟡 已规划 | 管理全部平台/用户会话及其历史和文件；会话硬删除级联消息、文件映射与审批审计；可视化管理用户/CLI 偏好、全局记忆和全局审批审计。实施前先把现有 WebUI 拆为 app/API/hooks/features/components/styles，`main.tsx` 收口为启动入口。 |
+| V5 | Web 可视化管理控制面 | 🟡 实施中 | 管理全部平台/用户会话及其历史和文件；会话硬删除级联消息、文件映射与审批审计；可视化管理用户/CLI 偏好、全局记忆和全局审批审计。已完成共享 DTO、`WebAdmin` 接口和管理员时间线 hydration 基线；WebUI 拆分及后端管理模块仍在实施。 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
 
@@ -349,6 +349,7 @@
 | 2026-08-11 | **Web 登录首帧与标题布局缺陷修复**：确认登录面板误用绝对定位弹窗的 `dialog-in` 动画，`translate(-50%, -50%)` 会让 Grid 子项先移出中心再回位；改为不改变定位的 `login-in` 入场动画，并把面板 padding/边框、标题行距同步加入入口关键样式。标题拆成独立视觉行，使用可读行距、冷蓝强调色和短强调线，消除中文字体层叠并保持英文布局。新增静态回归断言；浏览器完成 1280×720 桌面与 390×844 移动首帧/稳定态回归，桌面早期与稳定态面板 x 坐标仅 1px 变化、移动端无溢出。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、WebUI 定向测试 13 pass。 |
 | 2026-08-22 | **Web 当前目标路由修复**：WebSocket Transport 每条普通消息通过 Composition Root 查询持久化的用户目标，使 `/switch <cli> [path]` 后续消息携带正确 CLI/CWD；新增 Web 入站目标回归测试。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`git diff --check`、全量 `bun test`（491 pass / 7 skip / 0 fail）。 |
 | 2026-08-22 | **V5 Web 可视化管理执行计划完成**：确定 Web 管理员查看全部平台/用户会话，conversation 硬删除级联 messages、conversation_files 与 audit_logs，`/close` 继续立即清理文件；全局 `env.*` 记忆只读。新增 14 个任务的实施计划，先把现有 WebUI 拆为 app/API/hooks/features/components/styles 并将 `main.tsx` 收口为启动入口，再实现会话、偏好、记忆、审计管理及后端 `web-admin/` 深模块。当前仅文档和进度对齐，功能代码尚未开始。 |
+| 2026-08-22 | **V5 节点 1a：共享管理契约与时间线模型**：新增 `shared/types/web-admin.ts`，冻结游标分页、会话/文件/偏好/记忆/审计 DTO 与 `WebAdmin` 接口；新增纯 `hydrateTimeline`，将聊天和结构化审批引用稳定合并，缺失审计仍保留时间线位置。同步接口契约文档。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun test src/web-admin/timeline.test.ts`、`git diff --check` 通过。 |
 
 ## 6. 开放问题（Open Questions）
 

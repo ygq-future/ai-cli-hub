@@ -364,7 +364,33 @@ export interface ConversationFileRepository {
 
 ---
 
-## 6. Config（`config/`）—— `settings.json` 唯一业务配置源
+## 6. Web Administration（`shared/types/web-admin.ts` + `web-admin/`）
+
+`WebAdmin` 是管理员 HTTP 适配器与业务模块之间的唯一管理接口。所有集合查询都使用有界游标分页：仓储收到 `{ timestamp, id }`，HTTP 只暴露 opaque cursor；时间相同以 ID 做稳定 tie-break。管理员可以查看所有 platform/user 的会话、文件、审批审计和 `namespace='global'` 的记忆。`tag` 以 `env.` 开头的环境记忆服务端只读。
+
+会话硬删除的顺序是停止运行时、事务删除 conversation 聚合、删除 `MEDIA_DOWNLOAD_DIR` 内受控文件、发布 `ConversationDeleted`。数据库级联删除 messages、conversation_files 和 audit_logs；物理文件删除失败不回滚数据库事务，但会产生受控警告。`/close` 仍是关闭会话并立即清理文件的既有生命周期，不等同于管理员硬删除。
+
+管理 API 使用以下路由（均需已认证 Web 会话）：
+
+```text
+GET/DELETE /api/web/conversations/:conversationId
+GET        /api/web/conversations
+GET        /api/web/conversations/:conversationId/messages
+GET        /api/web/conversations/:conversationId/files
+GET        /api/web/conversations/:conversationId/files/:fileId
+GET/PUT    /api/web/preferences/:platform/:userId
+PUT        /api/web/preferences/:platform/:userId/cli/:cli
+GET        /api/web/preference-scopes
+GET/PATCH/DELETE /api/web/memories[/:memoryId]
+POST       /api/web/memories/environment/refresh
+GET        /api/web/audits
+```
+
+成功响应使用 `items`/`nextCursor` 页面结构；非法枚举、ID、cursor 或 JSON 返回 400，未登录 401，环境记忆写入 403，资源不存在 404，方法不支持 405，cwd/model 业务冲突 409，未装配管理能力 501。删除接口的响应包含数据库行计数和物理文件清理警告。
+
+共享 DTO 位于 `src/shared/types/web-admin.ts`，包括 `ConversationView`、`TimelineItem`、`PreferenceSnapshot`、`MemoryView`、`AuditView` 及 `WebAdmin`。审批 timeline 是 `messages.message_type='approval'` 与 `audit_logs` 的批量 hydration；缺失 audit 引用仍占一个位置并以 `approval: null` 表示。
+
+## 7. Config（`config/`）—— `settings.json` 唯一业务配置源
 
 `SettingsJsonSchema` 使用 Zod 校验 `settings.json` 的 14 个嵌套分类，`loadConfig()` 在启动时 fail-fast，再展平为现有消费者使用的 `AppConfig`。
 

@@ -9,3 +9,4 @@ export {
 export type * from './types/common'
 export type * from './types/media'
 export type * from './types/transport'
+export type * from './types/web-admin'
