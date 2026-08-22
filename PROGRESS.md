@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-08-11 · 阶段：**V4 Web Control Plane 与已选高优先级加固完成**
+> 最后更新：2026-08-22 · 阶段：**V4 Web Control Plane 与已选高优先级加固完成**
 
 ---
 
@@ -339,6 +339,7 @@
 | 2026-08-11 | **Web 命令提示、输入快捷键与通知高亮完成**：新增 `shared/` 双语斜杠命令目录，Web 提示面板与 `/help` 共用主命令元数据；首字符 `/` 时前缀匹配优先、无结果再做双语关键词模糊搜索，方向键循环选择，Enter/点击只回填模板并选中第一段完整参数占位符。`/update confirm`、`/restart confirm` 独立展示，超长描述仅在选中/悬停时通过 CSS transform 滚动。聊天主界面支持 `Ctrl+I` / `Cmd+I` 聚焦输入框且不抢弹窗焦点；通知开启时头部和设置项同步使用强调色高亮，关闭保持普通 Glass。命令 UX、Web 任务书、设计与实施计划同步。自动验收：format、format check、typecheck、lint、依赖矩阵、Vite 生产构建和 diff check 通过；全量测试 488 pass / 7 skip / 0 fail，仅保留已延期的前端包拆分 chunk 提示。 |
 | 2026-08-11 | **Web 命令面板与首帧体验修正**：命令提示面板改为不透出消息内容的实色 Glass 表面，桌面/移动 item 高度收敛至 38/42px；命令与描述禁用文本选择、iOS 长按 callout，并由 pointer/blur 双路径在点击页面外部时关闭，外部点击显式释放输入焦点，重新聚焦仍可恢复面板。头部加入统一动作间距，移动端连接状态点与通知按钮不再贴合。入口 HTML 新增最小登录关键布局，完整 CSS 到达前即稳定居中，消除左上角到中间的首帧跳动。真实浏览器完成桌面与 390×844 移动回归；format、format check、typecheck、lint、依赖矩阵、Vite 生产构建和 diff check 通过，全量测试 489 pass / 7 skip / 0 fail，仅保留已延期的前端包拆分 chunk 提示。 |
 | 2026-08-11 | **Web 登录首帧与标题布局缺陷修复**：确认登录面板误用绝对定位弹窗的 `dialog-in` 动画，`translate(-50%, -50%)` 会让 Grid 子项先移出中心再回位；改为不改变定位的 `login-in` 入场动画，并把面板 padding/边框、标题行距同步加入入口关键样式。标题拆成独立视觉行，使用可读行距、冷蓝强调色和短强调线，消除中文字体层叠并保持英文布局。新增静态回归断言；浏览器完成 1280×720 桌面与 390×844 移动首帧/稳定态回归，桌面早期与稳定态面板 x 坐标仅 1px 变化、移动端无溢出。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、WebUI 定向测试 13 pass。 |
+| 2026-08-22 | **Web 当前目标路由修复**：WebSocket Transport 每条普通消息通过 Composition Root 查询持久化的用户目标，使 `/switch <cli> [path]` 后续消息携带正确 CLI/CWD；新增 Web 入站目标回归测试。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`git diff --check`、全量 `bun test`（491 pass / 7 skip / 0 fail）。 |
 
 ## 6. 开放问题（Open Questions）
 

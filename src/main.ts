@@ -167,6 +167,7 @@ async function main() {
     bus,
     gateway: webSocketGateway,
     userId: config.WHITELIST_USER_IDS[0] ?? '',
+    resolveUserTarget: userPreferences.getTarget,
     resolveUploads: webUploads.consume,
     mediaPreprocessor,
     resolveUserLanguage: userPreferences.getLanguage,

@@ -85,6 +85,28 @@ test('WebSocket transport 在浏览器内直接响应 /help', async () => {
   await transport.stop()
 })
 
+test('WebSocket transport 每条普通消息读取当前用户目标', async () => {
+  const bus = createEventBus()
+  const { gateway, peer } = createGateway()
+  const received: Array<{ cli: string; cwd: string }> = []
+  let target: { cli: 'claude' | 'opencode'; cwd: string } = { cli: 'claude', cwd: '/' }
+  bus.on('MessageReceived', message => received.push({ cli: message.cli, cwd: message.cwd }))
+  const transport = createWebSocketTransport({
+    bus,
+    gateway,
+    userId: 'web-admin',
+    resolveUserTarget: async () => target,
+  })
+  await transport.start()
+
+  target = { cli: 'opencode', cwd: '/home/ubuntu/ai-workspace/.opencode-web' }
+  gateway.receive(peer, JSON.stringify({ v: 1, type: 'message', text: '第一次普通对话' }))
+  await new Promise(resolve => setTimeout(resolve, 0))
+
+  expect(received).toEqual([{ cli: 'opencode', cwd: '/home/ubuntu/ai-workspace/.opencode-web' }])
+  await transport.stop()
+})
+
 test('WebSocket transport 保留用户原文，并把媒体预处理结果单独交给 Core', async () => {
   const bus = createEventBus()
   const { gateway, peer } = createGateway()

@@ -32,6 +32,7 @@ export interface WebSocketTransportDeps {
   userId: string
   cli?: CliType
   cwd?: string
+  resolveUserTarget?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
   resolveUploads?: (ids: readonly string[]) => Promise<InboundAttachment[]>
   mediaPreprocessor?: MediaPreprocessor
   resolveUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage> | UserLanguage
@@ -131,11 +132,12 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
       const prepared = deps.mediaPreprocessor
         ? await deps.mediaPreprocessor.preprocess({ text, attachments })
         : { text, warnings: [] }
+      const target = await deps.resolveUserTarget?.('web', deps.userId)
       deps.bus.emit('MessageReceived', {
         userId: deps.userId,
         platform: 'web',
-        cli,
-        cwd,
+        cli: target?.cli ?? cli,
+        cwd: target?.cwd ?? cwd,
         text,
         ...(prepared.text === text ? {} : { promptText: prepared.text }),
         attachments,
