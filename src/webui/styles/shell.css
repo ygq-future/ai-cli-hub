@@ -365,7 +365,7 @@ button:disabled {
   padding-right: 45px;
 }
 .ui-select-control.has-clear .ui-select-chevron {
-  margin-right: 22px;
+  display: none;
 }
 .ui-select-trigger:hover {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--line));

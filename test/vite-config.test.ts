@@ -48,6 +48,7 @@ test('管理端移动导航与筛选控件提供紧凑交互', async () => {
   expect(select).toContain("'ui-select-control has-clear'")
   expect(styles).toContain('.brand-label')
   expect(styles).toContain('.ui-dialog-content.nav-drawer')
+  expect(styles).toMatch(/\.ui-select-control\.has-clear \.ui-select-chevron\s*{[^}]*display:\s*none/s)
 })
 
 test('应用运行时不触发 WebUI 构建', async () => {

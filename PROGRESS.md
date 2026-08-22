@@ -360,6 +360,7 @@
 | 2026-08-22 | **WebUI 首屏资源拆分完成**：针对 Rolldown 构建入口体积，将 React、Markdown、Lucide 图标和 Radix UI 依赖按 `manualChunks` 函数拆为独立 vendor chunk，`app.js` 从 528.14 kB 降至 77.81 kB，所有产物均低于 500 kB 且不再产生 chunk 大小警告；新增 Vite 配置回归断言。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun webui:build`、全量 `bun test`（507 pass / 9 skip / 0 fail / 1707 expect）和 `git diff --check` 全部通过。 |
 | 2026-08-22 | **WebUI 移动导航与筛选交互优化完成**：管理设置入口归并到头部控制台设置对话框；移动端头部保留图标品牌并用单按钮抽屉承载页面导航；管理筛选输入框与 Select 在有值时显示尾部内嵌 Clear，保留输入与筛选的紧凑布局；新增移动导航与筛选控件回归断言。自动验收：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun webui:build`、全量 `bun test`（508 pass / 9 skip / 0 fail / 1713 expect）和 `git diff --check` 全部通过；构建产物最大 203.63 kB，无 chunk 大小警告。Web 与 Telegram 的用户身份映射保持待后续单独处理。 |
 | 2026-08-22 | **WebUI Select Clear 定位修复完成**：Select 清除控件的外层容器使用明确的 `ui-select-control has-clear` class 组合，确保按钮始终相对对应 Select 尾部定位；新增 class 组合回归断言。自动验收：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun webui:build`、全量 `bun test`（508 pass / 9 skip / 0 fail / 1714 expect）和 `git diff --check` 全部通过。 |
+| 2026-08-22 | **WebUI Select Clear 视觉替换完成**：Select 有实际值时隐藏下拉箭头，由 Clear 控件直接占据尾部图标位置；无值时保留下拉箭头，新增互斥显示回归断言。自动验收：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun webui:build`、全量 `bun test`（508 pass / 9 skip / 0 fail / 1715 expect）和 `git diff --check` 全部通过。 |
 
 ## 6. 开放问题（Open Questions）
 
