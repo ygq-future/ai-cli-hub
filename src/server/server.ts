@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { ApprovalAuditRequest, ApprovalStatus, ConversationId, Platform, Transport } from '../shared'
 import type { WebAdmin } from '../shared'
+import { isWebAdminPath, handleWebAdminRequest } from './routes/web-admin'
 
 const MAX_REQUEST_BYTES = 1_048_576
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
@@ -249,6 +250,11 @@ export function createServerRequestHandler(deps: AppServerDeps): ServerRequestHa
     }
 
     if (url.pathname.startsWith('/api/')) {
+      if (isWebAdminPath(url.pathname)) {
+        if (!isAuthorized(request, deps.authToken, now())) return json({ error: 'Unauthorized' }, 401)
+        if (!deps.webAdmin) return json({ error: 'Web admin API is not configured' }, 501)
+        return handleWebAdminRequest(request, url, deps.webAdmin, deps.maxRequestBodyBytes ?? MAX_REQUEST_BYTES)
+      }
       if (url.pathname === '/api/web/status') return handleWebStatusRequest(request, deps, now())
       if (url.pathname === '/api/web/history') return handleWebHistoryRequest(request, url, deps, now())
       if (url.pathname.startsWith('/api/web/files/')) return handleWebFileRequest(request, url.pathname, deps, now())

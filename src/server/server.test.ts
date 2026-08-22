@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 import { createServer, createServerRequestHandler, createWebSocketGateway, type AppServerDeps } from './server'
-import type { ConversationId, MessageRef, Transport } from '../shared'
+import type { ConversationId, MessageRef, Transport, WebAdmin } from '../shared'
 
 const CID = 'conversation-1' as ConversationId
 
@@ -57,7 +57,139 @@ function messageRequest(path: string, body: unknown, headers?: Record<string, st
   })
 }
 
+function createFakeWebAdmin() {
+  const calls: { conversationQuery?: unknown; memoryUpdate?: unknown; refreshed: number } = { refreshed: 0 }
+  const conversation = {
+    id: CID,
+    platform: 'web' as const,
+    userId: 'web-admin',
+    cli: 'claude' as const,
+    cwd: '/workspace',
+    status: 'idle' as const,
+    createdAt: 1,
+    updatedAt: 2,
+    messageCount: 2,
+    fileCount: 1,
+    auditCount: 0,
+  }
+  const admin = {
+    async listConversations(query: unknown) {
+      calls.conversationQuery = query
+      return { items: [conversation], nextCursor: null }
+    },
+    async getConversation() {
+      return conversation
+    },
+    async getConversationTimeline() {
+      return { items: [], nextCursor: null }
+    },
+    async getConversationFiles() {
+      return { items: [], nextCursor: null }
+    },
+    async getConversationFile() {
+      return null
+    },
+    async deleteConversation() {
+      return null
+    },
+    async listPreferenceScopes() {
+      return { items: [], nextCursor: null }
+    },
+    async getPreferences() {
+      throw new Error('not used')
+    },
+    async updatePreferences() {
+      throw new Error('not used')
+    },
+    async updateCliPreference() {
+      throw new Error('not used')
+    },
+    async listMemories() {
+      return { items: [], nextCursor: null }
+    },
+    async updateMemory(_id: string, input: unknown) {
+      calls.memoryUpdate = input
+      return null
+    },
+    async deleteMemory() {
+      return 'read_only' as const
+    },
+    async refreshEnvironmentMemories() {
+      calls.refreshed += 1
+    },
+    async listAudits() {
+      return { items: [], nextCursor: null }
+    },
+  } as unknown as WebAdmin
+  return { admin, calls }
+}
+
 describe('app server', () => {
+  test('管理 API 统一执行认证、游标/枚举校验和方法限制', async () => {
+    const fakeAdmin = createFakeWebAdmin()
+    const { handler } = createHandler('secret', undefined, { webAdmin: fakeAdmin.admin })
+    expect((await handler(request('/api/web/conversations'))).status).toBe(401)
+
+    const response = await handler(
+      request('/api/web/conversations?limit=2&platform=web&status=idle', {
+        headers: { authorization: 'Bearer secret' },
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect((await response.json()).items[0].id).toBe(CID)
+    expect(fakeAdmin.calls.conversationQuery).toEqual({
+      limit: 2,
+      before: undefined,
+      platform: 'web',
+      userId: undefined,
+      cli: undefined,
+      status: 'idle',
+    })
+    expect(
+      (await handler(request('/api/web/conversations?limit=101', { headers: { authorization: 'Bearer secret' } })))
+        .status,
+    ).toBe(400)
+    expect(
+      (
+        await handler(
+          request('/api/web/conversations', { method: 'POST', headers: { authorization: 'Bearer secret' } }),
+        )
+      ).status,
+    ).toBe(405)
+  })
+
+  test('管理 API 的记忆刷新、只读删除和 JSON 更新路由保持受控', async () => {
+    const fakeAdmin = createFakeWebAdmin()
+    const { handler } = createHandler('secret', undefined, { webAdmin: fakeAdmin.admin })
+    const headers = { authorization: 'Bearer secret', 'content-type': 'application/json' }
+
+    expect((await handler(request('/api/web/memories/environment/refresh', { method: 'POST', headers }))).status).toBe(
+      200,
+    )
+    expect(fakeAdmin.calls.refreshed).toBe(1)
+    expect((await handler(request('/api/web/memories/memory-1', { method: 'DELETE', headers }))).status).toBe(403)
+    expect(
+      (
+        await handler(
+          request('/api/web/memories/memory-1', {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ content: 'next' }),
+          }),
+        )
+      ).status,
+    ).toBe(404)
+    expect(fakeAdmin.calls.memoryUpdate).toEqual({ content: 'next', type: undefined, importance: undefined })
+  })
+
+  test('管理模块未装配时认证请求返回 501，未认证仍先返回 401', async () => {
+    const { handler } = createHandler('secret')
+    expect((await handler(request('/api/web/audits'))).status).toBe(401)
+    expect((await handler(request('/api/web/audits', { headers: { authorization: 'Bearer secret' } }))).status).toBe(
+      501,
+    )
+  })
+
   test('允许绑定到 0.0.0.0', async () => {
     const fake = createFakeTransport()
     const server = createServer({
