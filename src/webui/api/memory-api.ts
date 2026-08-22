@@ -1,6 +1,6 @@
 import type { MemoryPage, MemoryUpdate, MemoryView, MemoryType } from '../../shared'
 import { requestJson } from './http-client'
-import type { BrowserPageQuery } from './types'
+import { ADMIN_PAGE_SIZE, type BrowserPageQuery } from './types'
 
 export interface MemoryFilters extends BrowserPageQuery {
   type?: MemoryType
@@ -8,7 +8,7 @@ export interface MemoryFilters extends BrowserPageQuery {
 }
 
 export function getMemories(query: MemoryFilters = {}): Promise<MemoryPage> {
-  const params = new URLSearchParams({ limit: String(query.limit ?? 50) })
+  const params = new URLSearchParams({ limit: String(ADMIN_PAGE_SIZE) })
   if (query.before) params.set('before', query.before)
   if (query.type) params.set('type', query.type)
   if (query.search) params.set('search', query.search)

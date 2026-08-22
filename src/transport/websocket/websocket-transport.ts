@@ -203,7 +203,12 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
       unsubs.push(
         deps.bus.on('CommandReply', event => {
           if (event.ref.platform !== 'web' || event.ref.chatId !== deps.userId) return
-          send('output', { content: event.content, final: true, attachments: event.attachments })
+          send('output', {
+            content: event.content,
+            final: true,
+            attachments: event.attachments,
+            copyActions: event.copyActions,
+          })
         }),
       )
       unsubs.push(

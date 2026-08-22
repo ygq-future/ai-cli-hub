@@ -3,25 +3,27 @@ import type { CliType, PreferenceScope, PreferenceScopeView, PreferenceSnapshot 
 import { getPreferenceScopes, getPreferences, updateCliPreference, updatePreferences } from '../../api/preference-api'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
+import { Select } from '../../components/ui/select'
+import { Switch } from '../../components/ui/switch'
 import { CursorPager, EmptyState, LoadingState } from '../../components/admin'
+import { useCursorPage } from '../../hooks/use-cursor-page'
 
 export function PreferencesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
   const zh = locale === 'zh-CN'
   const [scopes, setScopes] = useState<PreferenceScopeView[]>([])
-  const [scopeCursor, setScopeCursor] = useState<string | null>(null)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [selected, setSelected] = useState<PreferenceScope | null>(null)
   const [snapshot, setSnapshot] = useState<PreferenceSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const pager = useCursorPage()
 
   const loadScopes = async (before?: string) => {
     setLoading(true)
     try {
-      const page = await getPreferenceScopes({ limit: 40, before })
+      const page = await getPreferenceScopes({ limit: 10, before })
       setScopes(page.items)
-      setScopeCursor(before ?? null)
       setNextCursor(page.nextCursor)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -29,7 +31,10 @@ export function PreferencesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
       setLoading(false)
     }
   }
-  useEffect(() => void loadScopes(), [])
+  useEffect(() => {
+    pager.reset()
+    void loadScopes()
+  }, [])
   useEffect(() => {
     if (!selected) return
     setSnapshot(null)
@@ -37,6 +42,11 @@ export function PreferencesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
       .then(setSnapshot)
       .catch(reason => setError(reason instanceof Error ? reason.message : String(reason)))
   }, [selected])
+
+  const refresh = () => {
+    pager.reset()
+    void loadScopes()
+  }
 
   const saveGeneral = async () => {
     if (!selected || !snapshot) return
@@ -83,7 +93,7 @@ export function PreferencesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
               : 'Manage language, approval, and working-directory preferences for every platform user.'}
           </p>
         </div>
-        <Button variant="secondary" onClick={() => void loadScopes()}>
+        <Button variant="secondary" onClick={refresh}>
           {zh ? '刷新' : 'Refresh'}
         </Button>
       </div>
@@ -111,9 +121,16 @@ export function PreferencesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
             </ul>
           )}
           <CursorPager
+            hasPrevious={pager.hasPrevious}
             hasNext={Boolean(nextCursor)}
-            onNext={() => void loadScopes(nextCursor ?? undefined)}
-            onReset={scopeCursor ? () => void loadScopes() : undefined}
+            onPrevious={() => void loadScopes(pager.goPrevious())}
+            onNext={() => {
+              if (!nextCursor) return
+              pager.goNext(nextCursor)
+              void loadScopes(nextCursor)
+            }}
+            previousLabel={zh ? '上一页' : 'Previous page'}
+            nextLabel={zh ? '下一页' : 'Next page'}
           />
         </div>
         <div className="admin-panel admin-form-panel">
@@ -123,7 +140,7 @@ export function PreferencesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
             <>
               <div className="admin-detail-header">
                 <div>
-                  <span className="admin-kicker">{snapshot.scope.platform}</span>
+                  <span className="admin-kicker preference-platform-kicker">{snapshot.scope.platform}</span>
                   <h2>{snapshot.scope.userId}</h2>
                 </div>
                 <Button disabled={saving} onClick={() => void saveGeneral()}>
@@ -133,31 +150,37 @@ export function PreferencesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
               <div className="admin-form-grid">
                 <label>
                   {zh ? '语言' : 'Language'}
-                  <select
-                    className="ui-select-trigger"
+                  <Select
+                    aria-label={zh ? '语言' : 'Language'}
                     value={snapshot.language}
-                    onChange={event => setSnapshot({ ...snapshot, language: event.target.value as 'zh' | 'en' })}>
-                    <option value="zh">中文</option>
-                    <option value="en">English</option>
-                  </select>
+                    onValueChange={value => setSnapshot({ ...snapshot, language: value as 'zh' | 'en' })}
+                    options={[
+                      { value: 'zh', label: '中文' },
+                      { value: 'en', label: 'English' },
+                    ]}
+                  />
                 </label>
                 <label>
                   {zh ? '默认 CLI' : 'Default CLI'}
-                  <select
-                    className="ui-select-trigger"
+                  <Select
+                    aria-label={zh ? '默认 CLI' : 'Default CLI'}
                     value={snapshot.defaultCli}
-                    onChange={event => setSnapshot({ ...snapshot, defaultCli: event.target.value as CliType })}>
-                    <option value="claude">Claude</option>
-                    <option value="opencode">OpenCode</option>
-                  </select>
+                    onValueChange={value => setSnapshot({ ...snapshot, defaultCli: value as CliType })}
+                    options={[
+                      { value: 'claude', label: 'Claude' },
+                      { value: 'opencode', label: 'OpenCode' },
+                    ]}
+                  />
                 </label>
-                <label className="checkbox-field">
-                  <input
-                    type="checkbox"
+                <label className="field switch-field">
+                  <span>
+                    <b>{zh ? '启用自动审批' : 'Automatic approval'}</b>
+                  </span>
+                  <Switch
+                    aria-label={zh ? '启用自动审批' : 'Automatic approval'}
                     checked={snapshot.autoApproveEnabled}
-                    onChange={event => setSnapshot({ ...snapshot, autoApproveEnabled: event.target.checked })}
-                  />{' '}
-                  {zh ? '启用自动审批' : 'Automatic approval'}
+                    onCheckedChange={checked => setSnapshot({ ...snapshot, autoApproveEnabled: checked })}
+                  />
                 </label>
                 <label>
                   {zh ? '自动审批秒数' : 'Approval seconds'}

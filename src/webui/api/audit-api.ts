@@ -1,6 +1,6 @@
 import type { AuditPage, ApprovalStatus, CliType, Platform } from '../../shared'
 import { requestJson } from './http-client'
-import type { BrowserPageQuery } from './types'
+import { ADMIN_PAGE_SIZE, type BrowserPageQuery } from './types'
 
 export interface AuditFilters extends BrowserPageQuery {
   conversationId?: string
@@ -11,7 +11,7 @@ export interface AuditFilters extends BrowserPageQuery {
 }
 
 export function getAudits(query: AuditFilters = {}): Promise<AuditPage> {
-  const params = new URLSearchParams({ limit: String(query.limit ?? 50) })
+  const params = new URLSearchParams({ limit: String(ADMIN_PAGE_SIZE) })
   if (query.before) params.set('before', query.before)
   if (query.conversationId) params.set('conversationId', query.conversationId)
   if (query.platform) params.set('platform', query.platform)

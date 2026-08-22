@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { AuditView, ApprovalStatus, CliType, Platform } from '../../../shared'
 import { getAudits } from '../../api/audit-api'
-import { CursorPager, DataTable, EmptyState, FilterBar, LoadingState } from '../../components/admin'
+import { CursorPager, DataTable, EmptyState, FilterBarWithClear, LoadingState } from '../../components/admin'
 import { Input } from '../../components/ui/input'
+import { Select } from '../../components/ui/select'
+import { useCursorPage } from '../../hooks/use-cursor-page'
 
 export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
   const zh = locale === 'zh-CN'
@@ -11,16 +13,16 @@ export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
   const [platform, setPlatform] = useState<Platform | ''>('')
   const [cli, setCli] = useState<CliType | ''>('')
   const [userId, setUserId] = useState('')
-  const [cursor, setCursor] = useState<string | null>(null)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const pager = useCursorPage()
 
   const load = async (before?: string) => {
     setLoading(true)
     try {
       const page = await getAudits({
-        limit: 40,
+        limit: 10,
         before,
         status: status || undefined,
         platform: platform || undefined,
@@ -28,7 +30,6 @@ export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
         userId: userId || undefined,
       })
       setItems(page.items)
-      setCursor(before ?? null)
       setNextCursor(page.nextCursor)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -36,7 +37,17 @@ export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
       setLoading(false)
     }
   }
-  useEffect(() => void load(), [status, platform, cli, userId])
+  useEffect(() => {
+    pager.reset()
+    void load()
+  }, [status, platform, cli, userId])
+
+  const clearFilters = () => {
+    setStatus('')
+    setPlatform('')
+    setCli('')
+    setUserId('')
+  }
 
   return (
     <section className="admin-page">
@@ -51,39 +62,48 @@ export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
           </p>
         </div>
       </div>
-      <FilterBar>
+      <FilterBarWithClear
+        clearDisabled={!userId && !platform && !cli && !status}
+        clearLabel={zh ? '清除' : 'Clear'}
+        onClear={clearFilters}>
         <Input
           placeholder={zh ? '用户 ID' : 'User ID'}
           value={userId}
           onChange={event => setUserId(event.target.value)}
         />
-        <select
-          className="ui-select-trigger"
-          value={platform}
-          onChange={event => setPlatform(event.target.value as Platform | '')}>
-          <option value="">{zh ? '全部平台' : 'All platforms'}</option>
-          <option value="telegram">Telegram</option>
-          <option value="qq">QQ</option>
-          <option value="web">Web</option>
-        </select>
-        <select
-          className="ui-select-trigger"
-          value={cli}
-          onChange={event => setCli(event.target.value as CliType | '')}>
-          <option value="">{zh ? '全部 CLI' : 'All CLIs'}</option>
-          <option value="claude">Claude</option>
-          <option value="opencode">OpenCode</option>
-        </select>
-        <select
-          className="ui-select-trigger"
-          value={status}
-          onChange={event => setStatus(event.target.value as ApprovalStatus | '')}>
-          <option value="">{zh ? '全部状态' : 'All statuses'}</option>
-          <option value="pending">pending</option>
-          <option value="approved">approved</option>
-          <option value="rejected">rejected</option>
-        </select>
-      </FilterBar>
+        <Select
+          aria-label={zh ? '平台' : 'Platform'}
+          value={platform || 'all'}
+          onValueChange={value => setPlatform(value === 'all' ? '' : (value as Platform))}
+          options={[
+            { value: 'all', label: zh ? '全部平台' : 'All platforms' },
+            { value: 'telegram', label: 'Telegram' },
+            { value: 'qq', label: 'QQ' },
+            { value: 'web', label: 'Web' },
+          ]}
+        />
+        <Select
+          aria-label="CLI"
+          value={cli || 'all'}
+          onValueChange={value => setCli(value === 'all' ? '' : (value as CliType))}
+          options={[
+            { value: 'all', label: zh ? '全部 CLI' : 'All CLIs' },
+            { value: 'claude', label: 'Claude' },
+            { value: 'opencode', label: 'OpenCode' },
+          ]}
+        />
+        <Select
+          aria-label={zh ? '状态' : 'Status'}
+          value={status || 'all'}
+          onValueChange={value => setStatus(value === 'all' ? '' : (value as ApprovalStatus))}
+          options={[
+            { value: 'all', label: zh ? '全部状态' : 'All statuses' },
+            { value: 'pending', label: 'pending' },
+            { value: 'approved', label: 'approved' },
+            { value: 'rejected', label: 'rejected' },
+          ]}
+        />
+      </FilterBarWithClear>
       {error && <p className="admin-error">{error}</p>}
       <div className="admin-panel">
         {loading ? (
@@ -127,9 +147,16 @@ export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
           </DataTable>
         )}
         <CursorPager
+          hasPrevious={pager.hasPrevious}
           hasNext={Boolean(nextCursor)}
-          onNext={() => void load(nextCursor ?? undefined)}
-          onReset={cursor ? () => void load() : undefined}
+          onPrevious={() => void load(pager.goPrevious())}
+          onNext={() => {
+            if (!nextCursor) return
+            pager.goNext(nextCursor)
+            void load(nextCursor)
+          }}
+          previousLabel={zh ? '上一页' : 'Previous page'}
+          nextLabel={zh ? '下一页' : 'Next page'}
         />
       </div>
     </section>

@@ -172,7 +172,9 @@ button:disabled {
 }
 .ui-button:focus-visible,
 .ui-input:focus-visible,
-.ui-select-trigger:focus-visible {
+.ui-select-trigger:focus-visible,
+.ui-textarea:focus-visible,
+.switch:focus-visible {
   outline: 0;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 27%, transparent);
 }
@@ -216,6 +218,26 @@ button:disabled {
     background-color 0.2s ease;
 }
 .ui-input:focus {
+  border-color: var(--accent);
+}
+.ui-textarea {
+  width: 100%;
+  min-height: 180px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--glass-raised) 84%, transparent);
+  backdrop-filter: blur(18px) saturate(125%);
+  color: var(--ink);
+  line-height: 1.6;
+  outline: 0;
+  resize: vertical;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+.ui-textarea:focus {
   border-color: var(--accent);
 }
 .ui-dialog-overlay {
@@ -1309,6 +1331,50 @@ small {
 .switch.on i {
   transform: translateX(18px);
   background: var(--accent);
+}
+.switch:focus-visible {
+  outline: 0;
+}
+.switch:disabled {
+  cursor: not-allowed;
+}
+.copy-action-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+.copy-action-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--glass-raised) 72%, transparent);
+  color: var(--ink);
+  text-align: left;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    transform 0.18s ease;
+}
+.copy-action-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  transform: translateY(-1px);
+}
+.copy-action-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.copy-action-item code {
+  flex: none;
+  color: var(--accent);
+  font-size: 0.74rem;
 }
 .array-field {
   display: grid;

@@ -8,7 +8,7 @@ import type {
   TimelinePage,
 } from '../../shared'
 import { requestJson } from './http-client'
-import type { BrowserPageQuery } from './types'
+import { ADMIN_PAGE_SIZE, type BrowserPageQuery } from './types'
 
 export interface ConversationFilters extends BrowserPageQuery {
   platform?: 'telegram' | 'qq' | 'web'
@@ -42,8 +42,9 @@ export function deleteConversation(id: ConversationId): Promise<{ deletion: Conv
 }
 
 function toQuery(query: object): string {
-  const params = new URLSearchParams()
+  const params = new URLSearchParams({ limit: String(ADMIN_PAGE_SIZE) })
   for (const [key, value] of Object.entries(query as Record<string, unknown>)) {
+    if (key === 'limit') continue
     if (value === undefined || value === null || value === '') continue
     params.set(key, String(value))
   }

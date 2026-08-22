@@ -13,24 +13,49 @@ export function FilterBar({ children }: { children: ReactNode }) {
   return <div className="admin-filter-bar">{children}</div>
 }
 
+export function FilterBarWithClear({
+  children,
+  onClear,
+  clearDisabled,
+  clearLabel = 'Clear',
+}: {
+  children: ReactNode
+  onClear: () => void
+  clearDisabled: boolean
+  clearLabel?: string
+}) {
+  return (
+    <div className="admin-filter-bar">
+      {children}
+      <Button className="admin-filter-clear" variant="ghost" disabled={clearDisabled} onClick={onClear}>
+        {clearLabel}
+      </Button>
+    </div>
+  )
+}
+
 export function CursorPager({
   hasNext,
   onNext,
-  onReset,
+  hasPrevious,
+  onPrevious,
+  previousLabel = 'Previous page',
+  nextLabel = 'Next page',
 }: {
   hasNext: boolean
+  hasPrevious: boolean
   onNext: () => void
-  onReset?: () => void
+  onPrevious: () => void
+  previousLabel?: string
+  nextLabel?: string
 }) {
   return (
     <div className="admin-pager">
-      {onReset && (
-        <Button variant="ghost" onClick={onReset}>
-          First page
-        </Button>
-      )}
+      <Button variant="secondary" disabled={!hasPrevious} onClick={onPrevious}>
+        {previousLabel}
+      </Button>
       <Button variant="secondary" disabled={!hasNext} onClick={onNext}>
-        Next page
+        {nextLabel}
       </Button>
     </div>
   )

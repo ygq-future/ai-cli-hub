@@ -1,6 +1,8 @@
 import type { Dispatch, SetStateAction } from 'react'
 import type { WebPreferences } from '../../hooks/use-local-preferences'
 import { Button } from '../../components/ui/button'
+import { Select } from '../../components/ui/select'
+import { Switch } from '../../components/ui/switch'
 
 export function SettingsPage({
   locale,
@@ -29,61 +31,69 @@ export function SettingsPage({
         <div className="admin-form-grid">
           <label>
             {zh ? '语言' : 'Language'}
-            <select
-              className="ui-select-trigger"
+            <Select
+              aria-label={zh ? '语言' : 'Language'}
               value={preferences.locale}
-              onChange={event =>
-                setPreferences(current => ({ ...current, locale: event.target.value as WebPreferences['locale'] }))
-              }>
-              <option value="zh-CN">中文</option>
-              <option value="en">English</option>
-            </select>
+              onValueChange={value =>
+                setPreferences(current => ({ ...current, locale: value as WebPreferences['locale'] }))
+              }
+              options={[
+                { value: 'zh-CN', label: '中文' },
+                { value: 'en', label: 'English' },
+              ]}
+            />
           </label>
           <label>
             {zh ? '主题' : 'Theme'}
-            <select
-              className="ui-select-trigger"
+            <Select
+              aria-label={zh ? '主题' : 'Theme'}
               value={preferences.theme}
-              onChange={event =>
-                setPreferences(current => ({ ...current, theme: event.target.value as WebPreferences['theme'] }))
-              }>
-              <option value="system">{zh ? '跟随系统' : 'System'}</option>
-              <option value="light">{zh ? '浅色' : 'Light'}</option>
-              <option value="dark">{zh ? '深色' : 'Dark'}</option>
-            </select>
+              onValueChange={value =>
+                setPreferences(current => ({ ...current, theme: value as WebPreferences['theme'] }))
+              }
+              options={[
+                { value: 'system', label: zh ? '跟随系统' : 'System' },
+                { value: 'light', label: zh ? '浅色' : 'Light' },
+                { value: 'dark', label: zh ? '深色' : 'Dark' },
+              ]}
+            />
           </label>
           <label>
             {zh ? '强调色' : 'Accent'}
-            <select
-              className="ui-select-trigger"
+            <Select
+              aria-label={zh ? '强调色' : 'Accent'}
               value={preferences.accent}
-              onChange={event =>
-                setPreferences(current => ({ ...current, accent: event.target.value as WebPreferences['accent'] }))
-              }>
-              <option value="blue">Blue</option>
-              <option value="cyan">Cyan</option>
-              <option value="amber">Amber</option>
-              <option value="rose">Rose</option>
-              <option value="violet">Violet</option>
-            </select>
-          </label>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={preferences.enterToSend}
-              onChange={event => setPreferences(current => ({ ...current, enterToSend: event.target.checked }))}
-            />{' '}
-            {zh ? 'Enter 发送消息' : 'Enter sends messages'}
-          </label>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={preferences.notificationsEnabled}
-              onChange={event =>
-                setPreferences(current => ({ ...current, notificationsEnabled: event.target.checked }))
+              onValueChange={value =>
+                setPreferences(current => ({ ...current, accent: value as WebPreferences['accent'] }))
               }
-            />{' '}
-            {zh ? '启用浏览器通知' : 'Browser notifications'}
+              options={[
+                { value: 'blue', label: 'Blue' },
+                { value: 'cyan', label: 'Cyan' },
+                { value: 'amber', label: 'Amber' },
+                { value: 'rose', label: 'Rose' },
+                { value: 'violet', label: 'Violet' },
+              ]}
+            />
+          </label>
+          <label className="field switch-field">
+            <span>
+              <b>{zh ? 'Enter 发送消息' : 'Enter sends messages'}</b>
+            </span>
+            <Switch
+              aria-label={zh ? 'Enter 发送消息' : 'Enter sends messages'}
+              checked={preferences.enterToSend}
+              onCheckedChange={checked => setPreferences(current => ({ ...current, enterToSend: checked }))}
+            />
+          </label>
+          <label className="field switch-field">
+            <span>
+              <b>{zh ? '启用浏览器通知' : 'Browser notifications'}</b>
+            </span>
+            <Switch
+              aria-label={zh ? '启用浏览器通知' : 'Browser notifications'}
+              checked={preferences.notificationsEnabled}
+              onCheckedChange={checked => setPreferences(current => ({ ...current, notificationsEnabled: checked }))}
+            />
           </label>
         </div>
         <div className="admin-note">

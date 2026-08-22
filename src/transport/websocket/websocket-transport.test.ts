@@ -56,10 +56,17 @@ test('WebSocket transport 将 CommandReply 回传给触发命令的浏览器', a
   bus.emit('CommandReply', {
     ref: { platform: 'web', chatId: 'web-admin', nativeId: 'request-1' },
     content: '## Help\n\nAvailable commands',
+    copyActions: [{ label: 'model-a', copyText: 'provider/model-a' }],
   })
 
   expect(sent.map(data => JSON.parse(data))).toEqual([
-    { v: 1, type: 'output', content: '## Help\n\nAvailable commands', final: true },
+    {
+      v: 1,
+      type: 'output',
+      content: '## Help\n\nAvailable commands',
+      final: true,
+      copyActions: [{ label: 'model-a', copyText: 'provider/model-a' }],
+    },
   ])
   await transport.stop()
 })

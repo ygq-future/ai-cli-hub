@@ -69,6 +69,7 @@ type MessageAttachment = {
   fileSize: number | null
   url: string
 }
+type CopyAction = { label: string; copyText: string }
 type Message = {
   type: 'chat'
   id: string
@@ -77,6 +78,7 @@ type Message = {
   attachments?: MessageAttachment[]
   streaming?: boolean
   createdAt: number
+  copyActions?: CopyAction[]
 }
 type ServerMessage = Omit<Message, 'type' | 'attachments'> & {
   type?: 'chat'
@@ -137,6 +139,7 @@ type ServerEvent = {
   message?: string | ServerMessage
   clientMessageId?: string
   attachments?: Array<Omit<MessageAttachment, 'url'>>
+  copyActions?: CopyAction[]
 }
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 type SettingsData = Record<string, JsonValue>
@@ -306,7 +309,13 @@ export function App() {
     if (payload.type === 'output' && typeof payload.content === 'string') {
       const content = payload.content
       setTimeline(current =>
-        appendOutput(current, content, payload.final === true, hydrateAttachments(payload.attachments)),
+        appendOutput(
+          current,
+          content,
+          payload.final === true,
+          hydrateAttachments(payload.attachments),
+          payload.copyActions,
+        ),
       )
       if (payload.final === true)
         showNotification(document.documentElement.lang === 'en' ? 'New reply' : '收到新回复', plainTextPreview(content))
@@ -748,6 +757,7 @@ export function App() {
                     <div className="markdown">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
                     </div>
+                    {item.copyActions?.length ? <CopyActionList actions={item.copyActions} t={t} /> : null}
                     <MessageAttachments attachments={item.attachments} onPreview={setPreviewImage} t={t} />
                     <span className={item.streaming ? 'stream-caret' : ''} />
                   </article>
@@ -1517,12 +1527,19 @@ function appendOutput(
   content: string,
   final: boolean,
   attachments: MessageAttachment[] = [],
+  copyActions: CopyAction[] = [],
 ) {
   const last = timeline.at(-1)
   if (last?.type === 'chat' && last.role === 'assistant' && last.streaming)
     return [
       ...timeline.slice(0, -1),
-      { ...last, content, attachments: attachments.length ? attachments : last.attachments, streaming: !final },
+      {
+        ...last,
+        content,
+        attachments: attachments.length ? attachments : last.attachments,
+        copyActions: copyActions.length ? copyActions : last.copyActions,
+        streaming: !final,
+      },
     ]
   return [
     ...timeline,
@@ -1532,10 +1549,39 @@ function appendOutput(
       role: 'assistant' as const,
       content,
       attachments,
+      copyActions,
       streaming: !final,
       createdAt: Date.now(),
     },
   ]
+}
+
+function CopyActionList({ actions, t }: { actions: CopyAction[]; t: Translator }) {
+  const [copied, setCopied] = useState<string | null>(null)
+  const copy = async (action: CopyAction) => {
+    try {
+      await navigator.clipboard.writeText(action.copyText)
+      setCopied(action.copyText)
+      window.setTimeout(() => setCopied(current => (current === action.copyText ? null : current)), 1400)
+    } catch {
+      setCopied(null)
+    }
+  }
+  return (
+    <div className="copy-action-list" aria-label={t('可用模型', 'Available models')}>
+      {actions.map(action => (
+        <button
+          className="copy-action-item"
+          type="button"
+          key={`${action.label}:${action.copyText}`}
+          title={action.copyText}
+          onClick={() => void copy(action)}>
+          <span>📋 {action.label}</span>
+          <code>{copied === action.copyText ? t('已复制', 'Copied') : action.copyText}</code>
+        </button>
+      ))}
+    </div>
+  )
 }
 function plainTextPreview(markdown: string): string {
   return markdown

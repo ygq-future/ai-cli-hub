@@ -9,7 +9,7 @@ import type {
   PreferenceUpdate,
 } from '../../shared'
 import { requestJson } from './http-client'
-import type { BrowserPageQuery } from './types'
+import { ADMIN_PAGE_SIZE, type BrowserPageQuery } from './types'
 
 export function getPreferenceScopes(query: BrowserPageQuery = {}): Promise<CursorPage<PreferenceScopeView>> {
   return requestJson(`/api/web/preference-scopes?${toQuery(query)}`)
@@ -40,7 +40,7 @@ export function updateCliPreference(
 }
 
 function toQuery(query: BrowserPageQuery): string {
-  const params = new URLSearchParams({ limit: String(query.limit ?? 50) })
+  const params = new URLSearchParams({ limit: String(ADMIN_PAGE_SIZE) })
   if (query.before) params.set('before', query.before)
   return params.toString()
 }

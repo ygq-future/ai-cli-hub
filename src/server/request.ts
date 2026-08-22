@@ -1,6 +1,6 @@
 import type { CursorPageQuery, CursorPosition } from '../shared'
 
-export const DEFAULT_ADMIN_PAGE_LIMIT = 50
+export const DEFAULT_ADMIN_PAGE_LIMIT = 10
 export const MAX_ADMIN_PAGE_LIMIT = 100
 
 export class RequestValidationError extends Error {

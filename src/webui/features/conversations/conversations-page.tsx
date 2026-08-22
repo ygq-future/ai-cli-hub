@@ -10,15 +10,23 @@ import {
   type ConversationFilters,
 } from '../../api/conversation-api'
 import { HttpClientError } from '../../api/http-client'
-import { ConfirmDialog, CursorPager, DataTable, EmptyState, FilterBar, LoadingState } from '../../components/admin'
+import {
+  ConfirmDialog,
+  CursorPager,
+  DataTable,
+  EmptyState,
+  FilterBarWithClear,
+  LoadingState,
+} from '../../components/admin'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
+import { Select } from '../../components/ui/select'
+import { useCursorPage } from '../../hooks/use-cursor-page'
 
 export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
   const zh = locale === 'zh-CN'
-  const [filters, setFilters] = useState<ConversationFilters>({ limit: 30 })
+  const [filters, setFilters] = useState<ConversationFilters>({ limit: 10 })
   const [items, setItems] = useState<ConversationView[]>([])
-  const [cursor, setCursor] = useState<string | null>(null)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<ConversationId | null>(null)
   const [detail, setDetail] = useState<ConversationView | null>(null)
@@ -27,14 +35,14 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [confirming, setConfirming] = useState(false)
+  const pager = useCursorPage()
 
-  const load = async (before: string | null = null) => {
+  const load = async (before: string | undefined = undefined) => {
     setLoading(true)
     setError('')
     try {
       const page = await getConversations({ ...filters, before: before ?? undefined })
       setItems(page.items)
-      setCursor(before)
       setNextCursor(page.nextCursor)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -44,6 +52,7 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
   }
 
   useEffect(() => {
+    pager.reset()
     void load()
   }, [filters.platform, filters.cli, filters.status, filters.userId])
 
@@ -78,7 +87,7 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
       await deleteConversation(selectedId)
       setConfirming(false)
       setSelectedId(null)
-      await load(cursor)
+      await load(pager.currentCursor)
     } catch (reason) {
       setError(reason instanceof HttpClientError ? reason.message : String(reason))
       setConfirming(false)
@@ -86,7 +95,13 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
   }
 
   const updateFilter = (key: keyof ConversationFilters, value: string) => {
-    setFilters(current => ({ ...current, [key]: value || undefined }))
+    setFilters(current => ({ ...current, limit: 10, [key]: value || undefined }))
+  }
+
+  const clearFilters = () => setFilters({ limit: 10 })
+  const refresh = () => {
+    pager.reset()
+    void load()
   }
 
   return (
@@ -101,43 +116,52 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
               : 'Browse every platform, user, and CLI session with safe aggregate deletion.'}
           </p>
         </div>
-        <Button variant="secondary" onClick={() => void load()}>
+        <Button variant="secondary" onClick={refresh}>
           {zh ? '刷新' : 'Refresh'}
         </Button>
       </div>
-      <FilterBar>
+      <FilterBarWithClear
+        clearDisabled={!filters.userId && !filters.platform && !filters.cli && !filters.status}
+        clearLabel={zh ? '清除' : 'Clear'}
+        onClear={clearFilters}>
         <Input
           placeholder={zh ? '用户 ID' : 'User ID'}
           value={filters.userId ?? ''}
           onChange={event => updateFilter('userId', event.target.value)}
         />
-        <select
-          className="ui-select-trigger"
-          value={filters.platform ?? ''}
-          onChange={event => updateFilter('platform', event.target.value)}>
-          <option value="">{zh ? '全部平台' : 'All platforms'}</option>
-          <option value="telegram">Telegram</option>
-          <option value="qq">QQ</option>
-          <option value="web">Web</option>
-        </select>
-        <select
-          className="ui-select-trigger"
-          value={filters.cli ?? ''}
-          onChange={event => updateFilter('cli', event.target.value)}>
-          <option value="">{zh ? '全部 CLI' : 'All CLIs'}</option>
-          <option value="claude">Claude</option>
-          <option value="opencode">OpenCode</option>
-        </select>
-        <select
-          className="ui-select-trigger"
-          value={filters.status ?? ''}
-          onChange={event => updateFilter('status', event.target.value)}>
-          <option value="">{zh ? '全部状态' : 'All statuses'}</option>
-          <option value="idle">idle</option>
-          <option value="running">running</option>
-          <option value="closed">closed</option>
-        </select>
-      </FilterBar>
+        <Select
+          aria-label={zh ? '平台' : 'Platform'}
+          value={filters.platform ?? 'all'}
+          onValueChange={value => updateFilter('platform', value === 'all' ? '' : value)}
+          options={[
+            { value: 'all', label: zh ? '全部平台' : 'All platforms' },
+            { value: 'telegram', label: 'Telegram' },
+            { value: 'qq', label: 'QQ' },
+            { value: 'web', label: 'Web' },
+          ]}
+        />
+        <Select
+          aria-label={zh ? 'CLI' : 'CLI'}
+          value={filters.cli ?? 'all'}
+          onValueChange={value => updateFilter('cli', value === 'all' ? '' : value)}
+          options={[
+            { value: 'all', label: zh ? '全部 CLI' : 'All CLIs' },
+            { value: 'claude', label: 'Claude' },
+            { value: 'opencode', label: 'OpenCode' },
+          ]}
+        />
+        <Select
+          aria-label={zh ? '状态' : 'Status'}
+          value={filters.status ?? 'all'}
+          onValueChange={value => updateFilter('status', value === 'all' ? '' : value)}
+          options={[
+            { value: 'all', label: zh ? '全部状态' : 'All statuses' },
+            { value: 'idle', label: 'idle' },
+            { value: 'running', label: 'running' },
+            { value: 'closed', label: 'closed' },
+          ]}
+        />
+      </FilterBarWithClear>
       {error && <p className="admin-error">{error}</p>}
       <div className="admin-split">
         <div className="admin-panel">
@@ -183,9 +207,16 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
             </DataTable>
           )}
           <CursorPager
+            hasPrevious={pager.hasPrevious}
             hasNext={Boolean(nextCursor)}
-            onNext={() => void load(nextCursor)}
-            onReset={cursor ? () => void load() : undefined}
+            onPrevious={() => void load(pager.goPrevious())}
+            onNext={() => {
+              if (!nextCursor) return
+              pager.goNext(nextCursor)
+              void load(nextCursor)
+            }}
+            previousLabel={zh ? '上一页' : 'Previous page'}
+            nextLabel={zh ? '下一页' : 'Next page'}
           />
         </div>
         <div className="admin-panel admin-detail-panel">
