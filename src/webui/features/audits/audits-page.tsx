@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { AuditView, ApprovalStatus, CliType, Platform } from '../../../shared'
 import { getAudits } from '../../api/audit-api'
-import { CursorPager, DataTable, EmptyState, FilterBarWithClear, LoadingState } from '../../components/admin'
-import { Input } from '../../components/ui/input'
+import { CursorPager, DataTable, EmptyState, LoadingState } from '../../components/admin'
+import { ClearableInput } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 import { useCursorPage } from '../../hooks/use-cursor-page'
 
@@ -42,13 +42,6 @@ export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
     void load()
   }, [status, platform, cli, userId])
 
-  const clearFilters = () => {
-    setStatus('')
-    setPlatform('')
-    setCli('')
-    setUserId('')
-  }
-
   return (
     <section className="admin-page">
       <div className="admin-heading">
@@ -62,19 +55,20 @@ export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
           </p>
         </div>
       </div>
-      <FilterBarWithClear
-        clearDisabled={!userId && !platform && !cli && !status}
-        clearLabel={zh ? '清除' : 'Clear'}
-        onClear={clearFilters}>
-        <Input
+      <div className="admin-filter-bar">
+        <ClearableInput
           placeholder={zh ? '用户 ID' : 'User ID'}
           value={userId}
           onChange={event => setUserId(event.target.value)}
+          onClear={() => setUserId('')}
+          clearLabel={zh ? '清除用户 ID' : 'Clear user ID'}
         />
         <Select
           aria-label={zh ? '平台' : 'Platform'}
           value={platform || 'all'}
           onValueChange={value => setPlatform(value === 'all' ? '' : (value as Platform))}
+          onClear={platform ? () => setPlatform('') : undefined}
+          clearLabel={zh ? '清除平台' : 'Clear platform'}
           options={[
             { value: 'all', label: zh ? '全部平台' : 'All platforms' },
             { value: 'telegram', label: 'Telegram' },
@@ -86,6 +80,8 @@ export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
           aria-label="CLI"
           value={cli || 'all'}
           onValueChange={value => setCli(value === 'all' ? '' : (value as CliType))}
+          onClear={cli ? () => setCli('') : undefined}
+          clearLabel={zh ? '清除 CLI' : 'Clear CLI'}
           options={[
             { value: 'all', label: zh ? '全部 CLI' : 'All CLIs' },
             { value: 'claude', label: 'Claude' },
@@ -96,6 +92,8 @@ export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
           aria-label={zh ? '状态' : 'Status'}
           value={status || 'all'}
           onValueChange={value => setStatus(value === 'all' ? '' : (value as ApprovalStatus))}
+          onClear={status ? () => setStatus('') : undefined}
+          clearLabel={zh ? '清除状态' : 'Clear status'}
           options={[
             { value: 'all', label: zh ? '全部状态' : 'All statuses' },
             { value: 'pending', label: 'pending' },
@@ -103,7 +101,7 @@ export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
             { value: 'rejected', label: 'rejected' },
           ]}
         />
-      </FilterBarWithClear>
+      </div>
       {error && <p className="admin-error">{error}</p>}
       <div className="admin-panel">
         {loading ? (

@@ -9,9 +9,9 @@ describe('Web navigation model', () => {
   })
 
   test('page locations round-trip and supported pages are explicit', () => {
-    expect(webPages).toEqual(['chat', 'conversations', 'preferences', 'memories', 'audits', 'settings'])
+    expect(webPages).toEqual(['chat', 'conversations', 'preferences', 'memories', 'audits'])
     for (const page of webPages) expect(pageFromLocation(locationForPage(page))).toBe(page)
-    expect(isWebPage('settings')).toBe(true)
+    expect(isWebPage('settings')).toBe(false)
     expect(isWebPage('admin')).toBe(false)
   })
 })

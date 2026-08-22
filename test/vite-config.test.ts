@@ -32,6 +32,23 @@ test('WebUI 入口依赖按 vendor chunk 拆分', async () => {
   expect(config).toContain("return 'ui-vendor'")
 })
 
+test('管理端移动导航与筛选控件提供紧凑交互', async () => {
+  const [source, input, select, styles] = await Promise.all([
+    readFile('src/webui/app/app.tsx', 'utf8'),
+    readFile('src/webui/components/ui/input.tsx', 'utf8'),
+    readFile('src/webui/components/ui/select.tsx', 'utf8'),
+    readFile('src/webui/styles/shell.css', 'utf8'),
+  ])
+
+  expect(source).toContain('className="mobile-nav-trigger"')
+  expect(source).toContain('className="nav-drawer"')
+  expect(source).not.toContain("['settings',")
+  expect(input).toContain('className="ui-input-clear"')
+  expect(select).toContain('className="ui-select-clear"')
+  expect(styles).toContain('.brand-label')
+  expect(styles).toContain('.ui-dialog-content.nav-drawer')
+})
+
 test('应用运行时不触发 WebUI 构建', async () => {
   const main = await readFile('src/main.ts', 'utf8')
   expect(main).not.toContain('buildWebUi')

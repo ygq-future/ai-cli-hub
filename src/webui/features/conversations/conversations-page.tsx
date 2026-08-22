@@ -10,16 +10,9 @@ import {
   type ConversationFilters,
 } from '../../api/conversation-api'
 import { HttpClientError } from '../../api/http-client'
-import {
-  ConfirmDialog,
-  CursorPager,
-  DataTable,
-  EmptyState,
-  FilterBarWithClear,
-  LoadingState,
-} from '../../components/admin'
+import { ConfirmDialog, CursorPager, DataTable, EmptyState, LoadingState } from '../../components/admin'
 import { Button } from '../../components/ui/button'
-import { Input } from '../../components/ui/input'
+import { ClearableInput } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 import { useCursorPage } from '../../hooks/use-cursor-page'
 
@@ -98,7 +91,6 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
     setFilters(current => ({ ...current, limit: 10, [key]: value || undefined }))
   }
 
-  const clearFilters = () => setFilters({ limit: 10 })
   const refresh = () => {
     pager.reset()
     void load()
@@ -120,19 +112,20 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
           {zh ? '刷新' : 'Refresh'}
         </Button>
       </div>
-      <FilterBarWithClear
-        clearDisabled={!filters.userId && !filters.platform && !filters.cli && !filters.status}
-        clearLabel={zh ? '清除' : 'Clear'}
-        onClear={clearFilters}>
-        <Input
+      <div className="admin-filter-bar">
+        <ClearableInput
           placeholder={zh ? '用户 ID' : 'User ID'}
           value={filters.userId ?? ''}
           onChange={event => updateFilter('userId', event.target.value)}
+          onClear={() => updateFilter('userId', '')}
+          clearLabel={zh ? '清除用户 ID' : 'Clear user ID'}
         />
         <Select
           aria-label={zh ? '平台' : 'Platform'}
           value={filters.platform ?? 'all'}
           onValueChange={value => updateFilter('platform', value === 'all' ? '' : value)}
+          onClear={filters.platform ? () => updateFilter('platform', '') : undefined}
+          clearLabel={zh ? '清除平台' : 'Clear platform'}
           options={[
             { value: 'all', label: zh ? '全部平台' : 'All platforms' },
             { value: 'telegram', label: 'Telegram' },
@@ -144,6 +137,8 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
           aria-label={zh ? 'CLI' : 'CLI'}
           value={filters.cli ?? 'all'}
           onValueChange={value => updateFilter('cli', value === 'all' ? '' : value)}
+          onClear={filters.cli ? () => updateFilter('cli', '') : undefined}
+          clearLabel={zh ? '清除 CLI' : 'Clear CLI'}
           options={[
             { value: 'all', label: zh ? '全部 CLI' : 'All CLIs' },
             { value: 'claude', label: 'Claude' },
@@ -154,6 +149,8 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
           aria-label={zh ? '状态' : 'Status'}
           value={filters.status ?? 'all'}
           onValueChange={value => updateFilter('status', value === 'all' ? '' : value)}
+          onClear={filters.status ? () => updateFilter('status', '') : undefined}
+          clearLabel={zh ? '清除状态' : 'Clear status'}
           options={[
             { value: 'all', label: zh ? '全部状态' : 'All statuses' },
             { value: 'idle', label: 'idle' },
@@ -161,7 +158,7 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
             { value: 'closed', label: 'closed' },
           ]}
         />
-      </FilterBarWithClear>
+      </div>
       {error && <p className="admin-error">{error}</p>}
       <div className="admin-split">
         <div className="admin-panel">

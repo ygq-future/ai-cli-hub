@@ -27,6 +27,7 @@ import {
   FileVideo,
   Image as ImageIcon,
   LoaderCircle,
+  Menu,
   Palette,
   PanelRight,
   Send,
@@ -56,10 +57,6 @@ const MemoriesPage = lazy(() =>
   import('../features/memories/memories-page').then(module => ({ default: module.MemoriesPage })),
 )
 const AuditsPage = lazy(() => import('../features/audits/audits-page').then(module => ({ default: module.AuditsPage })))
-const SettingsPage = lazy(() =>
-  import('../features/settings/settings-page').then(module => ({ default: module.SettingsPage })),
-)
-
 type Translator = (cn: string, en: string) => string
 type MessageAttachment = {
   id: string
@@ -215,6 +212,7 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null)
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting')
   const [settings, setSettings] = useState(false)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [page, setPage] = useState<WebPage>(() => pageFromLocation(window.location.hash))
   const [mobileStatus, setMobileStatus] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
@@ -240,6 +238,17 @@ export function App() {
   const zh = preferences.locale === 'zh-CN'
   const t: Translator = (cn, en) => (zh ? cn : en)
   const commandLanguage = zh ? 'zh' : 'en'
+  const navigationItems = [
+    ['chat', t('聊天', 'Chat')],
+    ['conversations', t('会话', 'Conversations')],
+    ['preferences', t('偏好', 'Preferences')],
+    ['memories', t('记忆', 'Memories')],
+    ['audits', t('审计', 'Audits')],
+  ] as Array<[WebPage, string]>
+  const navigateTo = (value: WebPage) => {
+    window.location.hash = locationForPage(value)
+    setMobileNavOpen(false)
+  }
   const commandSuggestions = useMemo(() => searchCommandCatalog(text, commandLanguage), [text, commandLanguage])
   const notificationsActive = preferences.notificationsEnabled && notificationPermission === 'granted'
   const statusLoad = async () => {
@@ -657,30 +666,26 @@ export function App() {
       <header className="app-header">
         <span className="brand" aria-label="AI CLI HUB">
           <img src="/webui/assets/icon.svg" alt="" />
-          AI CLI HUB
+          <span className="brand-label">AI CLI HUB</span>
         </span>
         <nav className="app-nav" aria-label={t('管理页面', 'Administration pages')}>
-          {(
-            [
-              ['chat', t('聊天', 'Chat')],
-              ['conversations', t('会话', 'Conversations')],
-              ['preferences', t('偏好', 'Preferences')],
-              ['memories', t('记忆', 'Memories')],
-              ['audits', t('审计', 'Audits')],
-              ['settings', t('设置', 'Settings')],
-            ] as Array<[WebPage, string]>
-          ).map(([value, label]) => (
+          {navigationItems.map(([value, label]) => (
             <button
               className={page === value ? 'app-nav-item active' : 'app-nav-item'}
               type="button"
               key={value}
-              onClick={() => {
-                window.location.hash = locationForPage(value)
-              }}>
+              onClick={() => navigateTo(value)}>
               {label}
             </button>
           ))}
         </nav>
+        <Button
+          className="mobile-nav-trigger"
+          variant="ghost"
+          aria-label={t('打开页面菜单', 'Open page menu')}
+          onClick={() => setMobileNavOpen(true)}>
+          <Menu size={19} />
+        </Button>
         <span className={`connection ${connection}`}>
           <i />
           {connection === 'connected' ? t('实时连接', 'Live connection') : t('正在重连', 'Reconnecting')}
@@ -720,6 +725,26 @@ export function App() {
           <Settings2 size={19} />
         </Button>
       </header>
+      <Dialog open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <DialogContent className="nav-drawer">
+          <DialogHeader>
+            <DialogTitle>{t('页面导航', 'Page navigation')}</DialogTitle>
+            <DialogDescription>{t('选择要打开的管理页面。', 'Choose a page to open.')}</DialogDescription>
+          </DialogHeader>
+          <nav className="mobile-nav-list" aria-label={t('管理页面', 'Administration pages')}>
+            {navigationItems.map(([value, label]) => (
+              <button
+                className={page === value ? 'mobile-nav-item active' : 'mobile-nav-item'}
+                type="button"
+                key={value}
+                onClick={() => navigateTo(value)}>
+                <span>{label}</span>
+                {page === value && <Check size={16} aria-hidden="true" />}
+              </button>
+            ))}
+          </nav>
+        </DialogContent>
+      </Dialog>
       {page === 'chat' ? (
         <div className="grid">
           <section className="chat">
@@ -878,12 +903,7 @@ export function App() {
               <div className="admin-panel admin-state">{t('正在加载管理页面…', 'Loading administration page…')}</div>
             </div>
           }>
-          <AdministrationPage
-            page={page}
-            locale={preferences.locale}
-            preferences={preferences}
-            setPreferences={setPreferences}
-          />
+          <AdministrationPage page={page} locale={preferences.locale} />
         </Suspense>
       )}
       <Dialog open={settings} onOpenChange={setSettings}>
@@ -935,22 +955,11 @@ export function App() {
   )
 }
 
-function AdministrationPage({
-  page,
-  locale,
-  preferences,
-  setPreferences,
-}: {
-  page: Exclude<WebPage, 'chat'>
-  locale: 'zh-CN' | 'en'
-  preferences: WebPreferences
-  setPreferences: Dispatch<SetStateAction<WebPreferences>>
-}) {
+function AdministrationPage({ page, locale }: { page: Exclude<WebPage, 'chat'>; locale: 'zh-CN' | 'en' }) {
   if (page === 'conversations') return <ConversationsPage locale={locale} />
   if (page === 'preferences') return <PreferencesPage locale={locale} />
   if (page === 'memories') return <MemoriesPage locale={locale} />
-  if (page === 'audits') return <AuditsPage locale={locale} />
-  return <SettingsPage locale={locale} preferences={preferences} setPreferences={setPreferences} />
+  return <AuditsPage locale={locale} />
 }
 
 function Login({

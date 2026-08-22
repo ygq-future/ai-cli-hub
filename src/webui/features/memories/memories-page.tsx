@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react'
 import type { MemoryType, MemoryView } from '../../../shared'
 import { deleteMemory, getMemories, refreshEnvironmentMemories, updateMemory } from '../../api/memory-api'
 import { Button } from '../../components/ui/button'
-import { Input } from '../../components/ui/input'
+import { ClearableInput } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 import { Textarea } from '../../components/ui/textarea'
-import { ConfirmDialog, CursorPager, EmptyState, FilterBarWithClear, LoadingState } from '../../components/admin'
+import { ConfirmDialog, CursorPager, EmptyState, LoadingState } from '../../components/admin'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog'
 import { useCursorPage } from '../../hooks/use-cursor-page'
 
@@ -74,11 +74,6 @@ export function MemoriesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
     }
   }
 
-  const clearFilters = () => {
-    setSearch('')
-    setType('')
-  }
-
   return (
     <section className="admin-page">
       <div className="admin-heading">
@@ -102,16 +97,20 @@ export function MemoriesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
           {zh ? '刷新环境' : 'Refresh environment'}
         </Button>
       </div>
-      <FilterBarWithClear clearDisabled={!search && !type} clearLabel={zh ? '清除' : 'Clear'} onClear={clearFilters}>
-        <Input
+      <div className="admin-filter-bar">
+        <ClearableInput
           placeholder={zh ? '搜索记忆内容' : 'Search memory content'}
           value={search}
           onChange={event => setSearch(event.target.value)}
+          onClear={() => setSearch('')}
+          clearLabel={zh ? '清除搜索' : 'Clear search'}
         />
         <Select
           aria-label={zh ? '记忆类型' : 'Memory type'}
           value={type || 'all'}
           onValueChange={value => setType(value === 'all' ? '' : (value as MemoryType))}
+          onClear={type ? () => setType('') : undefined}
+          clearLabel={zh ? '清除类型' : 'Clear type'}
           options={[
             { value: 'all', label: zh ? '全部类型' : 'All types' },
             { value: 'episodic', label: 'episodic' },
@@ -119,7 +118,7 @@ export function MemoriesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
             { value: 'preference', label: 'preference' },
           ]}
         />
-      </FilterBarWithClear>
+      </div>
       {error && <p className="admin-error">{error}</p>}
       <div className="admin-panel">
         {loading ? (

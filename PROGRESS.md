@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-08-22 · 阶段：**V5 Web 可视化管理控制面及首屏资源优化已完成**
+> 最后更新：2026-08-22 · 阶段：**V5 Web 可视化管理控制面及移动端体验优化已完成**
 
 ---
 
@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V5 Web 可视化管理控制面（✅ 完成）** |
-| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 已完成共享契约、WebUI 模块基线、级联迁移、Repository 管理分页/聚合删除、运行时删除联动、`web-admin/` 深模块、认证 Server 管理 API、懒加载管理页面和 Rolldown vendor chunk 拆分。 |
+| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 已完成共享契约、WebUI 模块基线、级联迁移、Repository 管理分页/聚合删除、运行时删除联动、`web-admin/` 深模块、认证 Server 管理 API、懒加载管理页面、Rolldown vendor chunk 拆分及移动端管理导航与筛选控件优化。 |
 | 文档 | ✅ 架构、接口契约、数据模型、记忆设计、命令 UX、实施计划、Web 任务书、README、Agent 规则和本进度已同步。 |
 | 阻塞项 | 无 |
 | 下一步 | 按需进入下一项需求；V5 保持可部署交付状态，WebUI 构建入口已无 500 kB chunk 警告。 |
@@ -358,6 +358,7 @@
 | 2026-08-22 | **V5 节点 6：文档对齐与最终验收**：同步 AGENTS、架构依赖矩阵与目录职责、HTTP/WS 管理契约、数据模型、记忆设计、命令 UX、实施计划、Web 任务书和 README；明确 `web-admin/` 深模块、cursor 分页、会话硬删除级联、`/close` 区分、`env.*` 只读与 `conversation_deleted`。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（506 pass / 9 skip / 0 fail / 1702 expect）和 `git diff --check` 全部通过；未配置 `TEST_DATABASE_URL`，9 个集成测试按约定 skip。 |
 | 2026-08-22 | **V5 Web 管理体验优化完成**：修复 `/model` WebSocket 命令回复丢失 `copyActions` 的问题，Web 聊天可展示模型列表并点击复制 Model ID；会话/偏好/记忆/审计/设置统一使用 Radix Select 和 Switch，搜索栏收窄并增加 Clear；管理列表统一固定 10 条并提供上一页/下一页及游标回退；长期记忆改为只读截断卡片，编辑进入现代化 Dialog/Textarea；偏好详情平台标识放大；Web 与 Telegram 的用户身份映射按当前实现保留，后续单独处理。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（506 pass / 9 skip / 0 fail / 1702 expect）和 `git diff --check` 全部通过；构建仅保留既有前端 chunk 大小提示。 |
 | 2026-08-22 | **WebUI 首屏资源拆分完成**：针对 Rolldown 构建入口体积，将 React、Markdown、Lucide 图标和 Radix UI 依赖按 `manualChunks` 函数拆为独立 vendor chunk，`app.js` 从 528.14 kB 降至 77.81 kB，所有产物均低于 500 kB 且不再产生 chunk 大小警告；新增 Vite 配置回归断言。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun webui:build`、全量 `bun test`（507 pass / 9 skip / 0 fail / 1707 expect）和 `git diff --check` 全部通过。 |
+| 2026-08-22 | **WebUI 移动导航与筛选交互优化完成**：管理设置入口归并到头部控制台设置对话框；移动端头部保留图标品牌并用单按钮抽屉承载页面导航；管理筛选输入框与 Select 在有值时显示尾部内嵌 Clear，保留输入与筛选的紧凑布局；新增移动导航与筛选控件回归断言。自动验收：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun webui:build`、全量 `bun test`（508 pass / 9 skip / 0 fail / 1713 expect）和 `git diff --check` 全部通过；构建产物最大 203.63 kB，无 chunk 大小警告。Web 与 Telegram 的用户身份映射保持待后续单独处理。 |
 
 ## 6. 开放问题（Open Questions）
 

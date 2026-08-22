@@ -1,6 +1,6 @@
-export type WebPage = 'chat' | 'conversations' | 'preferences' | 'memories' | 'audits' | 'settings'
+export type WebPage = 'chat' | 'conversations' | 'preferences' | 'memories' | 'audits'
 
-const PAGES: readonly WebPage[] = ['chat', 'conversations', 'preferences', 'memories', 'audits', 'settings']
+const PAGES: readonly WebPage[] = ['chat', 'conversations', 'preferences', 'memories', 'audits']
 
 export function pageFromLocation(hash: string): WebPage {
   const value = hash.replace(/^#\/?/, '').split('/')[0] ?? ''

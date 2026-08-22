@@ -9,31 +9,6 @@ export function EmptyState({ label = 'No records found.' }: { label?: string }) 
   return <div className="admin-state">{label}</div>
 }
 
-export function FilterBar({ children }: { children: ReactNode }) {
-  return <div className="admin-filter-bar">{children}</div>
-}
-
-export function FilterBarWithClear({
-  children,
-  onClear,
-  clearDisabled,
-  clearLabel = 'Clear',
-}: {
-  children: ReactNode
-  onClear: () => void
-  clearDisabled: boolean
-  clearLabel?: string
-}) {
-  return (
-    <div className="admin-filter-bar">
-      {children}
-      <Button className="admin-filter-clear" variant="ghost" disabled={clearDisabled} onClick={onClear}>
-        {clearLabel}
-      </Button>
-    </div>
-  )
-}
-
 export function CursorPager({
   hasNext,
   onNext,
