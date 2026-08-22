@@ -23,6 +23,15 @@ test('WebUI 通过 Tailwind Vite 插件构建并提供暂存构建入口', async
   expect(eslintConfig).toContain("'.data/**'")
 })
 
+test('WebUI 入口依赖按 vendor chunk 拆分', async () => {
+  const config = await readFile('vite.config.ts', 'utf8')
+  expect(config).toContain('manualChunks(id)')
+  expect(config).toContain("return 'react-vendor'")
+  expect(config).toContain("return 'markdown-vendor'")
+  expect(config).toContain("return 'icons-vendor'")
+  expect(config).toContain("return 'ui-vendor'")
+})
+
 test('应用运行时不触发 WebUI 构建', async () => {
   const main = await readFile('src/main.ts', 'utf8')
   expect(main).not.toContain('buildWebUi')
