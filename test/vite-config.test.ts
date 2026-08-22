@@ -30,7 +30,7 @@ test('应用运行时不触发 WebUI 构建', async () => {
 })
 
 test('聊天附件使用触摸屏可触发的单击交互', async () => {
-  const source = await readFile('src/webui/main.tsx', 'utf8')
+  const source = await readFile('src/webui/app/app.tsx', 'utf8')
   expect(source).not.toContain('onDoubleClick')
   expect(source).toContain('onClick={() => downloadAttachment(file)}')
 })
@@ -43,7 +43,7 @@ test('标签页图标使用版本化 favicon 与兼容声明', async () => {
 })
 
 test('设置面板先展示 Web 系统偏好，再展示 settings.json', async () => {
-  const source = await readFile('src/webui/main.tsx', 'utf8')
+  const source = await readFile('src/webui/app/app.tsx', 'utf8')
   const systemPreferencesAt = source.indexOf('className="system-preferences"')
   const settingsJsonAt = source.indexOf('Object.entries(data)')
   expect(systemPreferencesAt).toBeGreaterThanOrEqual(0)
@@ -51,7 +51,7 @@ test('设置面板先展示 Web 系统偏好，再展示 settings.json', async (
 })
 
 test('WebUI 使用稳定的清晰系统字体栈', async () => {
-  const styles = await readFile('src/webui/react.css', 'utf8')
+  const styles = await readFile('src/webui/styles/shell.css', 'utf8')
   expect(styles).toContain("'Segoe UI Variable'")
   expect(styles).toContain("'Microsoft YaHei UI'")
   expect(styles).toContain("'Cascadia Mono'")
@@ -59,22 +59,23 @@ test('WebUI 使用稳定的清晰系统字体栈', async () => {
 })
 
 test('WebUI 使用中性黑白 Glass 基底与冷蓝默认强调色', async () => {
-  const [styles, source, icon] = await Promise.all([
-    readFile('src/webui/react.css', 'utf8'),
-    readFile('src/webui/main.tsx', 'utf8'),
+  const [styles, source, preferences, icon] = await Promise.all([
+    readFile('src/webui/styles/shell.css', 'utf8'),
+    readFile('src/webui/app/app.tsx', 'utf8'),
+    readFile('src/webui/hooks/use-local-preferences.ts', 'utf8'),
     readFile('src/webui/public/assets/icon.svg', 'utf8'),
   ])
   expect(styles).toContain('--bg: #08090d')
   expect(styles).toContain('--glass:')
   expect(styles).toContain("data-accent='blue'")
   expect(styles).not.toContain('--bg: #07110e')
-  expect(source).toContain("accent: 'blue'")
+  expect(preferences).toContain("accent: 'blue'")
   expect(source).not.toContain("accent: 'emerald'")
   expect(icon).not.toContain('#42e0a3')
 })
 
 test('WebSocket 断开后区分服务重启与认证过期', async () => {
-  const source = await readFile('src/webui/main.tsx', 'utf8')
+  const source = await readFile('src/webui/app/app.tsx', 'utf8')
   expect(source).toContain("fetch('/api/auth/session')")
   expect(source).toContain('response.status === 401')
   expect(source).toContain("setConnection('reconnecting')")
@@ -82,18 +83,21 @@ test('WebSocket 断开后区分服务重启与认证过期', async () => {
 })
 
 test('浏览器通知权限与可持久关闭的应用开关分离', async () => {
-  const source = await readFile('src/webui/main.tsx', 'utf8')
-  expect(source).toContain('notificationsEnabled: boolean')
+  const [source, preferences] = await Promise.all([
+    readFile('src/webui/app/app.tsx', 'utf8'),
+    readFile('src/webui/hooks/use-local-preferences.ts', 'utf8'),
+  ])
+  expect(preferences).toContain('notificationsEnabled: boolean')
   expect(source).toContain('!preferences.notificationsEnabled')
-  expect(source).toContain('notificationsEnabled: false')
+  expect(preferences).toContain("Notification.permission !== 'denied'")
   expect(source).toContain("t('浏览器通知', 'Browser notifications')")
 })
 
 test('Web 输入框提供命令面板、聚焦快捷键和通知高亮', async () => {
   const [source, palette, styles] = await Promise.all([
-    readFile('src/webui/main.tsx', 'utf8'),
+    readFile('src/webui/app/app.tsx', 'utf8'),
     readFile('src/webui/command-palette.tsx', 'utf8'),
-    readFile('src/webui/react.css', 'utf8'),
+    readFile('src/webui/styles/shell.css', 'utf8'),
   ])
 
   expect(source).toContain('<CommandPalette')
@@ -112,9 +116,9 @@ test('Web 输入框提供命令面板、聚焦快捷键和通知高亮', async (
 
 test('命令面板支持触摸安全关闭，头部与登录首帧布局稳定', async () => {
   const [source, palette, styles, html] = await Promise.all([
-    readFile('src/webui/main.tsx', 'utf8'),
+    readFile('src/webui/app/app.tsx', 'utf8'),
     readFile('src/webui/command-palette.tsx', 'utf8'),
-    readFile('src/webui/react.css', 'utf8'),
+    readFile('src/webui/styles/shell.css', 'utf8'),
     readFile('src/webui/index.html', 'utf8'),
   ])
 
@@ -133,8 +137,8 @@ test('命令面板支持触摸安全关闭，头部与登录首帧布局稳定',
 
 test('登录标题使用稳定的独立行距与视觉强调', async () => {
   const [source, styles, html] = await Promise.all([
-    readFile('src/webui/main.tsx', 'utf8'),
-    readFile('src/webui/react.css', 'utf8'),
+    readFile('src/webui/app/app.tsx', 'utf8'),
+    readFile('src/webui/styles/shell.css', 'utf8'),
     readFile('src/webui/index.html', 'utf8'),
   ])
 
@@ -147,4 +151,15 @@ test('登录标题使用稳定的独立行距与视觉强调', async () => {
   expect(styles).toContain('.login-title-line-accent::after')
   expect(html).toMatch(/\.login h1\s*{[^}]*line-height:\s*1\.03/s)
   expect(html).toMatch(/\.login > section\s*{[^}]*padding:\s*clamp\(27px, 7vw, 52px\)/s)
+})
+
+test('WebUI bootstrap 只负责 React 启动与全局样式入口', async () => {
+  const source = await readFile('src/webui/main.tsx', 'utf8')
+  expect(source).toContain("import { App } from './app/app'")
+  expect(source).toContain("import './styles/index.css'")
+  expect(source).not.toContain('fetch(')
+  expect(source).not.toContain('new WebSocket')
+  expect(source).not.toContain('className="app"')
+  expect(source).not.toContain('interface ')
+  expect(source).not.toContain('type Message')
 })
