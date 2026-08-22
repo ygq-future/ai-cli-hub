@@ -4,6 +4,8 @@ import {
   useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type Dispatch,
   type FormEvent,
   type KeyboardEvent,
@@ -37,11 +39,26 @@ import type { CommandCatalogEntry } from '../../shared'
 import { CommandPalette } from '../command-palette'
 import { findFirstPlaceholderRange, searchCommandCatalog } from '../command-palette-model'
 import { AppShell } from './app-shell'
+import { locationForPage, pageFromLocation, type WebPage } from './navigation-model'
 import { Button } from '../components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { Input } from '../components/ui/input'
 import { Select } from '../components/ui/select'
 import { useLocalPreferences, type WebPreferences } from '../hooks/use-local-preferences'
+
+const ConversationsPage = lazy(() =>
+  import('../features/conversations/conversations-page').then(module => ({ default: module.ConversationsPage })),
+)
+const PreferencesPage = lazy(() =>
+  import('../features/preferences/preferences-page').then(module => ({ default: module.PreferencesPage })),
+)
+const MemoriesPage = lazy(() =>
+  import('../features/memories/memories-page').then(module => ({ default: module.MemoriesPage })),
+)
+const AuditsPage = lazy(() => import('../features/audits/audits-page').then(module => ({ default: module.AuditsPage })))
+const SettingsPage = lazy(() =>
+  import('../features/settings/settings-page').then(module => ({ default: module.SettingsPage })),
+)
 
 type Translator = (cn: string, en: string) => string
 type MessageAttachment = {
@@ -195,6 +212,7 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null)
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting')
   const [settings, setSettings] = useState(false)
+  const [page, setPage] = useState<WebPage>(() => pageFromLocation(window.location.hash))
   const [mobileStatus, setMobileStatus] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [commandSelection, setCommandSelection] = useState(0)
@@ -458,6 +476,16 @@ export function App() {
     document.documentElement.lang = preferences.locale
   }, [preferences])
   useEffect(() => {
+    const updatePage = () => setPage(pageFromLocation(window.location.hash))
+    window.addEventListener('hashchange', updatePage)
+    return () => window.removeEventListener('hashchange', updatePage)
+  }, [])
+  useEffect(() => {
+    const openSettings = () => setSettings(true)
+    window.addEventListener('open-server-settings', openSettings)
+    return () => window.removeEventListener('open-server-settings', openSettings)
+  }, [])
+  useEffect(() => {
     if (commandSelection >= commandSuggestions.length) setCommandSelection(0)
   }, [commandSelection, commandSuggestions.length])
   useEffect(() => {
@@ -622,6 +650,28 @@ export function App() {
           <img src="/webui/assets/icon.svg" alt="" />
           AI CLI HUB
         </span>
+        <nav className="app-nav" aria-label={t('管理页面', 'Administration pages')}>
+          {(
+            [
+              ['chat', t('聊天', 'Chat')],
+              ['conversations', t('会话', 'Conversations')],
+              ['preferences', t('偏好', 'Preferences')],
+              ['memories', t('记忆', 'Memories')],
+              ['audits', t('审计', 'Audits')],
+              ['settings', t('设置', 'Settings')],
+            ] as Array<[WebPage, string]>
+          ).map(([value, label]) => (
+            <button
+              className={page === value ? 'app-nav-item active' : 'app-nav-item'}
+              type="button"
+              key={value}
+              onClick={() => {
+                window.location.hash = locationForPage(value)
+              }}>
+              {label}
+            </button>
+          ))}
+        </nav>
         <span className={`connection ${connection}`}>
           <i />
           {connection === 'connected' ? t('实时连接', 'Live connection') : t('正在重连', 'Reconnecting')}
@@ -661,155 +711,171 @@ export function App() {
           <Settings2 size={19} />
         </Button>
       </header>
-      <div className="grid">
-        <section className="chat">
-          <div
-            ref={feed}
-            className="feed"
-            aria-live="polite"
-            onScroll={event => {
-              if (event.currentTarget.scrollTop <= 80 && historyCursor && !historyLoading)
-                void historyLoad(historyCursor)
-            }}>
-            {(historyCursor || historyLoading) && (
-              <div className="history-loader" aria-live="polite">
-                {historyLoading ? (
-                  <>
-                    <LoaderCircle size={15} />
-                    {t('正在加载更早消息', 'Loading earlier messages')}
-                  </>
+      {page === 'chat' ? (
+        <div className="grid">
+          <section className="chat">
+            <div
+              ref={feed}
+              className="feed"
+              aria-live="polite"
+              onScroll={event => {
+                if (event.currentTarget.scrollTop <= 80 && historyCursor && !historyLoading)
+                  void historyLoad(historyCursor)
+              }}>
+              {(historyCursor || historyLoading) && (
+                <div className="history-loader" aria-live="polite">
+                  {historyLoading ? (
+                    <>
+                      <LoaderCircle size={15} />
+                      {t('正在加载更早消息', 'Loading earlier messages')}
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => void historyLoad(historyCursor)}>
+                      {t('加载更早消息', 'Load earlier messages')}
+                    </button>
+                  )}
+                </div>
+              )}
+              {!timeline.length && (
+                <div className="empty-state">
+                  <span>✦</span>
+                  <p>{t('从这里开始一段新的远程对话。', 'Start a new remote conversation here.')}</p>
+                </div>
+              )}
+              {timeline.map(item =>
+                item.type === 'chat' ? (
+                  <article className={`message ${item.role}`} key={item.id}>
+                    <div className="markdown">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                    </div>
+                    <MessageAttachments attachments={item.attachments} onPreview={setPreviewImage} t={t} />
+                    <span className={item.streaming ? 'stream-caret' : ''} />
+                  </article>
                 ) : (
-                  <button type="button" onClick={() => void historyLoad(historyCursor)}>
-                    {t('加载更早消息', 'Load earlier messages')}
-                  </button>
-                )}
-              </div>
-            )}
-            {!timeline.length && (
-              <div className="empty-state">
-                <span>✦</span>
-                <p>{t('从这里开始一段新的远程对话。', 'Start a new remote conversation here.')}</p>
-              </div>
-            )}
-            {timeline.map(item =>
-              item.type === 'chat' ? (
-                <article className={`message ${item.role}`} key={item.id}>
-                  <div className="markdown">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
-                  </div>
-                  <MessageAttachments attachments={item.attachments} onPreview={setPreviewImage} t={t} />
-                  <span className={item.streaming ? 'stream-caret' : ''} />
-                </article>
-              ) : (
-                <ApprovalCard key={item.approvalId} approval={item} decide={decide} t={t} />
-              ),
-            )}
-          </div>
-          <form ref={composerWrap} className="composer-wrap" onSubmit={send}>
-            {commandPaletteOpen && text.startsWith('/') && (
-              <CommandPalette
-                items={commandSuggestions}
-                language={commandLanguage}
-                selectedIndex={commandSelection}
-                onSelectedIndexChange={setCommandSelection}
-                onSelect={selectCommand}
-              />
-            )}
-            <div className="compose">
-              <input
-                hidden
-                ref={picker}
-                type="file"
-                multiple
-                accept="*/*"
-                onChange={event => {
-                  addFiles(Array.from(event.target.files ?? []))
-                  event.target.value = ''
-                }}
-              />
-              <Button
-                variant="ghost"
-                type="button"
-                aria-label={t('上传文件', 'Upload files')}
-                onClick={() => picker.current?.click()}>
-                <FilePlus2 size={19} />
-              </Button>
-              <div className="compose-content">
-                {files.length > 0 && (
-                  <div className="embedded-files" aria-label={t('待发送附件', 'Pending attachments')}>
-                    {files.map(item => (
-                      <div
-                        className={`embedded-file ${selectedFileId === item.id ? 'selected' : ''}`}
-                        role="option"
-                        aria-selected={selectedFileId === item.id}
-                        tabIndex={0}
-                        key={item.id}
-                        title={item.previewUrl ? t('点击预览', 'Tap to preview') : item.file.name}
-                        onClick={() => {
-                          setSelectedFileId(item.id)
-                          if (item.previewUrl)
-                            setPreviewImage({ name: item.file.name, url: item.previewUrl, size: item.file.size })
-                        }}
-                        onKeyDown={event => {
-                          if (event.key === 'Enter') {
+                  <ApprovalCard key={item.approvalId} approval={item} decide={decide} t={t} />
+                ),
+              )}
+            </div>
+            <form ref={composerWrap} className="composer-wrap" onSubmit={send}>
+              {commandPaletteOpen && text.startsWith('/') && (
+                <CommandPalette
+                  items={commandSuggestions}
+                  language={commandLanguage}
+                  selectedIndex={commandSelection}
+                  onSelectedIndexChange={setCommandSelection}
+                  onSelect={selectCommand}
+                />
+              )}
+              <div className="compose">
+                <input
+                  hidden
+                  ref={picker}
+                  type="file"
+                  multiple
+                  accept="*/*"
+                  onChange={event => {
+                    addFiles(Array.from(event.target.files ?? []))
+                    event.target.value = ''
+                  }}
+                />
+                <Button
+                  variant="ghost"
+                  type="button"
+                  aria-label={t('上传文件', 'Upload files')}
+                  onClick={() => picker.current?.click()}>
+                  <FilePlus2 size={19} />
+                </Button>
+                <div className="compose-content">
+                  {files.length > 0 && (
+                    <div className="embedded-files" aria-label={t('待发送附件', 'Pending attachments')}>
+                      {files.map(item => (
+                        <div
+                          className={`embedded-file ${selectedFileId === item.id ? 'selected' : ''}`}
+                          role="option"
+                          aria-selected={selectedFileId === item.id}
+                          tabIndex={0}
+                          key={item.id}
+                          title={item.previewUrl ? t('点击预览', 'Tap to preview') : item.file.name}
+                          onClick={() => {
                             setSelectedFileId(item.id)
                             if (item.previewUrl)
                               setPreviewImage({ name: item.file.name, url: item.previewUrl, size: item.file.size })
-                          }
-                          if (event.key === 'Delete' || event.key === 'Backspace') removeFile(item.id)
-                        }}>
-                        {item.previewUrl ? <img src={item.previewUrl} alt={item.file.name} /> : <File size={22} />}
-                        <span>{item.file.name}</span>
-                        <button
-                          type="button"
-                          aria-label={t('移除附件', 'Remove attachment')}
-                          onClick={event => {
-                            event.stopPropagation()
-                            removeFile(item.id)
+                          }}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter') {
+                              setSelectedFileId(item.id)
+                              if (item.previewUrl)
+                                setPreviewImage({ name: item.file.name, url: item.previewUrl, size: item.file.size })
+                            }
+                            if (event.key === 'Delete' || event.key === 'Backspace') removeFile(item.id)
                           }}>
-                          <X size={12} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <textarea
-                  ref={composer}
-                  rows={1}
-                  value={text}
-                  aria-autocomplete="list"
-                  aria-controls="command-palette"
-                  aria-expanded={commandPaletteOpen && text.startsWith('/')}
-                  aria-activedescendant={
-                    commandPaletteOpen && commandSuggestions[commandSelection]
-                      ? `command-option-${commandSuggestions[commandSelection].id}`
-                      : undefined
-                  }
-                  onChange={event => {
-                    const value = event.target.value
-                    setText(value)
-                    setCommandPaletteOpen(value.startsWith('/'))
-                    setCommandSelection(0)
-                  }}
-                  onBlur={() => setCommandPaletteOpen(false)}
-                  onFocus={() => setCommandPaletteOpen(text.startsWith('/'))}
-                  onKeyDown={handleComposerKeyDown}
-                  onPaste={event => {
-                    const pasted = Array.from(event.clipboardData.files)
-                    if (pasted.length) addFiles(pasted)
-                  }}
-                  placeholder={t('输入消息，或粘贴图片', 'Write a message or paste an image')}
-                />
+                          {item.previewUrl ? <img src={item.previewUrl} alt={item.file.name} /> : <File size={22} />}
+                          <span>{item.file.name}</span>
+                          <button
+                            type="button"
+                            aria-label={t('移除附件', 'Remove attachment')}
+                            onClick={event => {
+                              event.stopPropagation()
+                              removeFile(item.id)
+                            }}>
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <textarea
+                    ref={composer}
+                    rows={1}
+                    value={text}
+                    aria-autocomplete="list"
+                    aria-controls="command-palette"
+                    aria-expanded={commandPaletteOpen && text.startsWith('/')}
+                    aria-activedescendant={
+                      commandPaletteOpen && commandSuggestions[commandSelection]
+                        ? `command-option-${commandSuggestions[commandSelection].id}`
+                        : undefined
+                    }
+                    onChange={event => {
+                      const value = event.target.value
+                      setText(value)
+                      setCommandPaletteOpen(value.startsWith('/'))
+                      setCommandSelection(0)
+                    }}
+                    onBlur={() => setCommandPaletteOpen(false)}
+                    onFocus={() => setCommandPaletteOpen(text.startsWith('/'))}
+                    onKeyDown={handleComposerKeyDown}
+                    onPaste={event => {
+                      const pasted = Array.from(event.clipboardData.files)
+                      if (pasted.length) addFiles(pasted)
+                    }}
+                    placeholder={t('输入消息，或粘贴图片', 'Write a message or paste an image')}
+                  />
+                </div>
+                <Button className="send" disabled={connection !== 'connected'}>
+                  <Send size={16} />
+                  <span>{t('发送', 'Send')}</span>
+                </Button>
               </div>
-              <Button className="send" disabled={connection !== 'connected'}>
-                <Send size={16} />
-                <span>{t('发送', 'Send')}</span>
-              </Button>
+            </form>
+          </section>
+          <StatusPanel status={status} t={t} />
+        </div>
+      ) : (
+        <Suspense
+          fallback={
+            <div className="admin-page">
+              <div className="admin-panel admin-state">{t('正在加载管理页面…', 'Loading administration page…')}</div>
             </div>
-          </form>
-        </section>
-        <StatusPanel status={status} t={t} />
-      </div>
+          }>
+          <AdministrationPage
+            page={page}
+            locale={preferences.locale}
+            preferences={preferences}
+            setPreferences={setPreferences}
+          />
+        </Suspense>
+      )}
       <Dialog open={settings} onOpenChange={setSettings}>
         <DialogContent className="settings-dialog">
           <DialogHeader>
@@ -857,6 +923,24 @@ export function App() {
       </Dialog>
     </AppShell>
   )
+}
+
+function AdministrationPage({
+  page,
+  locale,
+  preferences,
+  setPreferences,
+}: {
+  page: Exclude<WebPage, 'chat'>
+  locale: 'zh-CN' | 'en'
+  preferences: WebPreferences
+  setPreferences: Dispatch<SetStateAction<WebPreferences>>
+}) {
+  if (page === 'conversations') return <ConversationsPage locale={locale} />
+  if (page === 'preferences') return <PreferencesPage locale={locale} />
+  if (page === 'memories') return <MemoriesPage locale={locale} />
+  if (page === 'audits') return <AuditsPage locale={locale} />
+  return <SettingsPage locale={locale} preferences={preferences} setPreferences={setPreferences} />
 }
 
 function Login({

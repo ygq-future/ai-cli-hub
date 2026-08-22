@@ -15,7 +15,7 @@
 | 代码 | 🟡 V4 React Web Control Plane 与既有加固保持完成；V5 已完成契约、WebUI 基线、级联迁移、仓储能力、运行时删除联动和 WebAdmin 深模块，Server 路由与管理页面待实施。 |
 | 文档 | 🟡 V5 执行计划、共享 WebAdmin DTO、管理员接口契约、纯时间线模型、数据模型和进度已同步；后续继续同步架构、Web 任务书与交付文档。 |
 | 阻塞项 | 无 |
-| 下一步 | 按 `docs/superpowers/plans/2026-08-22-web-administration-control-plane.md` 进入 WebUI 管理页面与 API client 接入。 |
+| 下一步 | 按 `docs/superpowers/plans/2026-08-22-web-administration-control-plane.md` 完成文档对齐、交付说明和最终门禁。 |
 
 ---
 
@@ -40,7 +40,7 @@
 | V2-R2 | 运维自更新 / 自检测 / 自动拉起 | ✅ 完成 | `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启链路测试入口（Windows 直接拒绝）、重启后主动通知已接入；部署自检与自动拉起留待 V3 按需补强 |
 | V2-R3 | Transport 和 CLI 扩展 | ✅ 完成 | `OpenCodeSdkAdapter` 已完成；官方 QQ Bot C2C Transport 已完成并通过真机联调，含 Gateway 连接(指数退避重连 + `HttpsProxyAgent` 代理注入)、C2C 私聊、Markdown 消息渲染(`msg_type=2`)、流式消息、审批按钮(`INTERACTION_CREATE`)、ACK 5s 回调、重复点击提示、审批详情精简摘要；QQ 媒体能力已完成（附件下载/OCR/懒加载/语音 ASR/emoji 归一化）；opencode `permissionToApproval` 与 `summarizeApprovalDetail` 已按官方 SDK 类型对齐修复重复行/无意义字段；`QQBOT_WS_PROXY` 新增配置；`main.ts` 起動耐故障化（单 Transport 失败不拖垮进程）；Telegram/QQ 并列装配，混合白名单，platform 过滤防串路由 |
 | V4 | Web Control Plane | ✅ 完成 | 后端服务、浏览器 WebSocket Transport、单管理员 React WebUI、历史/附件/设置/重启闭环和高优先级资源边界加固均已完成；任务书见 `docs/08-Web-Control-Plane-Task-Book.md`。 |
-| V5 | Web 可视化管理控制面 | 🟡 实施中 | 管理全部平台/用户会话及其历史和文件；会话硬删除级联消息、文件映射与审批审计；可视化管理用户/CLI 偏好、全局记忆和全局审批审计。已完成共享 DTO、`WebAdmin` 接口、管理员时间线 hydration、bootstrap-only `main.tsx`、WebUI 模块基线、级联迁移、仓储分页/聚合删除、运行时删除联动、`web-admin/` 深模块和受认证 Server 管理 API；管理页面仍在实施。 |
+| V5 | Web 可视化管理控制面 | 🟡 实施中 | 管理全部平台/用户会话及其历史和文件；会话硬删除级联消息、文件映射与审批审计；可视化管理用户/CLI 偏好、全局记忆和全局审批审计。已完成共享 DTO、`WebAdmin` 接口、管理员时间线 hydration、bootstrap-only `main.tsx`、WebUI 模块基线、级联迁移、仓储分页/聚合删除、运行时删除联动、`web-admin/` 深模块、受认证 Server 管理 API 和懒加载管理页面；文档对齐与最终验收待完成。 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
 
@@ -354,6 +354,7 @@
 | 2026-08-22 | **V5 节点 2：级联删除与仓储管理分页**：新增迁移 `0020_conversation_cascade`，`audit_logs.conversation_id` 改为级联、`messages.audit_log_id` 改为 `set null`，并新增 `(created_at,id)` 全局审计索引。Repository 新增会话管理分页及精确计数、事务硬删除（返回受控文件路径和删除计数）、文件/审计/记忆游标分页、记忆编辑清空旧 embedding、偏好 scope/CLI 列表能力；补充离线 schema/migration 断言和 PostgreSQL 集成覆盖。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、schema/审计/仓储定向测试 18 pass / 9 skip / 0 fail、`git diff --check` 通过；未配置 `TEST_DATABASE_URL`，集成组按约定 skip。 |
 | 2026-08-22 | **V5 节点 3：运行时、媒体与 WebAdmin 深模块装配**：新增 `stopConversation` 运行时清理接口和 `ConversationDeleted` 事件，删除会话时停止 adapter、丢弃聚合输出与审批缓存；WebSocket 收到删除事件后撤销会话映射与审批缓存并广播 `conversation_deleted`；媒体生命周期开放受控批量文件删除；新增 `web-admin/` 注入式深模块，覆盖会话/时间线/文件、偏好、记忆和审计业务编排，并在 Composition Root 装配。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（503 pass / 9 skip / 0 fail / 1689 expect）、`git diff --check` 全部通过。 |
 | 2026-08-22 | **V5 节点 4：认证管理 API 与请求校验**：新增受认证保护的会话/时间线/文件、偏好、记忆、环境刷新和审计 API；统一处理 opaque cursor、枚举、ID、JSON body 大小与方法校验，映射 400/401/403/404/405/409/413/501 语义，并保持既有 Web 状态、历史、文件、上传、设置、重启和消息接口行为。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（506 pass / 9 skip / 0 fail / 1702 expect）、`git diff --check` 全部通过。 |
+| 2026-08-22 | **V5 节点 5：管理 WebUI 页面与懒加载导航**：新增会话/文件详情与删除确认、偏好 scope/CLI 表单、全局记忆编辑删除与环境刷新、审批审计筛选、浏览器显示设置页面；API client 与管理组件独立于 feature，管理页面按 `React.lazy` 拆分 chunk，页面切换保持既有 WebSocket 连接。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、WebUI 定向测试 16 pass / 0 fail、全量 `bun test`（506 pass / 9 skip / 0 fail / 1702 expect）、`git diff --check` 全部通过。 |
 
 ## 6. 开放问题（Open Questions）
 
