@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-08-22 · 阶段：**V4 Web Control Plane 与已选高优先级加固完成**
+> 最后更新：2026-08-22 · 阶段：**V5 Web 可视化管理控制面已完成执行规划，待实施**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V4 Web Control Plane 与已选高优先级加固（✅ 完成）** |
-| 代码 | ✅ React Web Control Plane；Web 平台会话隔离；共享双语斜杠命令目录、前缀优先/模糊兜底提示面板、触摸安全关闭与输入聚焦快捷键；结构化审批审计与单消息表时间线；Bun SQL 原生 JSONB 写入与数据库形状约束；跨重启认证；HTTP 出站接口；live/readiness 探针；空 Token 默认拒绝；HTTP/上传/WebSocket 资源边界与同源校验；自更新 WebUI 暂存构建、原子提升和失败恢复；Tailwind Vite 构建链；既有 Telegram/QQ、Claude/OpenCode、媒体、记忆和运维能力保持通过。 |
-| 文档 | ✅ README、接口契约、Web Control Plane 任务书、设计/实施计划和延期维护项已同步 |
+| 当前里程碑 | **V5 Web 可视化管理控制面（🟡 执行计划完成，代码待实施）** |
+| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 尚未修改功能代码。 |
+| 文档 | 🟡 V5 具体执行计划已新增，实施时按任务同步接口契约、数据模型、架构、Web 任务书与交付文档。 |
 | 阻塞项 | 无 |
-| 下一步 | 按需处理延期维护项：PDF 解析安全、后端代码模块拆分、前端包拆分。 |
+| 下一步 | 按 `docs/superpowers/plans/2026-08-22-web-administration-control-plane.md` 从共享契约和 WebUI 基线拆分开始实施。 |
 
 ---
 
@@ -40,6 +40,7 @@
 | V2-R2 | 运维自更新 / 自检测 / 自动拉起 | ✅ 完成 | `/health` live self-check、受控 `/update` 两步自更新（Windows 直接拒绝）、`/restart` 重启链路测试入口（Windows 直接拒绝）、重启后主动通知已接入；部署自检与自动拉起留待 V3 按需补强 |
 | V2-R3 | Transport 和 CLI 扩展 | ✅ 完成 | `OpenCodeSdkAdapter` 已完成；官方 QQ Bot C2C Transport 已完成并通过真机联调，含 Gateway 连接(指数退避重连 + `HttpsProxyAgent` 代理注入)、C2C 私聊、Markdown 消息渲染(`msg_type=2`)、流式消息、审批按钮(`INTERACTION_CREATE`)、ACK 5s 回调、重复点击提示、审批详情精简摘要；QQ 媒体能力已完成（附件下载/OCR/懒加载/语音 ASR/emoji 归一化）；opencode `permissionToApproval` 与 `summarizeApprovalDetail` 已按官方 SDK 类型对齐修复重复行/无意义字段；`QQBOT_WS_PROXY` 新增配置；`main.ts` 起動耐故障化（单 Transport 失败不拖垮进程）；Telegram/QQ 并列装配，混合白名单，platform 过滤防串路由 |
 | V4 | Web Control Plane | ✅ 完成 | 后端服务、浏览器 WebSocket Transport、单管理员 React WebUI、历史/附件/设置/重启闭环和高优先级资源边界加固均已完成；任务书见 `docs/08-Web-Control-Plane-Task-Book.md`。 |
+| V5 | Web 可视化管理控制面 | 🟡 已规划 | 管理全部平台/用户会话及其历史和文件；会话硬删除级联消息、文件映射与审批审计；可视化管理用户/CLI 偏好、全局记忆和全局审批审计。实施前先把现有 WebUI 拆为 app/API/hooks/features/components/styles，`main.tsx` 收口为启动入口。 |
 
 图例：⬜ 未开始 · 🟡 进行中 · ✅ 完成 · ⚠️ 受阻
 
@@ -141,6 +142,7 @@
 | D86 | **自更新结果只展示可行动变化，内部步骤以结构化报告交接**：`/update confirm` 比较 pull 前后 HEAD，以 commit log 与 shortstat 汇总代码更新；配置迁移通过内部 `--report-json` 返回新增/删除 key 路径；数据库迁移按目标库 Drizzle journal 确定实际待执行迁移，并把 SQL 归纳为表、字段、类型、约束、索引或数据操作。依赖/格式/类型/lint/WebUI 构建与提升成功时静默，失败时才显示阶段和诊断。Web 通知同时保留浏览器权限与本地持久开关，用户可关闭本站通知而无需撤销浏览器权限。设计见 `docs/superpowers/specs/2026-08-10-update-report-notification-design.md`。 | 2026-08-10 |
 | D87 | **自更新以 pull 前后 HEAD 判断是否需要部署**：干净工作树只表示本地没有未提交变更，不能代表远端没有更新；`/update confirm` 必须先成功执行 `git pull --ff-only`，再比较前后 HEAD。HEAD 相等时立即返回当前短版本，跳过依赖、检查、WebUI 构建、配置/数据库迁移和重启；HEAD 变化时才进入完整部署流程。 | 2026-08-10 |
 | D88 | **Web 命令提示与 `/help` 共用静态双语目录**：目录位于 `shared/` 且不参与 Core 路由，Web 首字符 `/` 时先按命令前缀筛选、无前缀结果才按命令/双语描述/关键词模糊评分。方向键选择，Enter/点击只回填且选中第一段完整参数占位符，不立即发送；固定确认动作独立成项。`Ctrl+I` / `Cmd+I` 仅在无弹窗的聊天主界面聚焦输入框。 | 2026-08-11 |
+| D89 | **Web 可视化管理采用全实例管理员范围与模块化前端结构**：Web 管理员可查看全部平台和用户的会话、文件、偏好及审批审计；硬删除 conversation 级联删除 messages、conversation_files 和 audit_logs，`/close` 继续立即清理会话文件。全局 `env.*` 记忆只读，其余记忆可修改或删除。后端管理编排收口在注入式 `web-admin/` 深模块；WebUI 先拆分现有 `main.tsx`/`react.css` 为 app、API、hooks、features、components 和 scoped styles，再增加管理页面，`main.tsx` 最终只保留 React 启动。执行计划见 `docs/superpowers/plans/2026-08-22-web-administration-control-plane.md`。 | 2026-08-22 |
 
 ---
 
@@ -163,11 +165,17 @@
 - **JSON setting 迁移**：`scripts/setting-migrate.ts` + `scripts/setting.ts`，把 `.env.example` 结构化配置项迁移为 `settings.json`（13 分类嵌套 JSON），`loadConfig` 改为读 JSON 不再读 env。✅ 已完成（2026-07-11）。
 - **日常维护**：依赖升级、测试稳态、日志降噪、性能微调。后续需求按需排入。
 
+### V5 计划
+
+- **WebUI 基线拆分**：先迁出现有认证、WebSocket、聊天时间线、组合输入、附件、审批、设置和样式职责，建立 app/API/hooks/features/components/styles 结构并保持现有行为通过。
+- **全实例管理能力**：增加全部会话与文件浏览、会话聚合删除、用户/CLI 偏好、全局记忆及全局审批审计的共享契约、Repository 查询、`web-admin/` 编排模块、Server 路由和响应式页面。
+- **执行文档**：`docs/superpowers/plans/2026-08-22-web-administration-control-plane.md`。
+
 ### 延期维护项
 
 - **PDF 解析安全**：当前 `pdf-to-img@6.2.0 -> pdfjs-dist@5.6.205` 命中 GHSA-hq66-cqwq-w95j；个人部署暂时接受风险，后续再决定禁用、隔离或替换渲染路径。
-- **代码模块拆分**：先把 WebUI 大型源码按组件/状态/API/样式职责拆分，再在不改变 EventBus、抽象接口、依赖矩阵和 Composition Root 原则的前提下拆 Bun 后端大型文件；当前不影响功能，后续维护时处理。
-- **前端包拆分**：完成 WebUI 源码拆分后，将设置、Markdown 等按需加载并形成独立 bundle，延期处理。
+- **后端通用大型文件拆分**：V5 会拆分 Web 管理涉及的 Server 与 Composition Root 逻辑；`commands.ts`、大型 Transport 和 Orchestrator 的其余通用拆分继续按需处理。
+- **其余前端包优化**：V5 管理页面和服务设置采用按需加载；完成后根据构建报告决定是否继续拆分 Markdown 等公共依赖。
 
 ---
 
@@ -340,6 +348,7 @@
 | 2026-08-11 | **Web 命令面板与首帧体验修正**：命令提示面板改为不透出消息内容的实色 Glass 表面，桌面/移动 item 高度收敛至 38/42px；命令与描述禁用文本选择、iOS 长按 callout，并由 pointer/blur 双路径在点击页面外部时关闭，外部点击显式释放输入焦点，重新聚焦仍可恢复面板。头部加入统一动作间距，移动端连接状态点与通知按钮不再贴合。入口 HTML 新增最小登录关键布局，完整 CSS 到达前即稳定居中，消除左上角到中间的首帧跳动。真实浏览器完成桌面与 390×844 移动回归；format、format check、typecheck、lint、依赖矩阵、Vite 生产构建和 diff check 通过，全量测试 489 pass / 7 skip / 0 fail，仅保留已延期的前端包拆分 chunk 提示。 |
 | 2026-08-11 | **Web 登录首帧与标题布局缺陷修复**：确认登录面板误用绝对定位弹窗的 `dialog-in` 动画，`translate(-50%, -50%)` 会让 Grid 子项先移出中心再回位；改为不改变定位的 `login-in` 入场动画，并把面板 padding/边框、标题行距同步加入入口关键样式。标题拆成独立视觉行，使用可读行距、冷蓝强调色和短强调线，消除中文字体层叠并保持英文布局。新增静态回归断言；浏览器完成 1280×720 桌面与 390×844 移动首帧/稳定态回归，桌面早期与稳定态面板 x 坐标仅 1px 变化、移动端无溢出。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、WebUI 定向测试 13 pass。 |
 | 2026-08-22 | **Web 当前目标路由修复**：WebSocket Transport 每条普通消息通过 Composition Root 查询持久化的用户目标，使 `/switch <cli> [path]` 后续消息携带正确 CLI/CWD；新增 Web 入站目标回归测试。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`git diff --check`、全量 `bun test`（491 pass / 7 skip / 0 fail）。 |
+| 2026-08-22 | **V5 Web 可视化管理执行计划完成**：确定 Web 管理员查看全部平台/用户会话，conversation 硬删除级联 messages、conversation_files 与 audit_logs，`/close` 继续立即清理文件；全局 `env.*` 记忆只读。新增 14 个任务的实施计划，先把现有 WebUI 拆为 app/API/hooks/features/components/styles 并将 `main.tsx` 收口为启动入口，再实现会话、偏好、记忆、审计管理及后端 `web-admin/` 深模块。当前仅文档和进度对齐，功能代码尚未开始。 |
 
 ## 6. 开放问题（Open Questions）
 
