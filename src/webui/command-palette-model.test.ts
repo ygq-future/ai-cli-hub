@@ -12,6 +12,11 @@ describe('command palette search', () => {
     expect(searchCommandCatalog('/restart c', 'en')[0]?.id).toBe('restart-confirm')
   })
 
+  test('matches command names by ordered characters', () => {
+    expect(searchCommandCatalog('/uc', 'en').map(item => item.id)).toEqual(['update-confirm'])
+    expect(searchCommandCatalog('/ud', 'en').map(item => item.id)).toEqual(['update', 'update-confirm'])
+  })
+
   test('falls back to bilingual keyword and subsequence matching', () => {
     expect(searchCommandCatalog('/更换模型', 'zh')[0]?.id).toBe('model')
     expect(searchCommandCatalog('/approval history', 'zh')[0]?.id).toBe('audit')

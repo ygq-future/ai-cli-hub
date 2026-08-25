@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-08-25 · 阶段：**V5 Web 聊天滚动交互修复已完成**
+> 最后更新：2026-08-25 · 阶段：**V5 Web 命令提示匹配优化已完成**
 
 ---
 
@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V5 Web 可视化管理控制面（✅ 完成）** |
-| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 已完成共享契约、WebUI 模块基线、级联迁移、Repository 管理分页/聚合删除、运行时删除联动、`web-admin/` 深模块、认证 Server 管理 API、懒加载管理页面、Rolldown vendor chunk 拆分、移动端管理导航与筛选控件优化、独立稳定的 `transport.webUserId` 身份配置和数据迁移、Web/QQ 流式消息归并与发送串行化、Web 聊天首屏滚动和最新消息导航、管理页提示条和偏好身份列表优化、聊天 Tab 滚动状态修复，以及发送消息后的最新消息定位。 |
+| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 已完成共享契约、WebUI 模块基线、级联迁移、Repository 管理分页/聚合删除、运行时删除联动、`web-admin/` 深模块、认证 Server 管理 API、懒加载管理页面、Rolldown vendor chunk 拆分、移动端管理导航与筛选控件优化、独立稳定的 `transport.webUserId` 身份配置和数据迁移、Web/QQ 流式消息归并与发送串行化、Web 聊天首屏滚动和最新消息导航、管理页提示条和偏好身份列表优化、聊天 Tab 滚动状态修复、发送消息后的最新消息定位，以及命令提示面板跳字顺序匹配。 |
 | 文档 | ✅ 架构、接口契约、数据模型、记忆设计、命令 UX、实施计划、Web 任务书、README、Agent 规则和本进度已同步。 |
 | 阻塞项 | 无 |
 | 下一步 | 按需进入下一项需求；V5 保持可部署交付状态，WebUI 构建入口已无 500 kB chunk 警告。 |
@@ -149,6 +149,7 @@
 | D93 | **Web 管理页采用紧凑提示条与清晰身份层级**：会话、偏好、记忆、审计页顶部以描述提示条承载页面说明；偏好范围列表第一行展示平台与用户 ID，第二行展示默认 CLI 与更新时间；偏好范围 API 返回默认 CLI，供列表直接呈现。 | 2026-08-25 |
 | D94 | **Web 聊天挂载与滚动位置分离管理**：刷新或首次进入聊天且没有已保存位置时，首屏历史完成后定位到底部；切换管理 Tab 会保存聊天列表的 `scrollTop`，返回时恢复该值，明确区分 `null`（首次定位底部）与 `0`（用户确实位于顶部）；历史分页仍通过高度差保留阅读位置。 | 2026-08-25 |
 | D95 | **Web 发送消息使用一次性最新消息定位意图**：发送消息后无论用户此前是否位于历史位置，时间线更新完成都滚动到最新消息；该意图只消费一次，后续普通流式更新继续遵循用户当前滚动状态。 | 2026-08-25 |
+| D96 | **Web 命令提示支持命令名跳字顺序匹配**：命令名查询在无严格前缀结果时，允许从命令名首字符开始按顺序跳过字符匹配，例如 `/uc` 命中 `/update confirm`、`/ud` 优先命中 `/update`；命令名匹配结果优先于描述/关键词模糊结果，单字符仍保持前缀行为以避免结果过宽。 | 2026-08-25 |
 
 ---
 
@@ -373,6 +374,7 @@
 | 2026-08-25 | **Web 管理页信息层级优化完成**：会话、偏好、记忆、审计页移除顶部装饰标题与头部操作按钮，统一使用紧凑灰色圆角提示条；偏好范围列表将平台与用户 ID 提升为同一行的主要身份信息，第二行展示默认 CLI 与更新时间，管理 API 同步返回 `defaultCli`。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（519 pass / 9 skip / 0 fail / 1744 expect）和 `git diff --check` 全部通过。 |
 | 2026-08-25 | **Web 聊天滚动状态修复完成**：修复首屏历史完成后滚动位置落在中段的问题；聊天 Tab 切换时保存并恢复列表位置，首次进入和刷新在无保存位置时定位最新消息；补充首屏底部与 Tab 返回位置回归测试。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（520 pass / 9 skip / 0 fail / 1747 expect）和 `git diff --check` 全部通过。 |
 | 2026-08-25 | **Web 发送消息滚动修复完成**：发送消息时设置一次性最新消息定位意图，在消息追加后的布局阶段滚动到底部；用户上滑阅读时的普通流式更新仍保持原位置策略。新增发送场景回归测试。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（521 pass / 9 skip / 0 fail / 1748 expect）和 `git diff --check` 全部通过。 |
+| 2026-08-25 | **Web 命令提示跳字匹配优化完成**：命令提示面板在无严格前缀结果时支持从命令名首字符开始的顺序跳字匹配，`/uc` 可命中 `/update confirm`，`/ud` 按命令长度优先列出 `/update` 与 `/update confirm`；命令名结果优先于描述/关键词模糊结果，新增中短查询回归测试。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（522 pass / 9 skip / 0 fail / 1750 expect）和 `git diff --check` 全部通过。 |
 
 ## 6. 开放问题（Open Questions）
 

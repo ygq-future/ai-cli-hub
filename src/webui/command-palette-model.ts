@@ -36,11 +36,21 @@ function scoreField(value: string, query: string): number {
 
   const tokens = query.split(/\s+/).filter(Boolean)
   if (tokens.length > 1 && tokens.every(token => normalized.includes(token))) return 650
-  if (query.length >= 3 && isOrderedSubsequence(query, normalized)) {
+  const compactQuery = query.replace(/\s+/g, '')
+  if (compactQuery.length >= 2 && isOrderedSubsequence(compactQuery, normalized)) {
     const compactLength = normalized.replace(/\s+/g, '').length
-    return 350 - Math.min(Math.max(compactLength - query.replace(/\s+/g, '').length, 0), 200)
+    return 350 - Math.min(Math.max(compactLength - compactQuery.length, 0), 200)
   }
   return 0
+}
+
+function scoreCommandField(value: string, query: string): number {
+  const normalized = normalize(value)
+  const compactQuery = query.replace(/\s+/g, '')
+  const compactValue = normalized.replace(/\s+/g, '')
+  if (compactQuery.length < 2 || compactValue[0] !== compactQuery[0]) return 0
+  if (!isOrderedSubsequence(compactQuery, compactValue)) return 0
+  return 350 - Math.min(Math.max(compactValue.length - compactQuery.length, 0), 200)
 }
 
 function fuzzyScore(entry: CommandCatalogEntry, query: string, language: UserLanguage): number {
@@ -48,7 +58,7 @@ function fuzzyScore(entry: CommandCatalogEntry, query: string, language: UserLan
   const alternateLanguage = language === 'zh' ? 'en' : 'zh'
   const alternate = [entry.description[alternateLanguage], ...entry.keywords[alternateLanguage]]
   const commandFields = [entry.command, entry.insertText].map(withoutLeadingSlash)
-  const commandScore = Math.max(...commandFields.map(field => scoreField(field, query)))
+  const commandScore = Math.max(...commandFields.map(field => scoreCommandField(field, query)))
   const localizedScore = Math.max(...localized.map(field => scoreField(field, query)))
   const alternateScore = Math.max(...alternate.map(field => scoreField(field, query)))
   return Math.max(
@@ -66,6 +76,18 @@ export function searchCommandCatalog(input: string, language: UserLanguage): rea
     [entry.command, entry.insertText].some(value => withoutLeadingSlash(value).startsWith(query)),
   ).sort((left, right) => left.command.length - right.command.length)
   if (prefixMatches.length) return prefixMatches
+
+  const commandMatches = COMMAND_CATALOG.map((entry, index) => ({
+    entry,
+    index,
+    score: Math.max(
+      ...[entry.command, entry.insertText].map(value => scoreCommandField(withoutLeadingSlash(value), query)),
+    ),
+  }))
+    .filter(result => result.score > 0)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(result => result.entry)
+  if (commandMatches.length) return commandMatches
 
   return COMMAND_CATALOG.map((entry, index) => ({ entry, index, score: fuzzyScore(entry, query, language) }))
     .filter(result => result.score > 0)
