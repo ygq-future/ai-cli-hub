@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-08-25 · 阶段：**V5 Web 管理页信息层级优化已完成**
+> 最后更新：2026-08-25 · 阶段：**V5 Web 聊天滚动状态修复已完成**
 
 ---
 
@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V5 Web 可视化管理控制面（✅ 完成）** |
-| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 已完成共享契约、WebUI 模块基线、级联迁移、Repository 管理分页/聚合删除、运行时删除联动、`web-admin/` 深模块、认证 Server 管理 API、懒加载管理页面、Rolldown vendor chunk 拆分、移动端管理导航与筛选控件优化、独立稳定的 `transport.webUserId` 身份配置和数据迁移、Web/QQ 流式消息归并与发送串行化、Web 聊天首屏滚动和最新消息导航，以及管理页提示条和偏好身份列表优化。 |
+| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 已完成共享契约、WebUI 模块基线、级联迁移、Repository 管理分页/聚合删除、运行时删除联动、`web-admin/` 深模块、认证 Server 管理 API、懒加载管理页面、Rolldown vendor chunk 拆分、移动端管理导航与筛选控件优化、独立稳定的 `transport.webUserId` 身份配置和数据迁移、Web/QQ 流式消息归并与发送串行化、Web 聊天首屏滚动和最新消息导航、管理页提示条和偏好身份列表优化，以及聊天 Tab 滚动状态修复。 |
 | 文档 | ✅ 架构、接口契约、数据模型、记忆设计、命令 UX、实施计划、Web 任务书、README、Agent 规则和本进度已同步。 |
 | 阻塞项 | 无 |
 | 下一步 | 按需进入下一项需求；V5 保持可部署交付状态，WebUI 构建入口已无 500 kB chunk 警告。 |
@@ -147,6 +147,7 @@
 | D91 | **Web/QQ 流式输出按逻辑消息持续更新**：Web 时间线按当前未定稿的助手项归并，审批卡插入不会创建第二个流式助手项；QQ `stream_messages` 按 conversation 串行发送，确保首帧响应返回前到达的后续片段继续使用同一流消息。数据库中的 Web 审批引用行继续保留为空内容并通过 `messageType=approval` 区分，不作为聊天文本。 | 2026-08-25 |
 | D92 | **Web 聊天滚动以最新消息状态为中心**：首屏历史完成后自动定位底部；用户上滑后保留阅读位置，底部出现隐藏消息时在列表顶部居中显示“最新消息”按钮；加载更早历史通过高度差恢复原滚动位置。 | 2026-08-25 |
 | D93 | **Web 管理页采用紧凑提示条与清晰身份层级**：会话、偏好、记忆、审计页顶部以描述提示条承载页面说明；偏好范围列表第一行展示平台与用户 ID，第二行展示默认 CLI 与更新时间；偏好范围 API 返回默认 CLI，供列表直接呈现。 | 2026-08-25 |
+| D94 | **Web 聊天挂载与滚动位置分离管理**：刷新或首次进入聊天且没有已保存位置时，首屏历史完成后定位到底部；切换管理 Tab 会保存聊天列表的 `scrollTop`，返回时恢复该值，明确区分 `null`（首次定位底部）与 `0`（用户确实位于顶部）；历史分页仍通过高度差保留阅读位置。 | 2026-08-25 |
 
 ---
 
@@ -369,6 +370,7 @@
 | 2026-08-25 | **Web/QQ 流式交互加固完成**：Web 时间线在审批卡插入后仍就地更新同一条未定稿助手消息；QQ 出站 `stream_messages` 增加按 conversation 串行队列，避免网络延迟下重复创建流式首帧；新增 Web 审批交错流式回归测试和 QQ 延迟竞态回归测试。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（516 pass / 9 skip / 0 fail / 1739 expect）和 `git diff --check` 全部通过。 |
 | 2026-08-25 | **Web 聊天滚动体验加固完成**：首屏历史加载使用底部定位策略；用户离开底部后新消息保留隐藏状态，并通过聊天列表顶部居中的“最新消息”按钮返回底部；加载更早消息时继续保持阅读位置。新增滚动策略单元测试；最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（519 pass / 9 skip / 0 fail / 1744 expect）和 `git diff --check` 全部通过。 |
 | 2026-08-25 | **Web 管理页信息层级优化完成**：会话、偏好、记忆、审计页移除顶部装饰标题与头部操作按钮，统一使用紧凑灰色圆角提示条；偏好范围列表将平台与用户 ID 提升为同一行的主要身份信息，第二行展示默认 CLI 与更新时间，管理 API 同步返回 `defaultCli`。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（519 pass / 9 skip / 0 fail / 1744 expect）和 `git diff --check` 全部通过。 |
+| 2026-08-25 | **Web 聊天滚动状态修复完成**：修复首屏历史完成后滚动位置落在中段的问题；聊天 Tab 切换时保存并恢复列表位置，首次进入和刷新在无保存位置时定位最新消息；补充首屏底部与 Tab 返回位置回归测试。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（520 pass / 9 skip / 0 fail / 1747 expect）和 `git diff --check` 全部通过。 |
 
 ## 6. 开放问题（Open Questions）
 

@@ -11,6 +11,18 @@ export interface FeedScrollState {
   showJumpButton: boolean
 }
 
+export function getFeedMountScrollTop(input: {
+  historyHydrated: boolean
+  savedScrollTop: number | null
+  clientHeight: number
+  scrollHeight: number
+}): number | null {
+  if (!input.historyHydrated) return null
+  const maximumScrollTop = Math.max(0, input.scrollHeight - input.clientHeight)
+  if (input.savedScrollTop === null) return maximumScrollTop
+  return Math.min(Math.max(0, input.savedScrollTop), maximumScrollTop)
+}
+
 export function getFeedScrollState(metrics: FeedScrollMetrics, threshold = FEED_BOTTOM_THRESHOLD): FeedScrollState {
   const distanceFromLatest = metrics.scrollHeight - metrics.clientHeight - metrics.scrollTop
   const pinnedToLatest = distanceFromLatest <= threshold

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { getFeedScrollState, shouldScrollToLatest } from './feed-scroll'
+import { getFeedMountScrollTop, getFeedScrollState, shouldScrollToLatest } from './feed-scroll'
 
 describe('Web 聊天滚动策略', () => {
   test('首屏历史加载完成时强制定位最新消息', () => {
@@ -38,5 +38,32 @@ describe('Web 聊天滚动策略', () => {
         prepending: true,
       }),
     ).toBe(false)
+  })
+
+  test('首次挂载定位底部，Tab 返回恢复已保存的位置', () => {
+    expect(
+      getFeedMountScrollTop({
+        historyHydrated: true,
+        savedScrollTop: null,
+        clientHeight: 400,
+        scrollHeight: 1400,
+      }),
+    ).toBe(1000)
+    expect(
+      getFeedMountScrollTop({
+        historyHydrated: true,
+        savedScrollTop: 0,
+        clientHeight: 400,
+        scrollHeight: 1400,
+      }),
+    ).toBe(0)
+    expect(
+      getFeedMountScrollTop({
+        historyHydrated: true,
+        savedScrollTop: 260,
+        clientHeight: 400,
+        scrollHeight: 1400,
+      }),
+    ).toBe(260)
   })
 })

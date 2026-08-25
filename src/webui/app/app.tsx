@@ -47,7 +47,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '../components/ui/input'
 import { Select } from '../components/ui/select'
 import { useLocalPreferences, type WebPreferences } from '../hooks/use-local-preferences'
-import { getFeedScrollState, shouldScrollToLatest } from './feed-scroll'
+import { getFeedMountScrollTop, getFeedScrollState, shouldScrollToLatest } from './feed-scroll'
 
 const ConversationsPage = lazy(() =>
   import('../features/conversations/conversations-page').then(module => ({ default: module.ConversationsPage })),
@@ -241,6 +241,7 @@ export function App() {
   const objectUrls = useRef(new Set<string>())
   const prependScrollHeight = useRef<number | null>(null)
   const pinnedToLatest = useRef(true)
+  const savedFeedScrollTop = useRef<number | null>(null)
   const historyLoadingRef = useRef(false)
   const initialHistoryReady = useRef(false)
   const bufferedTimelineEvents = useRef<ServerEvent[]>([])
@@ -298,6 +299,7 @@ export function App() {
   const updateFeedScrollState = () => {
     const element = feed.current
     if (!element) return
+    if (historyHydrated) savedFeedScrollTop.current = element.scrollTop
     const next = getFeedScrollState(element)
     pinnedToLatest.current = next.pinnedToLatest
     setShowScrollToLatest(next.showJumpButton)
@@ -427,6 +429,7 @@ export function App() {
     initialHistoryReady.current = false
     setHistoryHydrated(false)
     pinnedToLatest.current = true
+    savedFeedScrollTop.current = null
     setShowScrollToLatest(false)
     bufferedTimelineEvents.current = []
     const scheduleReconnect = () => {
@@ -486,8 +489,25 @@ export function App() {
     }
   }, [ready])
   useLayoutEffect(() => {
+    if (page !== 'chat') return
     const element = feed.current
     if (!element) return
+    const frame = requestAnimationFrame(() => {
+      const top = getFeedMountScrollTop({
+        historyHydrated,
+        savedScrollTop: savedFeedScrollTop.current,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+      })
+      if (top === null) return
+      element.scrollTo({ top, behavior: 'auto' })
+      updateFeedScrollState()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [historyHydrated, page])
+  useLayoutEffect(() => {
+    const element = feed.current
+    if (page !== 'chat' || !element) return
     if (prependScrollHeight.current !== null) {
       const previousHeight = prependScrollHeight.current
       prependScrollHeight.current = null
@@ -505,7 +525,7 @@ export function App() {
       updateFeedScrollState()
     })
     return () => cancelAnimationFrame(frame)
-  }, [historyHydrated, timeline])
+  }, [historyHydrated, page, timeline])
   useEffect(
     () => () => {
       for (const url of objectUrls.current) URL.revokeObjectURL(url)
