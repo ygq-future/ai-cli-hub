@@ -611,8 +611,42 @@ small {
 }
 .chat {
   display: flex;
+  position: relative;
   min-height: 0;
   flex-direction: column;
+}
+.scroll-latest-button {
+  position: absolute;
+  z-index: 4;
+  top: 13px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--line));
+  border-radius: 999px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--panel-raised) 90%, var(--accent));
+  box-shadow:
+    0 10px 24px rgb(0 0 0 / 0.18),
+    0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+  cursor: pointer;
+  transform: translate(-50%, -2px);
+  transition:
+    transform 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease;
+}
+.scroll-latest-button:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, var(--panel-raised));
+  transform: translate(-50%, -4px);
+}
+.scroll-latest-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 .feed {
   flex: 1;

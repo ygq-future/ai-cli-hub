@@ -16,6 +16,7 @@ import {
   BellOff,
   BellRing,
   Check,
+  ArrowDown,
   ChevronRight,
   Download,
   File,
@@ -46,6 +47,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '../components/ui/input'
 import { Select } from '../components/ui/select'
 import { useLocalPreferences, type WebPreferences } from '../hooks/use-local-preferences'
+import { getFeedScrollState, shouldScrollToLatest } from './feed-scroll'
 
 const ConversationsPage = lazy(() =>
   import('../features/conversations/conversations-page').then(module => ({ default: module.ConversationsPage })),
@@ -215,6 +217,8 @@ export function App() {
   const [timeline, setTimeline] = useState<TimelineItem[]>([])
   const [historyCursor, setHistoryCursor] = useState<string | null>(null)
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyHydrated, setHistoryHydrated] = useState(false)
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false)
   const [status, setStatus] = useState<Status | null>(null)
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting')
   const [settings, setSettings] = useState(false)
@@ -236,6 +240,7 @@ export function App() {
   const feed = useRef<HTMLDivElement>(null)
   const objectUrls = useRef(new Set<string>())
   const prependScrollHeight = useRef<number | null>(null)
+  const pinnedToLatest = useRef(true)
   const historyLoadingRef = useRef(false)
   const initialHistoryReady = useRef(false)
   const bufferedTimelineEvents = useRef<ServerEvent[]>([])
@@ -265,6 +270,7 @@ export function App() {
     if (historyLoadingRef.current) return
     historyLoadingRef.current = true
     setHistoryLoading(true)
+    if (!before) setHistoryHydrated(false)
     if (before && feed.current) prependScrollHeight.current = feed.current.scrollHeight
     try {
       const query = new URLSearchParams({ limit: '10' })
@@ -283,10 +289,25 @@ export function App() {
       setHistoryLoading(false)
       if (!before) {
         initialHistoryReady.current = true
+        setHistoryHydrated(true)
         const pending = bufferedTimelineEvents.current.splice(0)
         for (const payload of pending) applyServerEventRef.current(payload)
       }
     }
+  }
+  const updateFeedScrollState = () => {
+    const element = feed.current
+    if (!element) return
+    const next = getFeedScrollState(element)
+    pinnedToLatest.current = next.pinnedToLatest
+    setShowScrollToLatest(next.showJumpButton)
+  }
+  const jumpToLatest = () => {
+    const element = feed.current
+    if (!element) return
+    pinnedToLatest.current = true
+    element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' })
+    requestAnimationFrame(updateFeedScrollState)
   }
   const addFiles = (incoming: readonly File[]) => {
     const additions = incoming.map(file => {
@@ -404,6 +425,9 @@ export function App() {
     if (!ready) return
     let disposed = false
     initialHistoryReady.current = false
+    setHistoryHydrated(false)
+    pinnedToLatest.current = true
+    setShowScrollToLatest(false)
     bufferedTimelineEvents.current = []
     const scheduleReconnect = () => {
       attempts.current += 1
@@ -468,11 +492,20 @@ export function App() {
       const previousHeight = prependScrollHeight.current
       prependScrollHeight.current = null
       element.scrollTop += element.scrollHeight - previousHeight
+      updateFeedScrollState()
       return
     }
-    const frame = requestAnimationFrame(() => element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' }))
+    const shouldScroll = shouldScrollToLatest({
+      historyHydrated,
+      pinnedToLatest: pinnedToLatest.current,
+      prepending: false,
+    })
+    const frame = requestAnimationFrame(() => {
+      if (shouldScroll) element.scrollTo({ top: element.scrollHeight, behavior: historyHydrated ? 'smooth' : 'auto' })
+      updateFeedScrollState()
+    })
     return () => cancelAnimationFrame(frame)
-  }, [timeline])
+  }, [historyHydrated, timeline])
   useEffect(
     () => () => {
       for (const url of objectUrls.current) URL.revokeObjectURL(url)
@@ -754,11 +787,23 @@ export function App() {
       {page === 'chat' ? (
         <div className="grid">
           <section className="chat">
+            {showScrollToLatest && (
+              <button
+                className="scroll-latest-button"
+                type="button"
+                aria-label={t('滚动到最新消息', 'Jump to latest message')}
+                title={t('滚动到最新消息', 'Jump to latest message')}
+                onClick={jumpToLatest}>
+                <ArrowDown size={16} aria-hidden="true" />
+                <span>{t('最新消息', 'Latest')}</span>
+              </button>
+            )}
             <div
               ref={feed}
               className="feed"
               aria-live="polite"
               onScroll={event => {
+                updateFeedScrollState()
                 if (event.currentTarget.scrollTop <= 80 && historyCursor && !historyLoading)
                   void historyLoad(historyCursor)
               }}>
