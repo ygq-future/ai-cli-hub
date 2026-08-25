@@ -44,17 +44,11 @@ export function AuditsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
 
   return (
     <section className="admin-page">
-      <div className="admin-heading">
-        <div>
-          <p className="admin-kicker">{zh ? '审批审计' : 'APPROVAL AUDIT'}</p>
-          <h1>{zh ? '全局审批记录' : 'Global approval audit'}</h1>
-          <p>
-            {zh
-              ? '按平台、用户、CLI 和状态查看所有审批决定。'
-              : 'Review every approval decision by platform, user, CLI, and status.'}
-          </p>
-        </div>
-      </div>
+      <p className="admin-tip">
+        {zh
+          ? '按平台、用户、CLI 和状态查看所有审批决定。'
+          : 'Review every approval decision by platform, user, CLI, and status.'}
+      </p>
       <div className="admin-filter-bar">
         <ClearableInput
           placeholder={zh ? '用户 ID' : 'User ID'}

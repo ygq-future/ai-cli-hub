@@ -29,14 +29,12 @@
   padding: 26px clamp(18px, 4vw, 56px) 40px;
   overflow: auto;
 }
-.admin-heading,
 .admin-detail-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
 }
-.admin-heading h1,
 .admin-detail-header h2 {
   margin: 3px 0 6px;
   font-size: clamp(1.55rem, 3vw, 2.25rem);
@@ -46,11 +44,15 @@
   font-size: 1.2rem;
   overflow-wrap: anywhere;
 }
-.admin-heading p:not(.admin-kicker) {
-  max-width: 720px;
+.admin-tip {
   margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--panel-raised) 82%, transparent);
   color: var(--dim);
-  line-height: 1.55;
+  font-size: 0.76rem;
+  line-height: 1.45;
 }
 .admin-kicker {
   margin: 0;
@@ -153,13 +155,11 @@
 .admin-table strong,
 .admin-table small,
 .admin-file-list small,
-.admin-table td small,
-.admin-scope-list span {
+.admin-table td small {
   display: block;
 }
 .admin-table small,
-.admin-file-list small,
-.admin-scope-list span {
+.admin-file-list small {
   margin-top: 4px;
   color: var(--dim);
   font-size: 0.72rem;
@@ -278,6 +278,33 @@
   background: transparent;
   color: var(--ink);
   text-align: left;
+}
+.admin-scope-primary {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  color: var(--ink);
+}
+.admin-scope-primary strong {
+  display: inline;
+  font-size: 0.82rem;
+}
+.admin-scope-platform {
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.admin-scope-user {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+.admin-scope-list .admin-scope-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--dim);
+  font-size: 0.72rem;
 }
 .admin-form-panel {
   padding: 20px;
@@ -429,7 +456,6 @@
   .admin-page {
     padding: 20px 13px 30px;
   }
-  .admin-heading,
   .admin-detail-header {
     flex-direction: column;
   }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { MemoryType, MemoryView } from '../../../shared'
-import { deleteMemory, getMemories, refreshEnvironmentMemories, updateMemory } from '../../api/memory-api'
+import { deleteMemory, getMemories, updateMemory } from '../../api/memory-api'
 import { Button } from '../../components/ui/button'
 import { ClearableInput } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
@@ -76,27 +76,11 @@ export function MemoriesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
 
   return (
     <section className="admin-page">
-      <div className="admin-heading">
-        <div>
-          <p className="admin-kicker">{zh ? '全局命名空间' : 'GLOBAL NAMESPACE'}</p>
-          <h1>{zh ? '长期记忆' : 'Long-term memories'}</h1>
-          <p>
-            {zh
-              ? '环境快照可查看但不可修改，其余全局记忆可编辑和删除。'
-              : 'Environment snapshots are view-only; other global memories can be edited and deleted.'}
-          </p>
-        </div>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            pager.reset()
-            void refreshEnvironmentMemories()
-              .then(() => load())
-              .catch(reason => setError(String(reason)))
-          }}>
-          {zh ? '刷新环境' : 'Refresh environment'}
-        </Button>
-      </div>
+      <p className="admin-tip">
+        {zh
+          ? '环境快照可查看但不可修改，其余全局记忆可编辑和删除。'
+          : 'Environment snapshots are view-only; other global memories can be edited and deleted.'}
+      </p>
       <div className="admin-filter-bar">
         <ClearableInput
           placeholder={zh ? '搜索记忆内容' : 'Search memory content'}

@@ -91,27 +91,13 @@ export function ConversationsPage({ locale }: { locale: 'zh-CN' | 'en' }) {
     setFilters(current => ({ ...current, limit: 10, [key]: value || undefined }))
   }
 
-  const refresh = () => {
-    pager.reset()
-    void load()
-  }
-
   return (
     <section className="admin-page">
-      <div className="admin-heading">
-        <div>
-          <p className="admin-kicker">{zh ? '全实例管理' : 'INSTANCE ADMINISTRATION'}</p>
-          <h1>{zh ? '会话与文件' : 'Conversations & files'}</h1>
-          <p>
-            {zh
-              ? '浏览所有平台、用户和 CLI 的会话历史，并安全清理会话聚合。'
-              : 'Browse every platform, user, and CLI session with safe aggregate deletion.'}
-          </p>
-        </div>
-        <Button variant="secondary" onClick={refresh}>
-          {zh ? '刷新' : 'Refresh'}
-        </Button>
-      </div>
+      <p className="admin-tip">
+        {zh
+          ? '浏览所有平台、用户和 CLI 的会话历史，并安全清理会话聚合。'
+          : 'Browse every platform, user, and CLI session with safe aggregate deletion.'}
+      </p>
       <div className="admin-filter-bar">
         <ClearableInput
           placeholder={zh ? '用户 ID' : 'User ID'}

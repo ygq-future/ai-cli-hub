@@ -43,11 +43,6 @@ export function PreferencesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
       .catch(reason => setError(reason instanceof Error ? reason.message : String(reason)))
   }, [selected])
 
-  const refresh = () => {
-    pager.reset()
-    void loadScopes()
-  }
-
   const saveGeneral = async () => {
     if (!selected || !snapshot) return
     setSaving(true)
@@ -83,20 +78,11 @@ export function PreferencesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
 
   return (
     <section className="admin-page">
-      <div className="admin-heading">
-        <div>
-          <p className="admin-kicker">{zh ? '偏好范围' : 'PREFERENCE SCOPES'}</p>
-          <h1>{zh ? '用户与 CLI 偏好' : 'User & CLI preferences'}</h1>
-          <p>
-            {zh
-              ? '管理所有平台用户的语言、审批和工作目录偏好。'
-              : 'Manage language, approval, and working-directory preferences for every platform user.'}
-          </p>
-        </div>
-        <Button variant="secondary" onClick={refresh}>
-          {zh ? '刷新' : 'Refresh'}
-        </Button>
-      </div>
+      <p className="admin-tip">
+        {zh
+          ? '管理所有平台用户的语言、审批和工作目录偏好。'
+          : 'Manage language, approval, and working-directory preferences for every platform user.'}
+      </p>
       {error && <p className="admin-error">{error}</p>}
       <div className="admin-split preferences-layout">
         <div className="admin-panel">
@@ -111,9 +97,16 @@ export function PreferencesPage({ locale }: { locale: 'zh-CN' | 'en' }) {
                   key={`${item.platform}:${item.userId}`}
                   className={selected?.platform === item.platform && selected.userId === item.userId ? 'selected' : ''}>
                   <button type="button" onClick={() => setSelected(item)}>
-                    <strong>{item.userId}</strong>
-                    <span>
-                      {item.platform} · {new Date(item.updatedAt).toLocaleString()}
+                    <span className="admin-scope-primary">
+                      <strong className="admin-scope-platform">{item.platform}</strong>
+                      <strong className="admin-scope-user">{item.userId}</strong>
+                    </span>
+                    <span className="admin-scope-meta">
+                      <span>{item.defaultCli}</span>
+                      <span>·</span>
+                      <time dateTime={new Date(item.updatedAt).toISOString()}>
+                        {new Date(item.updatedAt).toLocaleString()}
+                      </time>
                     </span>
                   </button>
                 </li>

@@ -114,6 +114,7 @@ export interface PreferenceScope {
 }
 
 export interface PreferenceScopeView extends PreferenceScope {
+  defaultCli: CliType
   updatedAt: number
 }
 

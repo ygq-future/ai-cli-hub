@@ -217,6 +217,7 @@ export function createWebAdmin(deps: WebAdminDeps): WebAdmin {
         items: page.items.map(item => ({
           platform: item.platform,
           userId: item.userId,
+          defaultCli: item.defaultCli,
           updatedAt: item.updatedAt,
         })),
         nextCursor: encodeCursor(page.nextCursor),
