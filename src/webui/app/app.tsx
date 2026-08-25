@@ -242,6 +242,7 @@ export function App() {
   const prependScrollHeight = useRef<number | null>(null)
   const pinnedToLatest = useRef(true)
   const savedFeedScrollTop = useRef<number | null>(null)
+  const forceScrollToLatest = useRef(false)
   const historyLoadingRef = useRef(false)
   const initialHistoryReady = useRef(false)
   const bufferedTimelineEvents = useRef<ServerEvent[]>([])
@@ -515,13 +516,16 @@ export function App() {
       updateFeedScrollState()
       return
     }
+    const force = forceScrollToLatest.current
     const shouldScroll = shouldScrollToLatest({
       historyHydrated,
       pinnedToLatest: pinnedToLatest.current,
       prepending: false,
+      force,
     })
     const frame = requestAnimationFrame(() => {
       if (shouldScroll) element.scrollTo({ top: element.scrollHeight, behavior: historyHydrated ? 'smooth' : 'auto' })
+      if (force) forceScrollToLatest.current = false
       updateFeedScrollState()
     })
     return () => cancelAnimationFrame(frame)
@@ -615,6 +619,9 @@ export function App() {
       uploadIds.push(((await response.json()) as { upload: { id: string } }).upload.id)
     }
     socket.current.send(JSON.stringify({ v: 1, type: 'message', text, uploadIds, clientMessageId }))
+    forceScrollToLatest.current = true
+    pinnedToLatest.current = true
+    setShowScrollToLatest(false)
     setTimeline(current => [
       ...current,
       {

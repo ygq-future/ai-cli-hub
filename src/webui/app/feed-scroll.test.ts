@@ -26,6 +26,17 @@ describe('Web 聊天滚动策略', () => {
     })
   })
 
+  test('发送消息时即使用户在历史位置也强制定位最新消息', () => {
+    expect(
+      shouldScrollToLatest({
+        historyHydrated: true,
+        pinnedToLatest: false,
+        prepending: false,
+        force: true,
+      }),
+    ).toBe(true)
+  })
+
   test('接近底部时隐藏按钮，加载更早消息时保持阅读位置', () => {
     expect(getFeedScrollState({ scrollTop: 760, clientHeight: 400, scrollHeight: 1200 })).toEqual({
       pinnedToLatest: true,

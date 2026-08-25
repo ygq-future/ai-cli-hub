@@ -36,7 +36,9 @@ export function shouldScrollToLatest(input: {
   historyHydrated: boolean
   pinnedToLatest: boolean
   prepending: boolean
+  force?: boolean
 }): boolean {
   if (input.prepending) return false
+  if (input.force) return true
   return !input.historyHydrated || input.pinnedToLatest
 }
