@@ -50,6 +50,8 @@ export interface QQTransportDeps {
   downloadQQFile?: (url: string, opts: { fileName?: string; fileSize?: number }) => Promise<string>
   /** 用户语言持久化查询；缺省使用 Transport 内存偏好（测试/兼容）。 */
   resolveUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage>
+  /** 用户 CLI/cwd 持久化查询；缓存未命中时恢复当前目标。 */
+  resolveUserTarget?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
 }
 
 export interface QQTransport extends Transport {
@@ -196,11 +198,19 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
   async function resolvedUserLanguage(userId: string): Promise<UserLanguage> {
     return deps.resolveUserLanguage?.('qq', userId) ?? getUserLanguage(userId)
   }
-  function targetCli(userId: string): CliType {
-    return userCli.get(userId) ?? 'claude'
-  }
-  function targetCwd(userId: string): string {
-    return userCwd.get(userId) ?? process.cwd()
+  async function resolvedUserTarget(userId: string): Promise<{ cli: CliType; cwd: string }> {
+    const cachedCli = userCli.get(userId)
+    const cachedCwd = userCwd.get(userId)
+    if (cachedCli && cachedCwd) return { cli: cachedCli, cwd: cachedCwd }
+
+    const target = await deps.resolveUserTarget?.('qq', userId)
+    if (target) {
+      userCli.set(userId, target.cli)
+      userCwd.set(userId, target.cwd)
+      return target
+    }
+
+    return { cli: cachedCli ?? 'claude', cwd: cachedCwd ?? process.cwd() }
   }
 
   async function defaultDownloadQQFile(url: string, opts: { fileName?: string; fileSize?: number }): Promise<string> {
@@ -325,11 +335,14 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
       bus.emit('UserLanguageChanged', { userId: context.userId, platform: 'qq', language })
       return void sendToContext(context, getLanguageChangedText(language)).catch(err => reportError('qq:lang', err))
     }
+    const target = deps.resolveUserTarget
+      ? await resolvedUserTarget(context.userId)
+      : { cli: userCli.get(context.userId) ?? 'claude', cwd: userCwd.get(context.userId) ?? process.cwd() }
     bus.emit('MessageReceived', {
       userId: context.userId,
       platform: 'qq',
-      cli: targetCli(context.userId),
-      cwd: targetCwd(context.userId),
+      cli: target.cli,
+      cwd: target.cwd,
       text,
       ref: { platform: 'qq', chatId: context.chatId, nativeId: context.messageId },
       ...(attachments?.length ? { attachments } : {}),

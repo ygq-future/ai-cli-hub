@@ -171,6 +171,8 @@ export interface TelegramTransportDeps {
   downloadTelegramFile?: (file: TelegramDownloadRequest) => Promise<string>
   /** 用户语言持久化查询；缺省使用 Transport 内存偏好（测试/兼容）。 */
   resolveUserLanguage?: (platform: Platform, userId: string) => Promise<UserLanguage>
+  /** 用户 CLI/cwd 持久化查询；缓存未命中时恢复当前目标。 */
+  resolveUserTarget?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
   /** 测试可缩短重连等待；生产默认 2 秒起、最多 60 秒。 */
   pollingRetryInitialMs?: number
   pollingRetryMaxMs?: number
@@ -387,12 +389,19 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
     return head.slice(1).split('@')[0]?.toLowerCase() ?? null
   }
 
-  function targetCli(userId: string): CliType {
-    return userCli.get(userId) ?? 'claude'
-  }
+  async function resolvedUserTarget(userId: string): Promise<{ cli: CliType; cwd: string }> {
+    const cachedCli = userCli.get(userId)
+    const cachedCwd = userCwd.get(userId)
+    if (cachedCli && cachedCwd) return { cli: cachedCli, cwd: cachedCwd }
 
-  function targetCwd(userId: string): string {
-    return userCwd.get(userId) ?? process.cwd()
+    const target = await deps.resolveUserTarget?.('telegram', userId)
+    if (target) {
+      userCli.set(userId, target.cli)
+      userCwd.set(userId, target.cwd)
+      return target
+    }
+
+    return { cli: cachedCli ?? 'claude', cwd: cachedCwd ?? process.cwd() }
   }
 
   function inferExt(file: TelegramDownloadRequest, url?: string): string {
@@ -724,11 +733,14 @@ export function createTelegramTransport(deps: TelegramTransportDeps): TelegramTr
       return
     }
 
+    const target = deps.resolveUserTarget
+      ? await resolvedUserTarget(userId)
+      : { cli: userCli.get(userId) ?? 'claude', cwd: userCwd.get(userId) ?? process.cwd() }
     bus.emit('MessageReceived', {
       userId,
       platform: 'telegram',
-      cli: targetCli(userId),
-      cwd: targetCwd(userId),
+      cli: target.cli,
+      cwd: target.cwd,
       text,
       ref: { platform: 'telegram', chatId, nativeId: String(ctx.message?.message_id ?? '') },
       ...(attachments?.length ? { attachments } : {}),

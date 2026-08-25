@@ -208,6 +208,33 @@ describe('TelegramTransport 入站', () => {
     expect(replies.length).toBe(0)
   })
 
+  test('Transport 重建后从持久化目标恢复 CLI 与 cwd', async () => {
+    const bus = createEventBus()
+    const mock = createMockBot()
+    createTelegramTransport({
+      bus,
+      config: fakeConfig(),
+      bot: mock.bot,
+      resolveUserTarget: async (platform, userId) => {
+        expect(platform).toBe('telegram')
+        expect(userId).toBe('42')
+        return { cli: 'opencode', cwd: '/srv/opencode' }
+      },
+    })
+
+    const received: unknown[] = []
+    bus.on('MessageReceived', p => received.push(p))
+    mock.handlers.text!({
+      from: { id: 42 },
+      chat: { id: 42 },
+      message: { text: 'hello', message_id: 1 },
+    })
+    await tick()
+
+    expect(received).toHaveLength(1)
+    expect(received[0]).toMatchObject({ platform: 'telegram', cli: 'opencode', cwd: '/srv/opencode' })
+  })
+
   test('/lang zh|en 本地切换语言偏好，不 emit', async () => {
     const bus = createEventBus()
     const mock = createMockBot()

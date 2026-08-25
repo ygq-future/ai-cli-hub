@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-08-25 · 阶段：**V5 Web 聊天回复滚动跟随修复已完成**
+> 最后更新：2026-08-25 · 阶段：**V5 多平台当前 CLI 持久化恢复修复已完成**
 
 ---
 
@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V5 Web 可视化管理控制面（✅ 完成）** |
-| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 已完成共享契约、WebUI 模块基线、级联迁移、Repository 管理分页/聚合删除、运行时删除联动、`web-admin/` 深模块、认证 Server 管理 API、懒加载管理页面、Rolldown vendor chunk 拆分、移动端管理导航与筛选控件优化、独立稳定的 `transport.webUserId` 身份配置和数据迁移、Web/QQ 流式消息归并与发送串行化、Web 聊天首屏滚动和最新消息导航、管理页提示条和偏好身份列表优化、聊天 Tab 滚动状态修复、发送消息后持续跟随至最终回复，以及命令提示面板跳字顺序匹配。 |
+| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 已完成共享契约、WebUI 模块基线、级联迁移、Repository 管理分页/聚合删除、运行时删除联动、`web-admin/` 深模块、认证 Server 管理 API、懒加载管理页面、Rolldown vendor chunk 拆分、移动端管理导航与筛选控件优化、独立稳定的 `transport.webUserId` 身份配置和数据迁移、Web/QQ 流式消息归并与发送串行化、Web 聊天首屏滚动和最新消息导航、管理页提示条和偏好身份列表优化、聊天 Tab 滚动状态修复、发送消息后持续跟随至最终回复、命令提示面板跳字顺序匹配，以及 QQ/Telegram 当前 CLI 持久化恢复。 |
 | 文档 | ✅ 架构、接口契约、数据模型、记忆设计、命令 UX、实施计划、Web 任务书、README、Agent 规则和本进度已同步。 |
 | 阻塞项 | 无 |
 | 下一步 | 按需进入下一项需求；V5 保持可部署交付状态，WebUI 构建入口已无 500 kB chunk 警告。 |
@@ -151,6 +151,7 @@
 | D95 | **Web 发送消息建立最新消息定位意图**：发送消息后无论用户此前是否位于历史位置，时间线更新阶段都先定位到最新消息；该意图的持续时长与回复生命周期由后续流式滚动决策细化。 | 2026-08-25 |
 | D96 | **Web 命令提示支持命令名跳字顺序匹配**：命令名查询在无严格前缀结果时，允许从命令名首字符开始按顺序跳过字符匹配，例如 `/uc` 命中 `/update confirm`、`/ud` 优先命中 `/update`；命令名匹配结果优先于描述/关键词模糊结果，单字符仍保持前缀行为以避免结果过宽。 | 2026-08-25 |
 | D97 | **Web 发送后的滚动跟随持续到回复完成**：发送消息建立的最新消息跟随意图不在用户消息首帧消费，而是持续覆盖助手流式片段和最终回复；收到 `final=true` 后才释放，并在跟随期间使用即时滚动确保不断增长的内容不会停在用户消息处。 | 2026-08-25 |
+| D98 | **平台 Transport 在消息入口恢复持久化目标**：QQ/Telegram 的 CLI 与 cwd 以内存缓存加速，缓存缺失时通过 `UserPreferences.getTarget` 读取 `(platform,userId)` 的持久化目标并回填缓存；Web 沿用既有每条消息查询目标的链路。 | 2026-08-25 |
 
 ---
 
@@ -377,6 +378,7 @@
 | 2026-08-25 | **Web 发送消息滚动定位基础完成**：发送消息时建立最新消息定位意图，在消息追加后的布局阶段定位到底部；普通流式更新的跟随生命周期随后按回复完成状态继续细化。新增发送场景回归测试。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（521 pass / 9 skip / 0 fail / 1748 expect）和 `git diff --check` 全部通过。 |
 | 2026-08-25 | **Web 命令提示跳字匹配优化完成**：命令提示面板在无严格前缀结果时支持从命令名首字符开始的顺序跳字匹配，`/uc` 可命中 `/update confirm`，`/ud` 按命令长度优先列出 `/update` 与 `/update confirm`；命令名结果优先于描述/关键词模糊结果，新增中短查询回归测试。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（522 pass / 9 skip / 0 fail / 1750 expect）和 `git diff --check` 全部通过。 |
 | 2026-08-25 | **Web 发送后回复滚动跟随修复完成**：发送后最新消息跟随意图持续到 `final=true` 的助手回复，用户消息、流式片段和最终回复均按最新 `scrollHeight` 即时定位，避免回复内容被遮挡；新增跟随释放时机回归测试。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、QQ 定向测试、串行全量 `bun test`（523 pass / 9 skip / 0 fail / 1752 expect）和 `git diff --check` 全部通过。 |
+| 2026-08-25 | **多平台当前 CLI 持久化恢复完成**：QQ 与 Telegram Transport 在内存目标缓存未命中时读取持久化的 CLI/cwd 目标并回填缓存，Composition Root 统一注入 `UserPreferences.getTarget`；Web 保持既有目标恢复链路。新增 QQ/Telegram Transport 重建后的目标恢复回归测试。 |
 
 ## 6. 开放问题（Open Questions）
 

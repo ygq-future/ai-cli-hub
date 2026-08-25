@@ -136,6 +136,30 @@ describe('QQTransport 官方 C2C 入站', () => {
     ])
   })
 
+  test('Transport 重建后从持久化目标恢复 CLI 与 cwd', async () => {
+    const bus = createEventBus()
+    const fake = createFakeClient()
+    const received: unknown[] = []
+    bus.on('MessageReceived', p => received.push(p))
+    const transport = createQQTransport({
+      bus,
+      config: fakeConfig(),
+      client: fake.client,
+      resolveUserTarget: async (platform, userId) => {
+        expect(platform).toBe('qq')
+        expect(userId).toBe('qq-openid')
+        return { cli: 'opencode', cwd: '/srv/opencode' }
+      },
+    })
+
+    await transport.start()
+    fake.emit(c2c())
+    await tick()
+
+    expect(received).toHaveLength(1)
+    expect(received[0]).toMatchObject({ platform: 'qq', cli: 'opencode', cwd: '/srv/opencode' })
+  })
+
   test('启动状态会通过 EventBus 输出，便于确认 QQ Gateway 已 ready', async () => {
     const bus = createEventBus()
     const fake = createFakeClient()

@@ -176,12 +176,24 @@ async function main() {
   transports.push(webSocketTransport)
   if (config.TELEGRAM_BOT_TOKEN) {
     transports.push(
-      createTelegramTransport({ bus, config, mediaPreprocessor, resolveUserLanguage: userPreferences.getLanguage }),
+      createTelegramTransport({
+        bus,
+        config,
+        mediaPreprocessor,
+        resolveUserLanguage: userPreferences.getLanguage,
+        resolveUserTarget: userPreferences.getTarget,
+      }),
     )
   }
   if (config.QQBOT_APP_ID) {
     transports.push(
-      createQQTransport({ bus, config, mediaPreprocessor, resolveUserLanguage: userPreferences.getLanguage }),
+      createQQTransport({
+        bus,
+        config,
+        mediaPreprocessor,
+        resolveUserLanguage: userPreferences.getLanguage,
+        resolveUserTarget: userPreferences.getTarget,
+      }),
     )
   }
   if (!transports.length) {
