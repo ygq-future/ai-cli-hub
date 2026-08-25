@@ -42,3 +42,7 @@ export function shouldScrollToLatest(input: {
   if (input.force) return true
   return !input.historyHydrated || input.pinnedToLatest
 }
+
+export function shouldReleaseForcedScroll(input: { force: boolean; finalReply: boolean }): boolean {
+  return input.force && input.finalReply
+}

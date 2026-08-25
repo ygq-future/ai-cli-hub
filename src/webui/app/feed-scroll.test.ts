@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { getFeedMountScrollTop, getFeedScrollState, shouldScrollToLatest } from './feed-scroll'
+import {
+  getFeedMountScrollTop,
+  getFeedScrollState,
+  shouldReleaseForcedScroll,
+  shouldScrollToLatest,
+} from './feed-scroll'
 
 describe('Web 聊天滚动策略', () => {
   test('首屏历史加载完成时强制定位最新消息', () => {
@@ -35,6 +40,11 @@ describe('Web 聊天滚动策略', () => {
         force: true,
       }),
     ).toBe(true)
+  })
+
+  test('发送后的用户消息定位不会提前结束，最终回复才释放跟随状态', () => {
+    expect(shouldReleaseForcedScroll({ force: true, finalReply: false })).toBe(false)
+    expect(shouldReleaseForcedScroll({ force: true, finalReply: true })).toBe(true)
   })
 
   test('接近底部时隐藏按钮，加载更早消息时保持阅读位置', () => {

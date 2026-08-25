@@ -47,7 +47,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '../components/ui/input'
 import { Select } from '../components/ui/select'
 import { useLocalPreferences, type WebPreferences } from '../hooks/use-local-preferences'
-import { getFeedMountScrollTop, getFeedScrollState, shouldScrollToLatest } from './feed-scroll'
+import {
+  getFeedMountScrollTop,
+  getFeedScrollState,
+  shouldReleaseForcedScroll,
+  shouldScrollToLatest,
+} from './feed-scroll'
 
 const ConversationsPage = lazy(() =>
   import('../features/conversations/conversations-page').then(module => ({ default: module.ConversationsPage })),
@@ -243,6 +248,7 @@ export function App() {
   const pinnedToLatest = useRef(true)
   const savedFeedScrollTop = useRef<number | null>(null)
   const forceScrollToLatest = useRef(false)
+  const releaseForceScrollAfterLayout = useRef(false)
   const historyLoadingRef = useRef(false)
   const initialHistoryReady = useRef(false)
   const bufferedTimelineEvents = useRef<ServerEvent[]>([])
@@ -347,6 +353,7 @@ export function App() {
   applyServerEventRef.current = payload => {
     if (payload.type === 'output' && typeof payload.content === 'string') {
       const content = payload.content
+      if (payload.final === true) releaseForceScrollAfterLayout.current = true
       setTimeline(current =>
         appendOutput(
           current,
@@ -417,10 +424,13 @@ export function App() {
       )
       if (payload.alreadyHandled === true) setError(t('此次审批已处理。', 'This approval was already handled.'))
     }
-    if (payload.type === 'error')
+    if (payload.type === 'error') {
+      forceScrollToLatest.current = false
+      releaseForceScrollAfterLayout.current = false
       setError(
         typeof payload.message === 'string' ? payload.message : t('服务器返回错误。', 'The server returned an error.'),
       )
+    }
     void statusLoad()
   }
 
@@ -517,6 +527,7 @@ export function App() {
       return
     }
     const force = forceScrollToLatest.current
+    const releaseForce = releaseForceScrollAfterLayout.current
     const shouldScroll = shouldScrollToLatest({
       historyHydrated,
       pinnedToLatest: pinnedToLatest.current,
@@ -524,8 +535,12 @@ export function App() {
       force,
     })
     const frame = requestAnimationFrame(() => {
-      if (shouldScroll) element.scrollTo({ top: element.scrollHeight, behavior: historyHydrated ? 'smooth' : 'auto' })
-      if (force) forceScrollToLatest.current = false
+      if (shouldScroll)
+        element.scrollTo({ top: element.scrollHeight, behavior: force ? 'auto' : historyHydrated ? 'smooth' : 'auto' })
+      if (shouldReleaseForcedScroll({ force, finalReply: releaseForce })) {
+        forceScrollToLatest.current = false
+        releaseForceScrollAfterLayout.current = false
+      }
       updateFeedScrollState()
     })
     return () => cancelAnimationFrame(frame)
@@ -620,6 +635,7 @@ export function App() {
     }
     socket.current.send(JSON.stringify({ v: 1, type: 'message', text, uploadIds, clientMessageId }))
     forceScrollToLatest.current = true
+    releaseForceScrollAfterLayout.current = false
     pinnedToLatest.current = true
     setShowScrollToLatest(false)
     setTimeline(current => [
