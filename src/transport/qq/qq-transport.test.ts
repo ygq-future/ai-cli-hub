@@ -70,7 +70,7 @@ function tick(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0))
 }
 
-function createFakeClient() {
+function createFakeClient(streamDelayMs = 0) {
   let handler: ((event: QQGatewayEvent) => void) | undefined
   let nextId = 0
   const messages: Array<{ openId: string; content: string; messageId?: string; keyboard?: QQKeyboard }> = []
@@ -87,6 +87,7 @@ function createFakeClient() {
       return { id: `message-${++nextId}` }
     },
     async sendC2CStreamMessage(openId, request) {
+      if (streamDelayMs > 0) await new Promise(resolve => setTimeout(resolve, streamDelayMs))
       streams.push({ openId, request })
       return { id: request.streamMessageId ?? `stream-${++nextId}` }
     },
@@ -273,6 +274,32 @@ describe('QQTransport 出站流式与审批', () => {
     expect(fake.streams.map(item => item.request.final)).toEqual([false, false, true])
     expect(fake.streams[1]?.request.streamMessageId).toBe('stream-1')
     expect(fake.streams[2]?.request.index).toBe(2)
+  })
+
+  test('QQ 流式请求按会话串行化，网络延迟时不重复创建首帧', async () => {
+    const bus = createEventBus()
+    const fake = createFakeClient(10)
+    const transport = createQQTransport({ bus, config: fakeConfig(), client: fake.client })
+    await transport.start()
+    fake.emit(c2c())
+    bus.emit('SessionCreated', {
+      conversationId: CID,
+      platform: 'qq',
+      userId: 'qq-openid',
+      cli: 'claude',
+      cwd: '/workspace',
+    })
+
+    bus.emit('MessageGenerated', { conversationId: CID, content: '第一段', final: false })
+    bus.emit('MessageGenerated', { conversationId: CID, content: '第二段', final: false })
+    bus.emit('MessageGenerated', { conversationId: CID, content: '最终内容', final: true })
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(fake.streams).toHaveLength(3)
+    expect(fake.streams[0]?.request.streamMessageId).toBeUndefined()
+    expect(fake.streams[1]?.request.streamMessageId).toBe('stream-1')
+    expect(fake.streams[2]?.request.streamMessageId).toBe('stream-1')
+    expect(fake.streams.map(item => item.request.final)).toEqual([false, false, true])
   })
 
   test('审批卡使用 QQ 官方回调键盘；交互事件只决议一次', async () => {

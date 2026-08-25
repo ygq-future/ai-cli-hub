@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-08-22 · 阶段：**V5 Web 可视化管理控制面及身份稳定化已完成**
+> 最后更新：2026-08-25 · 阶段：**V5 Web/QQ 流式交互加固已完成**
 
 ---
 
@@ -12,7 +12,7 @@
 | 维度 | 状态 |
 |---|---|
 | 当前里程碑 | **V5 Web 可视化管理控制面（✅ 完成）** |
-| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 已完成共享契约、WebUI 模块基线、级联迁移、Repository 管理分页/聚合删除、运行时删除联动、`web-admin/` 深模块、认证 Server 管理 API、懒加载管理页面、Rolldown vendor chunk 拆分、移动端管理导航与筛选控件优化，以及独立稳定的 `transport.webUserId` 身份配置和数据迁移。 |
+| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 已完成共享契约、WebUI 模块基线、级联迁移、Repository 管理分页/聚合删除、运行时删除联动、`web-admin/` 深模块、认证 Server 管理 API、懒加载管理页面、Rolldown vendor chunk 拆分、移动端管理导航与筛选控件优化、独立稳定的 `transport.webUserId` 身份配置和数据迁移，以及 Web/QQ 流式消息归并与发送串行化。 |
 | 文档 | ✅ 架构、接口契约、数据模型、记忆设计、命令 UX、实施计划、Web 任务书、README、Agent 规则和本进度已同步。 |
 | 阻塞项 | 无 |
 | 下一步 | 按需进入下一项需求；V5 保持可部署交付状态，WebUI 构建入口已无 500 kB chunk 警告。 |
@@ -144,6 +144,7 @@
 | D88 | **Web 命令提示与 `/help` 共用静态双语目录**：目录位于 `shared/` 且不参与 Core 路由，Web 首字符 `/` 时先按命令前缀筛选、无前缀结果才按命令/双语描述/关键词模糊评分。方向键选择，Enter/点击只回填且选中第一段完整参数占位符，不立即发送；固定确认动作独立成项。`Ctrl+I` / `Cmd+I` 仅在无弹窗的聊天主界面聚焦输入框。 | 2026-08-11 |
 | D89 | **Web 可视化管理采用全实例管理员范围与模块化前端结构**：Web 管理员可查看全部平台和用户的会话、文件、偏好及审批审计；硬删除 conversation 级联删除 messages、conversation_files 和 audit_logs，`/close` 继续立即清理会话文件。全局 `env.*` 记忆只读，其余记忆可修改或删除。后端管理编排收口在注入式 `web-admin/` 深模块；WebUI 先拆分现有 `main.tsx`/`react.css` 为 app、API、hooks、features、components 和 scoped styles，再增加管理页面，`main.tsx` 最终只保留 React 启动。执行计划见 `docs/superpowers/plans/2026-08-22-web-administration-control-plane.md`。 | 2026-08-22 |
 | D90 | **Web 使用独立稳定身份**：`transport.webUserId` 默认值为 `web-admin`，WebSocket、Web 状态/历史/文件/重启链路统一使用该值；`WHITELIST_USER_IDS` 继续只承担平台访问控制，Telegram/QQ 保留各自原生 userId。数据库迁移在 `db:migrate` 中以事务方式将现有 Web 数据归并到目标身份，并在同 CLI 未关闭会话冲突时回滚失败。 | 2026-08-22 |
+| D91 | **Web/QQ 流式输出按逻辑消息持续更新**：Web 时间线按当前未定稿的助手项归并，审批卡插入不会创建第二个流式助手项；QQ `stream_messages` 按 conversation 串行发送，确保首帧响应返回前到达的后续片段继续使用同一流消息。数据库中的 Web 审批引用行继续保留为空内容并通过 `messageType=approval` 区分，不作为聊天文本。 | 2026-08-25 |
 
 ---
 
@@ -363,6 +364,7 @@
 | 2026-08-22 | **WebUI Select Clear 定位修复完成**：Select 清除控件的外层容器使用明确的 `ui-select-control has-clear` class 组合，确保按钮始终相对对应 Select 尾部定位；新增 class 组合回归断言。自动验收：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun webui:build`、全量 `bun test`（508 pass / 9 skip / 0 fail / 1714 expect）和 `git diff --check` 全部通过。 |
 | 2026-08-22 | **WebUI Select Clear 视觉替换完成**：Select 有实际值时隐藏下拉箭头，由 Clear 控件直接占据尾部图标位置；无值时保留下拉箭头，新增互斥显示回归断言。自动验收：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun webui:build`、全量 `bun test`（508 pass / 9 skip / 0 fail / 1715 expect）和 `git diff --check` 全部通过。 |
 | 2026-08-22 | **Web 身份稳定化完成**：在 `transport` 配置中新增 `webUserId`（默认 `web-admin`），Web 运行时及状态/历史/文件/重启入口统一使用稳定身份，不再随白名单顺序变化；新增事务化 Web 身份数据迁移，合并会话、用户偏好、CLI 偏好和审批 operator，并对同 CLI 未关闭会话冲突安全失败。同步设置模板、交互式配置字段说明及配置/迁移回归测试。自动验收：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（514 pass / 9 skip / 0 fail / 1727 expect）和 `git diff --check` 全部通过。 |
+| 2026-08-25 | **Web/QQ 流式交互加固完成**：Web 时间线在审批卡插入后仍就地更新同一条未定稿助手消息；QQ 出站 `stream_messages` 增加按 conversation 串行队列，避免网络延迟下重复创建流式首帧；新增 Web 审批交错流式回归测试和 QQ 延迟竞态回归测试。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（516 pass / 9 skip / 0 fail / 1739 expect）和 `git diff --check` 全部通过。 |
 
 ## 6. 开放问题（Open Questions）
 

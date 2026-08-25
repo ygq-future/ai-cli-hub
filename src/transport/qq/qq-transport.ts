@@ -169,6 +169,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
   const userCwd = new Map<string, string>()
   const convContext = new Map<ConversationId, QQInboundContext>()
   const drafts = new Map<ConversationId, QQDraft>()
+  const streamQueues = new Map<ConversationId, Promise<void>>()
   const approvals = new Map<
     string,
     {
@@ -244,6 +245,59 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
   async function sendToContext(context: QQInboundContext, content: string, keyboard?: QQKeyboard): Promise<MessageRef> {
     const response = await client.sendC2CMessage(context.chatId, content, context.messageId, keyboard)
     return { platform: 'qq', chatId: context.chatId, nativeId: response.id }
+  }
+  function enqueueStreamUpdate(
+    conversationId: ConversationId,
+    context: QQInboundContext,
+    content: string,
+    final: boolean,
+  ): void {
+    const previous = streamQueues.get(conversationId) ?? Promise.resolve()
+    const next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const draft = drafts.get(conversationId)
+        if (!draft) {
+          if (!content) return
+          const sequence = randomSequence()
+          const response = await client.sendC2CStreamMessage(context.chatId, {
+            eventId: context.eventId,
+            messageId: context.messageId,
+            content,
+            sequence,
+            index: 0,
+            final,
+          })
+          if (!final)
+            drafts.set(conversationId, {
+              context,
+              streamMessageId: response.id,
+              sequence,
+              index: 1,
+              lastContent: content,
+            })
+          return
+        }
+        if (draft.lastContent !== content || final) {
+          await client.sendC2CStreamMessage(draft.context.chatId, {
+            eventId: draft.context.eventId,
+            messageId: draft.context.messageId,
+            content,
+            streamMessageId: draft.streamMessageId,
+            sequence: draft.sequence,
+            index: draft.index++,
+            final,
+          })
+          draft.lastContent = content
+        }
+        if (final) drafts.delete(conversationId)
+      })
+    streamQueues.set(conversationId, next)
+    void next
+      .catch(err => reportError('qq:MessageGenerated', err))
+      .finally(() => {
+        if (streamQueues.get(conversationId) === next) streamQueues.delete(conversationId)
+      })
   }
   async function emitIncoming(
     context: QQInboundContext,
@@ -412,44 +466,7 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
     bus.on('MessageGenerated', p => {
       const context = convContext.get(p.conversationId)
       if (!context) return
-      const draft = drafts.get(p.conversationId)
-      const send = async () => {
-        if (!draft) {
-          if (!p.content) return
-          const sequence = randomSequence()
-          const response = await client.sendC2CStreamMessage(context.chatId, {
-            eventId: context.eventId,
-            messageId: context.messageId,
-            content: p.content,
-            sequence,
-            index: 0,
-            final: p.final,
-          })
-          if (!p.final)
-            drafts.set(p.conversationId, {
-              context,
-              streamMessageId: response.id,
-              sequence,
-              index: 1,
-              lastContent: p.content,
-            })
-          return
-        }
-        if (draft.lastContent !== p.content || p.final) {
-          await client.sendC2CStreamMessage(draft.context.chatId, {
-            eventId: draft.context.eventId,
-            messageId: draft.context.messageId,
-            content: p.content,
-            streamMessageId: draft.streamMessageId,
-            sequence: draft.sequence,
-            index: draft.index++,
-            final: p.final,
-          })
-          draft.lastContent = p.content
-        }
-        if (p.final) drafts.delete(p.conversationId)
-      }
-      void send().catch(err => reportError('qq:MessageGenerated', err))
+      enqueueStreamUpdate(p.conversationId, context, p.content, p.final)
     }),
   )
   unsubs.push(
@@ -526,6 +543,8 @@ export function createQQTransport(deps: QQTransportDeps): QQTransport {
     async stop() {
       for (const unsubscribe of unsubs) unsubscribe()
       unsubs.length = 0
+      drafts.clear()
+      streamQueues.clear()
       await client.stop()
     },
     async sendMessage(chatId, content) {

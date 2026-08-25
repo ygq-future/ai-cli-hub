@@ -96,7 +96,7 @@ type Approval = {
   operator: string | null
   automatic: boolean
 }
-type TimelineItem = Message | Approval
+export type TimelineItem = Message | Approval
 type ServerApproval = {
   id: string
   conversationId: string
@@ -1537,25 +1537,36 @@ function ArrayField({
   )
 }
 
-function appendOutput(
+export function appendOutput(
   timeline: TimelineItem[],
   content: string,
   final: boolean,
   attachments: MessageAttachment[] = [],
   copyActions: CopyAction[] = [],
 ) {
-  const last = timeline.at(-1)
-  if (last?.type === 'chat' && last.role === 'assistant' && last.streaming)
-    return [
-      ...timeline.slice(0, -1),
-      {
-        ...last,
-        content,
-        attachments: attachments.length ? attachments : last.attachments,
-        copyActions: copyActions.length ? copyActions : last.copyActions,
-        streaming: !final,
-      },
-    ]
+  let streamingIndex = -1
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    const item = timeline[index]
+    if (item?.type === 'chat' && item.role === 'assistant' && item.streaming) {
+      streamingIndex = index
+      break
+    }
+  }
+  if (streamingIndex >= 0) {
+    const streamingItem = timeline[streamingIndex]
+    if (streamingItem?.type !== 'chat') return timeline
+    return timeline.map((item, index) =>
+      index === streamingIndex
+        ? {
+            ...streamingItem,
+            content,
+            attachments: attachments.length ? attachments : streamingItem.attachments,
+            copyActions: copyActions.length ? copyActions : streamingItem.copyActions,
+            streaming: !final,
+          }
+        : item,
+    )
+  }
   return [
     ...timeline,
     {
