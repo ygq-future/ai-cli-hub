@@ -3,6 +3,9 @@
 export type {
   CLIAdapter,
   CliModel,
+  ContextUsageInfo,
+  CliThinkingConfig,
+  CliEffortLevel,
   OutputDelta,
   ApprovalRequest,
   ApprovalAction,

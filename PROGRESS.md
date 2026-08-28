@@ -3,7 +3,7 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-08-25 · 阶段：**V5 多平台当前 CLI 持久化恢复修复已完成**
+> 最后更新：2026-08-27 · 阶段：**Claude SDK 增量流式、推理配置与用量观测已完成**
 
 ---
 
@@ -11,11 +11,11 @@
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **V5 Web 可视化管理控制面（✅ 完成）** |
-| 代码 | ✅ V4 React Web Control Plane 与既有加固保持完成；V5 已完成共享契约、WebUI 模块基线、级联迁移、Repository 管理分页/聚合删除、运行时删除联动、`web-admin/` 深模块、认证 Server 管理 API、懒加载管理页面、Rolldown vendor chunk 拆分、移动端管理导航与筛选控件优化、独立稳定的 `transport.webUserId` 身份配置和数据迁移、Web/QQ 流式消息归并与发送串行化、Web 聊天首屏滚动和最新消息导航、管理页提示条和偏好身份列表优化、聊天 Tab 滚动状态修复、发送消息后持续跟随至最终回复、命令提示面板跳字顺序匹配，以及 QQ/Telegram 当前 CLI 持久化恢复。 |
-| 文档 | ✅ 架构、接口契约、数据模型、记忆设计、命令 UX、实施计划、Web 任务书、README、Agent 规则和本进度已同步。 |
+| 当前里程碑 | **Claude SDK 流式增量与用量观测能力增强（✅ 完成）** |
+| 代码 | ✅ V5 Web 可视化管理控制面与全链路加固已完成；已完成 `ClaudeSdkAdapter` 流式打字机增量输出（`stream_event` -> delta）、`thinking`/`effort` 启动参数透传以及 `getContextUsage()` 上下文用量观测契约与实现。 |
+| 文档 | ✅ 实施计划 `docs/superpowers/plans/2026-08-27-claude-sdk-enhancements.md` 已全部执行完成；决策日志 D99 与本进度已同步。 |
 | 阻塞项 | 无 |
-| 下一步 | 按需进入下一项需求；V5 保持可部署交付状态，WebUI 构建入口已无 500 kB chunk 警告。 |
+| 下一步 | 按需进入下一项需求；全量 530 个单测全绿，代码与依赖架构保持一致。 |
 
 ---
 
@@ -152,6 +152,7 @@
 | D96 | **Web 命令提示支持命令名跳字顺序匹配**：命令名查询在无严格前缀结果时，允许从命令名首字符开始按顺序跳过字符匹配，例如 `/uc` 命中 `/update confirm`、`/ud` 优先命中 `/update`；命令名匹配结果优先于描述/关键词模糊结果，单字符仍保持前缀行为以避免结果过宽。 | 2026-08-25 |
 | D97 | **Web 发送后的滚动跟随持续到回复完成**：发送消息建立的最新消息跟随意图不在用户消息首帧消费，而是持续覆盖助手流式片段和最终回复；收到 `final=true` 后才释放，并在跟随期间使用即时滚动确保不断增长的内容不会停在用户消息处。 | 2026-08-25 |
 | D98 | **平台 Transport 在消息入口恢复持久化目标**：QQ/Telegram 的 CLI 与 cwd 以内存缓存加速，缓存缺失时通过 `UserPreferences.getTarget` 读取 `(platform,userId)` 的持久化目标并回填缓存；Web 沿用既有每条消息查询目标的链路。 | 2026-08-25 |
+| D99 | **Claude SDK 接入增量流式输出、现代思考配置与上下文用量观测**：① 输出机制启用 `includePartialMessages: true`，监听 `stream_event`（`content_block_delta` -> `text_delta`）发出 `final=false` 增量 delta，接入 `MessageAggregator` 统一防抖与分段，打通打字机体验；② 启动选项映射 `thinking`（Adaptive / Enabled / Disabled）与 `effort`，淘汰已弃用的 `maxThinkingTokens`；③ 抽象层暴露可选 `getContextUsage?()` 并接入 `Query.getContextUsage()`，为 Web 控制面提供 Token 分布；④ `@opencode-ai/sdk` 暂保留稳定的 V1 接口，将 V2 演进作为跟踪项记录。规划见 `docs/superpowers/plans/2026-08-27-claude-sdk-enhancements.md`。 | 2026-08-27 |
 
 ---
 
@@ -203,6 +204,7 @@
 
 | 日期 | 内容 |
 |---|---|
+| 2026-08-27 | **Claude SDK 增量流式、推理配置与用量观测落地完成**：为 `ClaudeSdkAdapter` 开启 `includePartialMessages: true`，监听 `stream_event`（`content_block_delta` -> `text_delta`）发出 `kind='text', final=false` 增量 delta，接入 `MessageAggregator` 统一防抖与分段，打通打字机体验；`SpawnOptions` 增加 `thinking` 与 `effort` 透传；`CLIAdapter` 抽象层新增可选 `getContextUsage?()` 并接入底层 `Query.getContextUsage()` 返回 Token 与分类用量；同步实施计划与 D99。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、全量 `bun test`（530 pass / 9 skip / 0 fail / 1767 expect）全部通过。 |
 | 2026-07-14 | **只读 Bash 自动审批误判修复完成**：针对实际 WebDAV 数据持久化检查命令复现并定位四个过度保守点：所有 `>` 都被当作写入、`docker volume ls` 无子命令规则、`find` 未区分纯查询与 action、`docker inspect $(...)` 对已验证只读的命令替换参数仍拒绝。现仅放行 stderr→`/dev/null`、`docker inspect`/`docker volume ls|inspect` 与无副作用 action 的 `find`；`find -delete/-exec`、`docker volume rm`、具名输出重定向仍保持审批。新增用户给出的三条完整命令和危险反例回归测试；同步接口契约、命令 UX 与 D74。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 全部通过；完整依赖环境 `bun test` 391 pass / 7 skip / 0 fail / 1276 expect。 |
 | 2026-07-14 | **QQ 模型复制、OpenCode 并发会话与状态卡片收口完成**：QQ 模型目录不再退化为名称列表，规范 model ID 以 Markdown fenced code block 输出，直接使用 QQ 客户端原生复制入口。定位跨 QQ/Telegram 第二个 OpenCode adapter 启动失败的根因：`@opencode-ai/sdk` 每次 `createOpencode()` 都尝试在固定 `127.0.0.1:4096` 启动 `opencode serve`。新增 Composition Root 管理的引用计数 `OpenCodeServerPool`，各 adapter 共享一个服务/client、创建独立 session 并按 session ID 过滤 SSE；最后一个 adapter 停止或应用退出才关闭服务。`/status` 有当前会话时移除重复的“当前目标”区块，保留已存活时间、模型名称和 ID；无会话时仍显示持久化目标。同步 PRD、架构、接口契约、实施计划、命令 UX 与 D72/D73。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 全部通过；完整依赖环境 `bun test` 385 pass / 7 skip / 0 fail / 1270 expect。 |
 | 2026-07-14 | **模型展示、名称选择与状态可见性优化完成**：`/model` 无参改为紧凑模型名称选择，Telegram 使用官方 Bot API `copy_text` 按钮复制规范 model ID，并对超过 100 个按钮的目录自动分页；QQ 无剪贴板按钮时回退名称列表。`/model <model_name\|model_id>` 先精确匹配 ID，再大小写无关匹配唯一完整名称，名称含空格可直接输入，重名拒绝猜选。新增迁移 `0010_user_cli_model_name`，选择成功后原子持久化 `model_id/model_name`，旧 `model_id` 数据保持可启动；`/status` 有无活跃会话均展示模型名称与 ID。同步 PRD/架构/接口契约/数据模型/实施计划/命令 UX/共享帮助。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint` 全部通过；完整依赖环境 `bun test` 383 pass / 7 skip / 0 fail / 1260 expect。 |

@@ -23,6 +23,7 @@ import type {
   ApprovalRequest,
   CliModel,
   CLIAdapter,
+  ContextUsageInfo,
   ExitInfo,
   OutputDelta,
   SpawnOptions,
@@ -91,6 +92,7 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
   let state: AdapterState = 'stopped'
   let currentQuery: Query | null = null
   let input = createInputQueue()
+  let turnHasVisibleText = false
 
   const outputHandlers: Array<(d: OutputDelta) => void> = []
   const approvalHandlers: Array<(r: ApprovalRequest) => void> = []
@@ -141,7 +143,26 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
   function handleMessage(msg: SDKMessage) {
     emitRawMessage(msg)
 
-    if (msg.type === 'assistant') {
+    if (msg.type === 'stream_event') {
+      state = 'busy'
+      const event = (msg as { event?: { type?: string; delta?: { type?: string; text?: string } } }).event
+      if (
+        event?.type === 'content_block_delta' &&
+        event.delta?.type === 'text_delta' &&
+        typeof event.delta.text === 'string'
+      ) {
+        const visible = sanitizeVisibleText(event.delta.text)
+        if (visible) {
+          turnHasVisibleText = true
+          emitHandlers(outputHandlers, {
+            kind: 'text',
+            text: visible,
+            final: false,
+          })
+        }
+      }
+      return
+    } else if (msg.type === 'assistant') {
       state = 'busy'
       return
     } else if (msg.type === 'user') {
@@ -156,11 +177,20 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
             ? result.errors.filter((x): x is string => typeof x === 'string').join('\n')
             : ''
       const visibleText = sanitizeVisibleText(text)
-      emitHandlers(outputHandlers, {
-        kind: 'text',
-        text: visibleText.trim() ? visibleText : EMPTY_VISIBLE_RESULT_MESSAGE,
-        final: true,
-      })
+      if (turnHasVisibleText) {
+        emitHandlers(outputHandlers, {
+          kind: 'text',
+          text: '',
+          final: true,
+        })
+      } else {
+        emitHandlers(outputHandlers, {
+          kind: 'text',
+          text: visibleText.trim() ? visibleText : EMPTY_VISIBLE_RESULT_MESSAGE,
+          final: true,
+        })
+      }
+      turnHasVisibleText = false
     }
   }
 
@@ -180,6 +210,9 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
           model: opts.modelId,
           pathToClaudeCodeExecutable: deps?.claudeCodeExecutablePath,
           canUseTool: handleCanUseTool,
+          includePartialMessages: true,
+          ...(opts.thinking ? { thinking: opts.thinking } : {}),
+          ...(opts.effort ? { effort: opts.effort } : {}),
           skills: [],
           plugins: [],
           strictMcpConfig: true,
@@ -223,6 +256,7 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
     },
 
     sendUserInput(text: string) {
+      turnHasVisibleText = false
       input.push(text)
       state = 'busy'
     },
@@ -256,6 +290,23 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
       if (!selected) throw new Error(`ClaudeSdkAdapter: model is not available: ${modelId}`)
       await currentQuery.setModel(selected.value)
       return selected.value
+    },
+
+    async getContextUsage(): Promise<ContextUsageInfo> {
+      if (!currentQuery) throw new Error('ClaudeSdkAdapter: session is not ready')
+      const usage = await currentQuery.getContextUsage()
+      const categories: Record<string, number> = {}
+      if (Array.isArray(usage.categories)) {
+        for (const cat of usage.categories) {
+          categories[cat.name] = cat.tokens
+        }
+      }
+      return {
+        totalTokens: usage.totalTokens,
+        ...(usage.maxTokens !== undefined ? { maxTokens: usage.maxTokens } : {}),
+        ...(usage.percentage !== undefined ? { percentage: usage.percentage } : {}),
+        categories,
+      }
     },
 
     onOutput(handler) {

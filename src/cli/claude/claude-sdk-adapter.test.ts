@@ -27,7 +27,11 @@ function fakeQuery(
 function fakeQueryOpen(
   captureCanUse?: (fn: CanUseTool) => void,
   captureOptions?: (options: Options) => void,
-  controls?: { models?: ModelInfo[]; selected?: Array<string | undefined> },
+  controls?: {
+    models?: ModelInfo[]
+    selected?: Array<string | undefined>
+    contextUsage?: Awaited<ReturnType<Query['getContextUsage']>>
+  },
 ) {
   return ((params: { options?: Options }) => {
     if (params.options) captureOptions?.(params.options)
@@ -44,6 +48,20 @@ function fakeQueryOpen(
     q.setModel = async model => {
       controls?.selected?.push(model)
     }
+    q.getContextUsage = (async () =>
+      controls?.contextUsage ??
+      ({
+        totalTokens: 100,
+        maxTokens: 200000,
+        percentage: 0.05,
+        rawMaxTokens: 200000,
+        model: 'claude-3-7-sonnet',
+        categories: [{ name: 'system', tokens: 80, color: 'blue' }],
+        gridRows: [],
+        memoryFiles: [],
+        mcpTools: [],
+        agents: [],
+      } as unknown as Awaited<ReturnType<Query['getContextUsage']>>)) as Query['getContextUsage']
     return q
   }) as unknown as Parameters<typeof createClaudeSdkAdapter>[0] extends { queryFn?: infer F } ? F : never
 }
@@ -68,6 +86,20 @@ const toolResultBlock = (content: string) => ({
 })
 function resultMsg(): SDKMessage {
   return { type: 'result', subtype: 'success', result: 'done', is_error: false } as unknown as SDKMessage
+}
+
+function streamDeltaMsg(text: string): SDKMessage {
+  return {
+    type: 'stream_event',
+    event: {
+      type: 'content_block_delta',
+      index: 0,
+      delta: {
+        type: 'text_delta',
+        text,
+      },
+    },
+  } as unknown as SDKMessage
 }
 
 const userMsg = (role: 'user' | 'assistant', blocks: Record<string, unknown>[]): SDKMessage =>
@@ -339,5 +371,97 @@ describe('ClaudeSdkAdapter (real message flow)', () => {
     await tick()
 
     expect(rawMessages).toEqual([])
+  })
+
+  test('stream_event 产出增量 delta 并在 result 消息完成收尾', async () => {
+    const a = createClaudeSdkAdapter({
+      queryFn: fakeQuery([streamDeltaMsg('Hello '), streamDeltaMsg('world!'), resultMsg()]),
+    })
+    const out: OutputDelta[] = []
+    a.onOutput(d => out.push(d))
+
+    await a.start(SPAWN)
+    await tick()
+
+    expect(out).toEqual([
+      { kind: 'text', text: 'Hello ', final: false },
+      { kind: 'text', text: 'world!', final: false },
+      { kind: 'text', text: '', final: true },
+    ])
+  })
+
+  test('stream_event 包含系统标签清洗后为空时不发出 final: false', async () => {
+    const a = createClaudeSdkAdapter({
+      queryFn: fakeQuery([streamDeltaMsg('<think>thinking</think>'), streamDeltaMsg('Hi'), resultMsg()]),
+    })
+    const out: OutputDelta[] = []
+    a.onOutput(d => out.push(d))
+
+    await a.start(SPAWN)
+    await tick()
+
+    expect(out).toEqual([
+      { kind: 'text', text: 'Hi', final: false },
+      { kind: 'text', text: '', final: true },
+    ])
+  })
+
+  test('start 传递 thinking 与 effort 参数给 SDK options，并开启 includePartialMessages', async () => {
+    let capturedOptions: Options | undefined
+    const a = createClaudeSdkAdapter({
+      queryFn: fakeQuery([], undefined, options => {
+        capturedOptions = options
+      }),
+    })
+
+    await a.start({
+      ...SPAWN,
+      thinking: { type: 'adaptive' },
+      effort: 'high',
+    })
+    await tick()
+
+    expect(capturedOptions?.includePartialMessages).toBe(true)
+    expect(capturedOptions?.thinking).toEqual({ type: 'adaptive' })
+    expect(capturedOptions?.effort).toBe('high')
+  })
+
+  test('getContextUsage 正确返回会话 Token 与分类统计', async () => {
+    const a = createClaudeSdkAdapter({
+      queryFn: fakeQueryOpen(undefined, undefined, {
+        contextUsage: {
+          totalTokens: 1500,
+          maxTokens: 200000,
+          rawMaxTokens: 200000,
+          percentage: 0.75,
+          model: 'claude-3-7-sonnet',
+          categories: [
+            { name: 'system', tokens: 1000, color: 'blue' },
+            { name: 'messages', tokens: 500, color: 'green' },
+          ],
+          gridRows: [],
+          memoryFiles: [],
+          mcpTools: [],
+          agents: [],
+        } as unknown as Awaited<ReturnType<Query['getContextUsage']>>,
+      }),
+    })
+
+    await a.start(SPAWN)
+    expect(await a.getContextUsage!()).toEqual({
+      totalTokens: 1500,
+      maxTokens: 200000,
+      percentage: 0.75,
+      categories: {
+        system: 1000,
+        messages: 500,
+      },
+    })
+    await a.stop()
+  })
+
+  test('未启动时调用 getContextUsage 报错', async () => {
+    const a = createClaudeSdkAdapter({ queryFn: fakeQuery([]) })
+    await expect(a.getContextUsage!()).rejects.toThrow('session is not ready')
   })
 })

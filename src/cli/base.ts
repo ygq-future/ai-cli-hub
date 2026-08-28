@@ -36,7 +36,17 @@ export interface CLIAdapter {
   /** 切换后续轮次使用的模型，返回规范化后的持久化 model ID。 */
   setModel(modelId: string): Promise<string>
 
+  /** 可选：获取当前会话上下文窗口用量与 Token 分布。 */
+  getContextUsage?(): Promise<ContextUsageInfo>
+
   getState(): AdapterState
+}
+
+export interface ContextUsageInfo {
+  totalTokens: number
+  maxTokens?: number
+  percentage?: number
+  categories?: Record<string, number>
 }
 
 export interface OutputDelta {
@@ -65,6 +75,10 @@ export interface ExitInfo {
   reason: 'idleTimeout' | 'crash' | 'stop'
 }
 
+export type CliThinkingConfig = { type: 'adaptive' } | { type: 'enabled'; budgetTokens: number } | { type: 'disabled' }
+
+export type CliEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
 export interface SpawnOptions {
   conversationId: ConversationId
   cwd: string
@@ -73,6 +87,8 @@ export interface SpawnOptions {
   env?: Record<string, string>
   systemLanguageHint?: string
   modelId?: string
+  thinking?: CliThinkingConfig
+  effort?: CliEffortLevel
 }
 
 export type AdapterState = 'stopped' | 'starting' | 'ready' | 'busy' | 'waitingApproval'
