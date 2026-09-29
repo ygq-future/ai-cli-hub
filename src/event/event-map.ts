@@ -3,6 +3,7 @@
  * 契约见 docs/03-Interface-Contracts.md §1；新增事件只在此扩展 EventMap 一处。
  */
 import type {
+  AgentActivityState,
   CliType,
   ConversationId,
   CopyAction,
@@ -87,7 +88,12 @@ export interface EventMap {
     state: 'starting' | 'connecting' | 'identifying' | 'ready' | 'reconnecting' | 'stopped'
     detail?: string
   }
-
+  /** Agent 实时动作变化（如思考中、正在执行命令、或就绪空闲）。 */
+  AgentActivityChanged: {
+    conversationId: ConversationId
+    state: AgentActivityState
+    detail?: string
+  }
   // —— 审批（Human-in-the-loop）——
   ApprovalRequested: {
     conversationId: ConversationId
@@ -172,6 +178,7 @@ const EVENT_TYPE_REGISTRY: Record<EventType, true> = {
   MemoryUpdated: true,
   MemorySummaryRequested: true,
   ErrorOccurred: true,
+  AgentActivityChanged: true,
 }
 
 export const ALL_EVENT_TYPES = Object.keys(EVENT_TYPE_REGISTRY) as EventType[]

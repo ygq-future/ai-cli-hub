@@ -62,3 +62,28 @@ export function sanitizeVisibleText(text: string): string {
 
   return cleaned === text ? cleaned : cleaned.trimStart()
 }
+
+export function formatToolDetail(toolName?: string, toolInput?: Record<string, unknown>): string | undefined {
+  if (!toolName) return undefined
+  const lower = toolName.toLowerCase()
+  if (lower === 'bash') {
+    const command = typeof toolInput?.command === 'string' ? toolInput.command.trim() : ''
+    if (command) {
+      const singleLine = command.split('\n')[0]?.trim() ?? command
+      return singleLine.length > 60 ? `${singleLine.slice(0, 57)}...` : singleLine
+    }
+    return 'Bash'
+  }
+  if (lower === 'read' || lower === 'write' || lower === 'edit' || lower === 'glob' || lower === 'grep') {
+    const target =
+      typeof toolInput?.path === 'string'
+        ? toolInput.path
+        : typeof toolInput?.file_path === 'string'
+          ? toolInput.file_path
+          : typeof toolInput?.pattern === 'string'
+            ? toolInput.pattern
+            : ''
+    return target ? `${toolName} ${target}` : toolName
+  }
+  return toolName
+}

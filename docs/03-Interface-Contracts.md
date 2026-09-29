@@ -74,7 +74,7 @@ export interface EventMap {
   UserLanguageChanged: { userId: string; platform: Platform; language: 'zh' | 'en' };
   UserTargetChanged: { userId: string; platform: Platform; cli?: CliType; cwd?: string }; // /switch 更新当前选中 CLI/cwd
   UserPreferencesReset: { userId: string; platform: Platform }; // /reset 后停止该用户 adapter
-
+  AgentActivityChanged: { conversationId: ConversationId; state: AgentActivityState; detail?: string }; // 实时动作（思考/执行命令/就绪）
   // —— 审批（Human-in-the-loop）——
   ApprovalRequested: { conversationId: ConversationId; approvalId: string; command: string; detail: string; createdAt: number; autoApproveAt?: number; autoApproveSeconds?: number };
   ApprovalApproved:  { conversationId: ConversationId; approvalId: string; operator: string; automatic?: boolean };

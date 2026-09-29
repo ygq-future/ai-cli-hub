@@ -26,7 +26,13 @@ import {
 import type { EventBus } from './event'
 import type { Repositories } from './repository'
 import type { MessageAggregator, MessageHandler } from './core'
-import { createClaudeSdkAdapter, formatOutputDelta, type ApprovalRequest, type CLIAdapter } from './cli'
+import {
+  createClaudeSdkAdapter,
+  formatOutputDelta,
+  formatToolDetail,
+  type ApprovalRequest,
+  type CLIAdapter,
+} from './cli'
 
 export interface SessionOrchestrator {
   /** 注入 CoreHub 的输入处理接缝。 */
@@ -308,6 +314,20 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       adapter.onOutput(delta => {
         resetIdleTimer(cid, entry)
         if (delta.final) clearTurnTimer(entry)
+        if (delta.kind === 'thinking') {
+          bus.emit('AgentActivityChanged', {
+            conversationId: cid,
+            state: 'thinking',
+            detail: delta.text || undefined,
+          })
+        } else if (delta.kind === 'tool_use') {
+          const detail = formatToolDetail(delta.toolName, delta.toolInput)
+          bus.emit('AgentActivityChanged', {
+            conversationId: cid,
+            state: 'executing',
+            detail,
+          })
+        }
         const text = formatOutputDelta(delta)
         if (text) {
           aggregator.push(cid, text)
@@ -323,6 +343,10 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
           })
         }
         if (delta.final) {
+          bus.emit('AgentActivityChanged', {
+            conversationId: cid,
+            state: 'idle',
+          })
           aggregator.flush(cid)
           void persistAssistant(cid, entry)
         }
@@ -334,6 +358,10 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       adapter.onApprovalRequest(req => {
         resetIdleTimer(cid, entry)
         clearTurnTimer(entry)
+        bus.emit('AgentActivityChanged', {
+          conversationId: cid,
+          state: 'idle',
+        })
         void publishApprovalRequest(cid, entry, req)
       }),
     )
@@ -342,6 +370,10 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     entry.unsubs.push(
       adapter.onExit(() => {
         clearTurnTimer(entry)
+        bus.emit('AgentActivityChanged', {
+          conversationId: cid,
+          state: 'idle',
+        })
         aggregator.flush(cid)
         cleanupEntry(cid)
         void markConversationIdleAfterAdapterExit(cid)
@@ -597,6 +629,11 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       void stopEntriesForUser(p.operatorUserId)
     }),
   )
+  function dispatchUserInput(cid: ConversationId, entry: AdapterEntry, input: string) {
+    scheduleTurnTimeout(cid, entry, input.length)
+    bus.emit('AgentActivityChanged', { conversationId: cid, state: 'thinking' })
+    entry.adapter.sendUserInput(input)
+  }
 
   const handler: MessageHandler = {
     async onMessage(text, conversationId) {
@@ -629,8 +666,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
           relevantMemoryIncluded: Boolean(relevantMemoryHint.trim()),
           adapterState: adapter.getState(),
         })
-        scheduleTurnTimeout(conversationId, result.entry, text.length)
-        adapter.sendUserInput(text)
+        dispatchUserInput(conversationId, result.entry, text)
         return ''
       }
 
@@ -648,8 +684,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
         relevantMemoryIncluded: input !== baseInput,
         adapterState: result.entry.adapter.getState(),
       })
-      scheduleTurnTimeout(conversationId, result.entry, input.length)
-      adapter.sendUserInput(input)
+      dispatchUserInput(conversationId, result.entry, input)
       return '' // 输出经聚合器异步流出，不经 handler 返回值
     },
   }

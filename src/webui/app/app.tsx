@@ -33,11 +33,13 @@ import {
   PanelRight,
   Send,
   Settings2,
+  Sparkles,
+  Terminal,
   X,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { CommandCatalogEntry } from '../../shared'
+import type { AgentActivitySnapshot, AgentActivityState, CommandCatalogEntry } from '../../shared'
 import { CommandPalette } from '../command-palette'
 import { findFirstPlaceholderRange, searchCommandCatalog } from '../command-palette-model'
 import { AppShell } from './app-shell'
@@ -135,6 +137,7 @@ type ServerEvent = {
   conversationId?: string
   command?: string
   detail?: string
+  state?: AgentActivityState
   createdAt?: number
   status?: string
   operator?: string
@@ -224,6 +227,7 @@ export function App() {
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyHydrated, setHistoryHydrated] = useState(false)
   const [showScrollToLatest, setShowScrollToLatest] = useState(false)
+  const [agentActivity, setAgentActivity] = useState<AgentActivitySnapshot | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting')
   const [settings, setSettings] = useState(false)
@@ -351,9 +355,13 @@ export function App() {
   }
 
   applyServerEventRef.current = payload => {
+    setAgentActivity(current => resolveNextAgentActivity(current, payload))
     if (payload.type === 'output' && typeof payload.content === 'string') {
       const content = payload.content
-      if (payload.final === true) releaseForceScrollAfterLayout.current = true
+      if (payload.final === true) {
+        releaseForceScrollAfterLayout.current = true
+        setAgentActivity(null)
+      }
       setTimeline(current =>
         appendOutput(
           current,
@@ -544,7 +552,7 @@ export function App() {
       updateFeedScrollState()
     })
     return () => cancelAnimationFrame(frame)
-  }, [historyHydrated, page, timeline])
+  }, [historyHydrated, page, timeline, agentActivity])
   useEffect(
     () => () => {
       for (const url of objectUrls.current) URL.revokeObjectURL(url)
@@ -665,6 +673,7 @@ export function App() {
     setCommandPaletteOpen(false)
     setFiles([])
     setSelectedFileId(null)
+    setAgentActivity({ state: 'thinking' })
   }
   const selectCommand = (entry: CommandCatalogEntry) => {
     const range = findFirstPlaceholderRange(entry.insertText)
@@ -884,6 +893,9 @@ export function App() {
                   <ApprovalCard key={item.approvalId} approval={item} decide={decide} t={t} />
                 ),
               )}
+              {agentActivity && agentActivity.state !== 'idle' && (
+                <AgentActivityIndicator activity={agentActivity} t={t} />
+              )}
             </div>
             <form ref={composerWrap} className="composer-wrap" onSubmit={send}>
               {commandPaletteOpen && text.startsWith('/') && (
@@ -991,14 +1003,16 @@ export function App() {
           <StatusPanel status={status} t={t} />
         </div>
       ) : (
-        <Suspense
-          fallback={
-            <div className="admin-page">
-              <div className="admin-panel admin-state">{t('正在加载管理页面…', 'Loading administration page…')}</div>
-            </div>
-          }>
-          <AdministrationPage page={page} locale={preferences.locale} />
-        </Suspense>
+        <div className="admin-shell">
+          <Suspense
+            fallback={
+              <div className="admin-page">
+                <div className="admin-panel admin-state">{t('正在加载管理页面…', 'Loading administration page…')}</div>
+              </div>
+            }>
+            <AdministrationPage page={page} locale={preferences.locale} />
+          </Suspense>
+        </div>
       )}
       <Dialog open={settings} onOpenChange={setSettings}>
         <DialogContent className="settings-dialog">
@@ -1046,6 +1060,36 @@ export function App() {
         </DialogContent>
       </Dialog>
     </AppShell>
+  )
+}
+function AgentActivityIndicator({ activity, t }: { activity: AgentActivitySnapshot; t: Translator }) {
+  if (activity.state === 'idle') return null
+  const isThinking = activity.state === 'thinking'
+  const label = isThinking ? t('正在思考…', 'Thinking…') : t('正在执行…', 'Executing…')
+
+  return (
+    <div className={`agent-activity-banner ${activity.state}`} role="status" aria-live="polite">
+      <div className="agent-activity-icon">
+        {isThinking ? (
+          <Sparkles size={15} className="agent-activity-spin" aria-hidden="true" />
+        ) : (
+          <Terminal size={15} className="agent-activity-pulse" aria-hidden="true" />
+        )}
+      </div>
+      <div className="agent-activity-text">
+        <span className="agent-activity-label">{label}</span>
+        {activity.detail ? (
+          <code className="agent-activity-detail" title={activity.detail}>
+            {activity.detail}
+          </code>
+        ) : null}
+      </div>
+      <div className="agent-activity-dots" aria-hidden="true">
+        <span className="dot" />
+        <span className="dot" />
+        <span className="dot" />
+      </div>
+    </div>
   )
 }
 
@@ -1623,6 +1667,20 @@ function ArrayField({
       </Button>
     </div>
   )
+}
+export function resolveNextAgentActivity(
+  current: AgentActivitySnapshot | null,
+  event: { type?: string; state?: string; detail?: string; final?: boolean },
+): AgentActivitySnapshot | null {
+  if (event.type === 'agent_activity') {
+    if (event.state === 'idle') return null
+    if (event.state === 'thinking' || event.state === 'executing') {
+      return { state: event.state, detail: event.detail }
+    }
+  }
+  if (event.type === 'output') return null
+  if (event.type === 'approval' || event.type === 'error') return null
+  return current
 }
 
 export function appendOutput(

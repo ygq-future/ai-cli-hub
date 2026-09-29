@@ -183,6 +183,30 @@ test('WebSocket transport 将已知会话的流式输出回传浏览器', async 
   ])
   await transport.stop()
 })
+test('WebSocket transport 将已知会话的 AgentActivityChanged 广播为 agent_activity 事件', async () => {
+  const bus = createEventBus()
+  const { gateway, sent } = createGateway()
+  const transport = createWebSocketTransport({ bus, gateway, userId: 'web-admin' })
+  await transport.start()
+  const conversationId = 'web-conversation' as ConversationId
+  bus.emit('SessionCreated', {
+    conversationId,
+    platform: 'web',
+    userId: 'web-admin',
+    cli: 'claude',
+    cwd: '/',
+  })
+  bus.emit('AgentActivityChanged', {
+    conversationId,
+    state: 'executing',
+    detail: 'git status',
+  })
+
+  expect(sent.map(data => JSON.parse(data))).toEqual([
+    { v: 1, type: 'agent_activity', conversationId, state: 'executing', detail: 'git status' },
+  ])
+  await transport.stop()
+})
 
 test('WebSocket transport 收到会话删除事件后撤销会话和审批缓存', async () => {
   const bus = createEventBus()

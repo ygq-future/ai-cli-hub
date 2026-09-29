@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { OutputDelta } from './base'
-import { formatOutputDelta } from './format-output'
+import { formatOutputDelta, formatToolDetail } from './format-output'
 
 describe('formatOutputDelta', () => {
   test('text 直出', () => {
@@ -163,5 +163,24 @@ IMPORTANT SYSTEM-ROLE / CROSS-CUTTING INSTRUCTIONS:
   test('final 收尾 delta（text 空）返回空串', () => {
     const d: OutputDelta = { kind: 'text', text: '', final: true }
     expect(formatOutputDelta(d)).toBe('')
+  })
+})
+
+describe('formatToolDetail', () => {
+  test('Bash 命令提取并截断首行', () => {
+    expect(formatToolDetail('Bash', { command: 'git status' })).toBe('git status')
+    expect(formatToolDetail('Bash', { command: 'npm test\necho done' })).toBe('npm test')
+    expect(formatToolDetail('Bash', {})).toBe('Bash')
+  })
+
+  test('文件或搜索类工具展示工具名和目标路径/模式', () => {
+    expect(formatToolDetail('Read', { path: 'src/main.ts' })).toBe('Read src/main.ts')
+    expect(formatToolDetail('Edit', { file_path: 'src/app.tsx' })).toBe('Edit src/app.tsx')
+    expect(formatToolDetail('Grep', { pattern: 'TODO' })).toBe('Grep TODO')
+  })
+
+  test('空工具名或未知工具安全退化', () => {
+    expect(formatToolDetail()).toBeUndefined()
+    expect(formatToolDetail('CustomTool', { key: 'val' })).toBe('CustomTool')
   })
 })

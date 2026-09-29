@@ -21,6 +21,15 @@ export type ApprovalAction = 'approve' | 'reject'
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected'
 export type MessageType = 'chat' | 'approval'
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+export type AgentActivityState = 'thinking' | 'executing' | 'idle'
+
+export interface AgentActivity {
+  conversationId: ConversationId
+  state: AgentActivityState
+  detail?: string
+}
+
+export type AgentActivitySnapshot = Omit<AgentActivity, 'conversationId'>
 
 export interface ApprovalAuditRequest {
   command: string

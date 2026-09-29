@@ -1054,4 +1054,35 @@ describe('SessionOrchestrator', () => {
     await orch.destroy()
     agg.destroy()
   })
+  test('输入、thinking、tool_use 与 final 驱动 AgentActivityChanged 事件', async () => {
+    const bus = createEventBus()
+    const fake = createFakeAdapter()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
+
+    const activities: Array<{ state: string; detail?: string }> = []
+    bus.on('AgentActivityChanged', p => activities.push({ state: p.state, detail: p.detail }))
+
+    await orch.handler.onMessage('check files', CID)
+    expect(activities).toEqual([{ state: 'thinking', detail: undefined }])
+
+    fake.emitOutput({ kind: 'thinking', text: 'planning next steps', final: false })
+    expect(activities[1]).toEqual({ state: 'thinking', detail: 'planning next steps' })
+
+    fake.emitOutput({
+      kind: 'tool_use',
+      text: '',
+      final: false,
+      toolName: 'Bash',
+      toolInput: { command: 'git status' },
+    })
+    expect(activities[2]).toEqual({ state: 'executing', detail: 'git status' })
+
+    fake.emitOutput({ kind: 'text', text: 'Files are clean.', final: true })
+    expect(activities[3]).toEqual({ state: 'idle', detail: undefined })
+
+    await orch.destroy()
+    agg.destroy()
+  })
 })

@@ -464,4 +464,57 @@ describe('ClaudeSdkAdapter (real message flow)', () => {
     const a = createClaudeSdkAdapter({ queryFn: fakeQuery([]) })
     await expect(a.getContextUsage!()).rejects.toThrow('session is not ready')
   })
+  test('stream_event 产出 thinking 增量 delta', async () => {
+    const a = createClaudeSdkAdapter({
+      queryFn: fakeQuery([
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_start',
+            content_block: { type: 'thinking' },
+          },
+        } as unknown as SDKMessage,
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            delta: { type: 'thinking_delta', thinking: 'Analyzing codebase...' },
+          },
+        } as unknown as SDKMessage,
+        resultMsg(),
+      ]),
+    })
+    const out: OutputDelta[] = []
+    a.onOutput(d => out.push(d))
+
+    await a.start(SPAWN)
+    await tick()
+
+    expect(out).toEqual([
+      { kind: 'thinking', text: '', final: false },
+      { kind: 'thinking', text: 'Analyzing codebase...', final: false },
+      { kind: 'text', text: 'done', final: true },
+    ])
+  })
+
+  test('canUseTool 自动放行只读命令时发出 tool_use 动作', async () => {
+    let canUseToolCb: CanUseTool | undefined
+    const a = createClaudeSdkAdapter({
+      queryFn: fakeQuery([], cb => {
+        canUseToolCb = cb
+      }),
+    })
+    const out: OutputDelta[] = []
+    a.onOutput(d => out.push(d))
+
+    await a.start(SPAWN)
+    const result = await canUseToolCb!('Bash', { command: 'git status' }, {
+      toolUseID: 'tu-1',
+    } as Parameters<CanUseTool>[2])
+
+    expect(result?.behavior).toBe('allow')
+    expect(out).toEqual([
+      { kind: 'tool_use', text: '', final: false, toolName: 'Bash', toolInput: { command: 'git status' } },
+    ])
+  })
 })

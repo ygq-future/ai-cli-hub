@@ -251,6 +251,16 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
         }),
       )
       unsubs.push(
+        deps.bus.on('AgentActivityChanged', event => {
+          if (conversations.has(event.conversationId))
+            send('agent_activity', {
+              conversationId: event.conversationId,
+              state: event.state,
+              detail: event.detail,
+            })
+        }),
+      )
+      unsubs.push(
         deps.bus.on('ConversationDeleted', event => {
           conversations.delete(event.conversationId)
           for (const key of [...resolvedApprovals.keys()]) {

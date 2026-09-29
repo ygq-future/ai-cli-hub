@@ -99,16 +99,26 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
   const exitHandlers: Array<(i: ExitInfo) => void> = []
   const pendingApprovals = new Map<
     string,
-    { resolve: (r: PermissionResult) => void; toolInput: Record<string, unknown> }
+    { resolve: (r: PermissionResult) => void; toolInput: Record<string, unknown>; command?: string }
   >()
+  function emitToolUse(toolName: string, toolInput: Record<string, unknown>) {
+    emitHandlers(outputHandlers, {
+      kind: 'tool_use',
+      text: '',
+      final: false,
+      toolName,
+      toolInput,
+    })
+  }
 
   /** 审批策略：只读工具自动 allow，其余弹审批。 */
   const handleCanUseTool: CanUseTool = (toolName, toolInput, { toolUseID }) => {
     if (isReadOnlyToolName(toolName) || (toolName === 'Bash' && isReadOnlyBashCommand(toolInput))) {
+      emitToolUse(toolName, inputRecord(toolInput))
       return Promise.resolve({ behavior: 'allow', updatedInput: toolInput, toolUseID })
     }
     return new Promise<PermissionResult>(resolve => {
-      pendingApprovals.set(toolUseID, { resolve, toolInput: inputRecord(toolInput) })
+      pendingApprovals.set(toolUseID, { resolve, toolInput: inputRecord(toolInput), command: toolName })
       state = 'waitingApproval'
       emitHandlers(approvalHandlers, { approvalId: toolUseID, command: toolName, detail: JSON.stringify(toolInput) })
     })
@@ -145,18 +155,32 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
 
     if (msg.type === 'stream_event') {
       state = 'busy'
-      const event = (msg as { event?: { type?: string; delta?: { type?: string; text?: string } } }).event
-      if (
-        event?.type === 'content_block_delta' &&
-        event.delta?.type === 'text_delta' &&
-        typeof event.delta.text === 'string'
-      ) {
-        const visible = sanitizeVisibleText(event.delta.text)
-        if (visible) {
-          turnHasVisibleText = true
+      const event = (msg as { event?: Record<string, unknown> }).event
+      if (event?.type === 'content_block_delta') {
+        const delta = (event.delta ?? {}) as Record<string, unknown>
+        if (delta.type === 'text_delta' && typeof delta.text === 'string') {
+          const visible = sanitizeVisibleText(delta.text)
+          if (visible) {
+            turnHasVisibleText = true
+            emitHandlers(outputHandlers, {
+              kind: 'text',
+              text: visible,
+              final: false,
+            })
+          }
+        } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
           emitHandlers(outputHandlers, {
-            kind: 'text',
-            text: visible,
+            kind: 'thinking',
+            text: delta.thinking,
+            final: false,
+          })
+        }
+      } else if (event?.type === 'content_block_start') {
+        const block = (event.content_block ?? {}) as Record<string, unknown>
+        if (block.type === 'thinking') {
+          emitHandlers(outputHandlers, {
+            kind: 'thinking',
+            text: '',
             final: false,
           })
         }
@@ -268,6 +292,7 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
       state = 'busy'
       // PermissionResult 要求 allow 时传 updatedInput+toolUseID，deny 时传 message
       if (decision === 'approve') {
+        emitToolUse(pending.command ?? 'tool', pending.toolInput)
         pending.resolve({ behavior: 'allow', updatedInput: pending.toolInput, toolUseID: approvalId })
       } else {
         pending.resolve({
