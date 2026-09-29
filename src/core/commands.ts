@@ -42,9 +42,8 @@ export interface CommandRouterDeps {
   resolveCwd?: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
-  getUpdatePreview?: () => string
+  getUpdatePreview?: () => Promise<string> | string
   performUpdate?: (ref: EventMap['MessageReceived']['ref']) => Promise<string>
-  getRestartPreview?: () => string
   performRestart?: (ref: EventMap['MessageReceived']['ref']) => Promise<string>
   clearConversationFiles?: (conversationId: ConversationId) => Promise<void>
   resetUserPreferences?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
@@ -517,7 +516,7 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
             return true
           }
           if (parsed.args.length === 0) {
-            reply(payload, deps.getUpdatePreview())
+            reply(payload, await deps.getUpdatePreview())
             return true
           }
           if (parsed.args.length === 1 && parsed.args[0] === 'confirm') {
@@ -526,31 +525,23 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           }
           reply(
             payload,
-            commandError('自更新参数无效', '先查看更新计划，再明确确认执行。', '/update 或 /update confirm'),
+            commandError('自更新参数无效', '先查看更新预览，再明确确认执行。', '/update 或 /update confirm'),
           )
           return true
         }
 
         case 'restart': {
-          if (!deps.getRestartPreview || !deps.performRestart) {
+          if (!deps.performRestart) {
             reply(payload, commandError('重启不可用', '服务尚未配置受控重启实现。'))
             return true
           }
-          if (parsed.args.length === 0) {
-            reply(payload, deps.getRestartPreview())
-            return true
-          }
-          if (parsed.args.length === 1 && parsed.args[0] === 'confirm') {
+          if (parsed.args.length === 0 || (parsed.args.length === 1 && parsed.args[0] === 'confirm')) {
             reply(payload, await deps.performRestart(payload.ref))
             return true
           }
-          reply(
-            payload,
-            commandError('重启参数无效', '先查看重启计划，再明确确认执行。', '/restart 或 /restart confirm'),
-          )
+          reply(payload, commandError('重启参数无效', '直接发送 /restart 即可执行重启。', '/restart'))
           return true
         }
-
         case 'forget': {
           const target = parsed.args[0]?.trim()
           if (!target) {

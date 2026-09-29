@@ -21,7 +21,7 @@ export interface CommandSpec {
 }
 
 export interface UpdateRunner {
-  preview(): string
+  preview(): Promise<string>
   run(ref?: MessageRef): Promise<string>
 }
 
@@ -47,15 +47,138 @@ export function createUpdateRunner(deps: UpdateRunnerDeps): UpdateRunner {
   const platform = deps.platform ?? process.platform
 
   return {
-    preview(): string {
+    async preview(): Promise<string> {
       if (platform === 'win32') return formatUpdateUnsupported()
-      return formatUpdatePreview({
-        workdir: deps.config.UPDATE_WORKDIR,
-        requireCleanWorktree: deps.config.UPDATE_REQUIRE_CLEAN_WORKTREE,
-        steps,
-        restartCommand: deps.config.UPDATE_RESTART_COMMAND,
-        restartArgs: deps.config.UPDATE_RESTART_ARGS,
-        restartDelayMs: deps.config.UPDATE_RESTART_DELAY_MS,
+
+      const results: UpdateStepResult[] = []
+
+      let dirtyWarning: string | null = null
+      let worktreeStatus = '未检查'
+      const status = await runStep(deps, {
+        label: 'check clean worktree',
+        command: 'git',
+        args: ['status', '--short'],
+        critical: false,
+      })
+      results.push(status)
+      if (status.result.code === 0) {
+        if (status.result.stdout.trim()) {
+          worktreeStatus = '存在未提交变更'
+          dirtyWarning = '工作树存在未提交的变更，更新可能冲突或被阻止。'
+        } else {
+          worktreeStatus = '干净'
+        }
+      }
+
+      const currentRev = await runStep(deps, revisionStep('read current revision'))
+      results.push(currentRev)
+      if (currentRev.result.code !== 0) {
+        return formatUpdateFailure(results, '读取当前本地版本失败。')
+      }
+      const beforeHash = currentRev.result.stdout.trim()
+
+      const fetchStep = await runStep(deps, {
+        label: 'fetch remote updates',
+        command: 'git',
+        args: ['fetch'],
+        critical: true,
+      })
+      results.push(fetchStep)
+      if (fetchStep.result.code !== 0) {
+        return formatUpdateFailure(results, '拉取远程更新信息失败，请检查网络连接或远程仓库配置。')
+      }
+
+      const upstreamRev = await runStep(deps, {
+        label: 'read upstream revision',
+        command: 'git',
+        args: ['rev-parse', '@{upstream}'],
+        critical: true,
+      })
+      results.push(upstreamRev)
+      let targetRef = '@{upstream}'
+      let afterHash = upstreamRev.result.stdout.trim()
+      if (upstreamRev.result.code !== 0 || !afterHash) {
+        const fallbackRev = await runStep(deps, {
+          label: 'read origin/main revision',
+          command: 'git',
+          args: ['rev-parse', 'origin/main'],
+          critical: true,
+        })
+        results.push(fallbackRev)
+        if (fallbackRev.result.code === 0 && fallbackRev.result.stdout.trim()) {
+          targetRef = 'origin/main'
+          afterHash = fallbackRev.result.stdout.trim()
+        } else {
+          return formatUpdateFailure(results, '未检测到远程追踪分支（@{upstream} 或 origin/main）。')
+        }
+      }
+
+      const logStep = await runStep(deps, {
+        label: 'inspect commits',
+        command: 'git',
+        args: ['log', '--format=%h%x09%s', '-n', String(MAX_COMMITS), `HEAD..${targetRef}`],
+        critical: true,
+      })
+      results.push(logStep)
+      if (logStep.result.code !== 0) return formatUpdateFailure(results, '读取待更新提交失败。')
+      const commits = parseGitCommits(logStep.result.stdout)
+
+      if (beforeHash === afterHash || commits.length === 0) {
+        return formatPreviewUpToDate({
+          revision: shortHash(beforeHash),
+          worktreeStatus,
+          dirtyWarning,
+        })
+      }
+
+      const diffStatStep = await runStep(deps, {
+        label: 'inspect code changes',
+        command: 'git',
+        args: ['diff', '--shortstat', `HEAD..${targetRef}`],
+        critical: true,
+      })
+      results.push(diffStatStep)
+      const shortstat = diffStatStep.result.stdout.trim()
+
+      const diffNamesStep = await runStep(deps, {
+        label: 'inspect changed files',
+        command: 'git',
+        args: ['diff', '--name-only', `HEAD..${targetRef}`],
+        critical: true,
+      })
+      results.push(diffNamesStep)
+      const changedFiles = diffNamesStep.result.stdout
+        .split(/\r?\n/)
+        .map(s => s.trim())
+        .filter(Boolean)
+
+      const actions: string[] = []
+      if (changedFiles.some(f => f === 'package.json' || f === 'bun.lock')) {
+        actions.push('依赖同步 (`bun install --frozen-lockfile`)')
+      }
+      if (changedFiles.some(f => f.startsWith('src/webui/'))) {
+        actions.push('WebUI 构建 (`bun run webui:build:staged` -> `promote`)')
+      }
+      if (changedFiles.some(f => f.startsWith('settings.json.example') || f.startsWith('scripts/setting'))) {
+        actions.push('配置迁移 (`bun run setting:migrate`)')
+      }
+      if (changedFiles.some(f => f.startsWith('drizzle/') || f.startsWith('src/storage/schema/'))) {
+        actions.push('数据库迁移 (`bun run db:migrate`)')
+      }
+
+      const restart = deps.config.UPDATE_RESTART_COMMAND.trim()
+        ? `${formatCommand(deps.config.UPDATE_RESTART_COMMAND, deps.config.UPDATE_RESTART_ARGS)} after ${deps.config.UPDATE_RESTART_DELAY_MS}ms`
+        : '手动重启'
+
+      return formatPreviewWithUpdates({
+        beforeRevision: shortHash(beforeHash),
+        afterRevision: shortHash(afterHash),
+        commits,
+        shortstat,
+        actions,
+        restartCommand: restart,
+        worktreeStatus,
+        dirtyWarning,
       })
     },
 
@@ -230,14 +353,7 @@ async function inspectGitUpdate(
     before,
     after,
     diffStat: diff.result.stdout.trim(),
-    commits: log.result.stdout
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => {
-        const [hash = '', ...subject] = line.split('\t')
-        return { hash, subject: subject.join('\t') || '(无提交说明)' }
-      }),
+    commits: parseGitCommits(log.result.stdout),
   }
 }
 
@@ -251,45 +367,73 @@ async function runStep(deps: UpdateRunnerDeps, step: CommandSpec): Promise<Updat
     }))
   return { step, result }
 }
-
-function formatUpdatePreview(input: {
-  workdir: string
-  requireCleanWorktree: boolean
-  steps: CommandSpec[]
-  restartCommand: string
-  restartArgs: string[]
-  restartDelayMs: number
-}): string {
-  const [pull, ...remainingSteps] = input.steps
-  const commands = [
-    ...(input.requireCleanWorktree ? ['git status --short'] : []),
-    'git rev-parse HEAD',
-    ...(pull ? [formatCommand(pull.command, pull.args)] : []),
-    'git rev-parse HEAD',
-    'git diff --shortstat <before>..<after>（有新提交时）',
-    'git log --format=%h%x09%s <before>..<after>（有新提交时）',
-    ...remainingSteps.map(step => formatCommand(step.command, step.args)),
-  ]
-  const restart = input.restartCommand.trim()
-    ? `${formatCommand(input.restartCommand, input.restartArgs)} after ${input.restartDelayMs}ms`
-    : 'manual restart required'
-
-  return [
-    '## 🔄 自更新预检',
-    '',
-    `- **工作目录**: \`${input.workdir}\``,
-    `- **工作树要求**: ${input.requireCleanWorktree ? '必须干净' : '不检查'}`,
-    '',
-    '### 将执行',
-    ...commands.map((command, index) => `${index + 1}. \`${command}\``),
-    '',
-    '### 重启安排',
-    `- \`${restart}\``,
-    '',
-    '> 确认执行请发送 `/update confirm`。',
-  ].join('\n')
+function parseGitCommits(stdout: string): Array<{ hash: string; subject: string }> {
+  return stdout
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const [hash = '', ...subject] = line.split('\t')
+      return { hash, subject: subject.join('\t') || '(无提交说明)' }
+    })
 }
 
+function formatPreviewUpToDate(input: {
+  revision: string
+  worktreeStatus?: string
+  dirtyWarning: string | null
+}): string {
+  const lines = [
+    '## 🔄 自更新预检',
+    '',
+    `当前已是最新版本（\`${input.revision}\`），暂无待更新内容。`,
+    `- **工作树**: ${input.worktreeStatus ?? '干净'}`,
+  ]
+  if (input.dirtyWarning) {
+    lines.push('', `⚠️ **注意**: ${input.dirtyWarning}`)
+  }
+  return lines.join('\n')
+}
+
+function formatPreviewWithUpdates(input: {
+  beforeRevision: string
+  afterRevision: string
+  commits: Array<{ hash: string; subject: string }>
+  shortstat: string
+  actions: string[]
+  restartCommand: string
+  worktreeStatus?: string
+  dirtyWarning: string | null
+}): string {
+  const commitLines = input.commits.length
+    ? input.commits.map(c => `- \`${c.hash}\` ${c.subject}`)
+    : ['- （无新提交记录）']
+
+  const actionLines = input.actions.length
+    ? input.actions.map(a => `- ${a}`)
+    : ['- 代码更新（无依赖、数据库或配置迁移步骤）']
+
+  const lines = [
+    '## 🔄 自更新预检',
+    '',
+    `发现待更新提交（\`${input.beforeRevision}\` → \`${input.afterRevision}\`）：`,
+    '',
+    '### 待更新提交',
+    ...commitLines,
+    '',
+    '### 变动概览',
+    ...(input.shortstat ? [`- **统计**: ${input.shortstat}`] : []),
+    `- **工作树**: ${input.worktreeStatus ?? '干净'}`,
+    '- **触发操作**:',
+    ...actionLines.map(line => `  ${line}`),
+    `- **重启安排**: \`${input.restartCommand}\``,
+  ]
+  if (input.dirtyWarning) {
+    lines.push('', `⚠️ **警告**: ${input.dirtyWarning}`)
+  }
+  lines.push('', '> 确认执行请发送 `/update confirm`。')
+  return lines.join('\n')
+}
 function formatUpdateSuccess(report: UpdateReport, warning: string | null = null): string {
   const sections = [
     formatGitReport(report.git),
@@ -366,6 +510,10 @@ function formatStepLabel(label: string): string {
     'read current revision': '读取当前版本',
     'read updated revision': '读取更新版本',
     'inspect code changes': '统计代码变更',
+    'fetch remote updates': '拉取远程更新',
+    'read upstream revision': '读取远程追踪版本',
+    'read origin/main revision': '读取远端主分支版本',
+    'inspect changed files': '检测变更文件',
     'inspect commits': '读取更新提交',
   }
   return labels[label] ?? label

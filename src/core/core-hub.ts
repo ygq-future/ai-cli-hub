@@ -48,9 +48,8 @@ export interface CoreHubOptions {
   selectModel?: (conversationId: ConversationId, model: CliModel) => Promise<CliModelPreference>
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
-  getUpdatePreview?: () => string
+  getUpdatePreview?: () => Promise<string> | string
   performUpdate?: (ref: MessageRef) => Promise<string>
-  getRestartPreview?: () => string
   performRestart?: (ref: MessageRef) => Promise<string>
   clearConversationFiles?: (conversationId: ConversationId) => Promise<void>
   resetUserPreferences?: (platform: Platform, userId: string) => Promise<{ cli: CliType; cwd: string }>
@@ -91,7 +90,6 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
       getHealthReport: opts.getHealthReport,
       getUpdatePreview: opts.getUpdatePreview,
       performUpdate: opts.performUpdate,
-      getRestartPreview: opts.getRestartPreview,
       performRestart: opts.performRestart,
       clearConversationFiles: opts.clearConversationFiles,
       resetUserPreferences: opts.resetUserPreferences,

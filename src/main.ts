@@ -388,7 +388,6 @@ async function main() {
     getHealthReport: health.getReport,
     getUpdatePreview: updater.preview,
     performUpdate: updater.run,
-    getRestartPreview: restarter.preview,
     performRestart: restarter.run,
     clearConversationFiles: conversationFileLifecycle.clear,
     resetUserPreferences: userPreferences.reset,

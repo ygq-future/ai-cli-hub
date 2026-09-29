@@ -202,10 +202,10 @@ export const COMMAND_CATALOG = [
     command: '/update',
     insertText: '/update',
     description: {
-      zh: '预览受控自更新计划；使用 /update confirm 执行。',
-      en: 'Preview the controlled self-update plan; use /update confirm to execute.',
+      zh: '检查远程更新并预览变动摘要；使用 /update confirm 执行。',
+      en: 'Fetch remote updates and preview change summary; use /update confirm to execute.',
     },
-    keywords: { zh: ['更新', '升级', '拉取代码'], en: ['update', 'upgrade', 'pull code'] },
+    keywords: { zh: ['更新', '升级', '检查更新', '拉取代码'], en: ['update', 'upgrade', 'check update', 'pull code'] },
     primaryHelp: true,
   },
   {
@@ -223,8 +223,8 @@ export const COMMAND_CATALOG = [
     command: '/restart',
     insertText: '/restart',
     description: {
-      zh: '预览服务重启计划；使用 /restart confirm 执行。',
-      en: 'Preview the service restart plan; use /restart confirm to execute.',
+      zh: '执行受控服务重启并排期恢复通知。',
+      en: 'Restart the service under process manager and schedule a restore notice.',
     },
     keywords: { zh: ['重启', '重新启动', '服务'], en: ['restart', 'reboot', 'service'] },
     primaryHelp: true,
@@ -234,7 +234,10 @@ export const COMMAND_CATALOG = [
     category: 'operations',
     command: '/restart confirm',
     insertText: '/restart confirm',
-    description: { zh: '确认执行服务重启。', en: 'Confirm and execute the service restart.' },
+    description: {
+      zh: '确认执行服务重启（与 /restart 等价）。',
+      en: 'Confirm service restart (equivalent to /restart).',
+    },
     keywords: { zh: ['确认重启', '执行重启', '重新启动'], en: ['confirm restart', 'execute restart', 'reboot'] },
     primaryHelp: false,
   },

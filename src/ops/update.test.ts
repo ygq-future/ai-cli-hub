@@ -48,28 +48,81 @@ function changedRevisionResult() {
 }
 
 describe('update runner', () => {
-  test('preview lists commands and explicit confirmation', () => {
+  test('preview detects new commits, diff stat, affected steps, and shows confirmation', async () => {
     const runner = createUpdateRunner({
       config: config(),
       platform: 'linux',
-      runCommand: async () => ok(),
+      runCommand: async (command, args) => {
+        const call = [command, ...args].join(' ')
+        if (call === 'git rev-parse HEAD') return ok('1111111111111111')
+        if (call === 'git fetch') return ok()
+        if (call === 'git rev-parse @{upstream}') return ok('2222222222222222')
+        if (call.startsWith('git log --format=')) return ok('2222222\tfeat: new feature\n3333333\tfix: bug')
+        if (call.startsWith('git diff --shortstat')) return ok('3 files changed, 25 insertions(+), 4 deletions(-)')
+        if (call.startsWith('git diff --name-only'))
+          return ok('package.json\nsrc/webui/app/app.tsx\nsettings.json.example\ndrizzle/0021_example.sql')
+        return ok()
+      },
       scheduleRestart() {},
     })
 
-    const preview = runner.preview()
+    const preview = await runner.preview()
 
     expect(preview).toContain('## 🔄 自更新预检')
-    expect(preview).toContain('**工作目录**: `/app/ai-cli-hub`')
-    expect(preview).toContain('git status --short')
-    expect(preview).toContain('git pull --ff-only')
-    expect(preview).toContain('git diff --shortstat <before>..<after>')
-    expect(preview).toContain('bun install --frozen-lockfile')
-    expect(preview).toContain('bun run webui:build:staged')
-    expect(preview).toContain('bun run setting:migrate')
-    expect(preview).toContain('bun run db:migrate')
-    expect(preview).toContain('bun run webui:promote')
+    expect(preview).toContain('发现待更新提交（`11111111` → `22222222`）')
+    expect(preview).toContain('`2222222` feat: new feature')
+    expect(preview).toContain('`3333333` fix: bug')
+    expect(preview).toContain('**工作树**: 干净')
+    expect(preview).toContain('3 files changed, 25 insertions(+), 4 deletions(-)')
+    expect(preview).toContain('依赖同步 (`bun install --frozen-lockfile`)')
+    expect(preview).toContain('WebUI 构建 (`bun run webui:build:staged` -> `promote`)')
+    expect(preview).toContain('配置迁移 (`bun run setting:migrate`)')
+    expect(preview).toContain('数据库迁移 (`bun run db:migrate`)')
     expect(preview).toContain('`pm2 restart ai-cli-hub after 1500ms`')
     expect(preview).toContain('/update confirm')
+  })
+
+  test('preview reports up-to-date when local revision matches upstream', async () => {
+    const runner = createUpdateRunner({
+      config: config(),
+      platform: 'linux',
+      runCommand: async (command, args) => {
+        const call = [command, ...args].join(' ')
+        if (call === 'git rev-parse HEAD') return ok('aaaaaaaaaaaaaaaa')
+        if (call === 'git fetch') return ok()
+        if (call === 'git rev-parse @{upstream}') return ok('aaaaaaaaaaaaaaaa')
+        return ok()
+      },
+      scheduleRestart() {},
+    })
+
+    const preview = await runner.preview()
+
+    expect(preview).toContain('## 🔄 自更新预检')
+    expect(preview).toContain('当前已是最新版本（`aaaaaaaa`），暂无待更新内容。')
+    expect(preview).toContain('**工作树**: 干净')
+  })
+
+  test('preview reports up-to-date when local branch is ahead of upstream (0 incoming commits)', async () => {
+    const runner = createUpdateRunner({
+      config: config(),
+      platform: 'linux',
+      runCommand: async (command, args) => {
+        const call = [command, ...args].join(' ')
+        if (call === 'git rev-parse HEAD') return ok('local11111111111')
+        if (call === 'git fetch') return ok()
+        if (call === 'git rev-parse @{upstream}') return ok('upstream2222222')
+        if (call.startsWith('git log --format=')) return ok('') // 0 commits incoming
+        return ok()
+      },
+      scheduleRestart() {},
+    })
+
+    const preview = await runner.preview()
+
+    expect(preview).toContain('## 🔄 自更新预检')
+    expect(preview).toContain('当前已是最新版本（`local111`），暂无待更新内容。')
+    expect(preview).toContain('**工作树**: 干净')
   })
 
   test('windows platform reports unsupported and does not run commands', async () => {
@@ -87,7 +140,7 @@ describe('update runner', () => {
       },
     })
 
-    const preview = runner.preview()
+    const preview = await runner.preview()
     const report = await runner.run()
 
     expect(preview).toContain('自更新不可用')

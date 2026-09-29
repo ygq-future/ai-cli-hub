@@ -1680,23 +1680,22 @@ describe('CommandRouter', () => {
     expect((replies[1] as { content: string }).content).toContain('自更新完成')
   })
 
-  test('/restart 预览计划，/restart confirm 执行注入的重启', async () => {
+  test('/restart 直接执行注入的重启，/restart confirm 等价兼容执行', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()
     const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
-    let restartedRef: unknown
+    const restartedRefs: unknown[] = []
     const commandRouter = createCommandRouter({
       bus: bus as unknown as EventBus,
       repos,
       sessionManager: sm,
-      getRestartPreview: () => '**重启预检**\n确认执行请发送：/restart confirm',
       performRestart: async ref => {
-        restartedRef = ref
+        restartedRefs.push(ref)
         return '**重启已安排**'
       },
     })
-    const replies: unknown[] = []
-    bus.on('CommandReply', p => replies.push(p))
+    const replies: Array<{ content: string }> = []
+    bus.on('CommandReply', p => replies.push(p as { content: string }))
 
     await commandRouter.tryHandle({
       userId: 'u1',
@@ -1715,9 +1714,12 @@ describe('CommandRouter', () => {
       ref: { platform: 'telegram', chatId: 'c', nativeId: '2' },
     })
 
-    expect(restartedRef).toEqual({ platform: 'telegram', chatId: 'c', nativeId: '2' })
-    expect((replies[0] as { content: string }).content).toContain('重启预检')
-    expect((replies[1] as { content: string }).content).toContain('重启已安排')
+    expect(restartedRefs).toEqual([
+      { platform: 'telegram', chatId: 'c', nativeId: '1' },
+      { platform: 'telegram', chatId: 'c', nativeId: '2' },
+    ])
+    expect(replies[0]?.content).toContain('重启已安排')
+    expect(replies[1]?.content).toContain('重启已安排')
   })
 
   test('/autoapprove on|off [seconds] 持久化倒计时、校验范围并返回 Markdown 状态', async () => {
