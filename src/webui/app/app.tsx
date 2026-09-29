@@ -16,6 +16,7 @@ import {
   BellOff,
   BellRing,
   Check,
+  ChevronDown,
   ArrowDown,
   ChevronRight,
   Download,
@@ -92,8 +93,8 @@ type ServerMessage = Omit<Message, 'type' | 'attachments'> & {
 }
 type ComposerFile = { id: string; file: File; previewUrl: string | null }
 type PreviewImage = { name: string; url: string; size: number | null }
-type ApprovalState = 'pending' | 'resolving' | 'approved' | 'rejected' | 'unavailable'
-type Approval = {
+export type ApprovalState = 'pending' | 'resolving' | 'approved' | 'rejected' | 'unavailable'
+export type Approval = {
   type: 'approval'
   id: string
   createdAt: number
@@ -404,7 +405,7 @@ export function App() {
         approvalId: payload.approvalId,
         conversationId: payload.conversationId,
         command: payload.command,
-        detail: payload.detail,
+        detail: formatApprovalDetail(payload.detail),
         status: 'pending',
         operator: null,
         automatic: false,
@@ -1272,6 +1273,7 @@ function ApprovalCard({
   decide: (approval: Approval, action: 'approve' | 'reject') => void
   t: Translator
 }) {
+  const [expanded, setExpanded] = useState(false)
   const terminal = approval.status === 'approved' || approval.status === 'rejected' || approval.status === 'unavailable'
   const statusText =
     approval.status === 'approved'
@@ -1285,12 +1287,28 @@ function ApprovalCard({
           : approval.status === 'unavailable'
             ? t('审批记录不可用', 'Approval record unavailable')
             : t('需要授权', 'Authorization required')
+  const hasDetail = Boolean(approval.detail?.trim())
   return (
     <article className={`approval-card ${approval.status}`}>
-      <div>
-        <span>{statusText}</span>
-        <b>{approval.command}</b>
-        <pre>{approval.detail}</pre>
+      <div className="approval-card-main">
+        <div className="approval-card-header">
+          <div className="approval-card-title-group">
+            <span>{statusText}</span>
+            <b>{approval.command}</b>
+          </div>
+          {hasDetail && (
+            <button
+              type="button"
+              className={`approval-toggle-btn ${expanded ? 'expanded' : ''}`}
+              aria-label={expanded ? t('收起明细', 'Collapse detail') : t('展开明细', 'Expand detail')}
+              title={expanded ? t('收起明细', 'Collapse detail') : t('展开明细', 'Expand detail')}
+              onClick={() => setExpanded(current => !current)}>
+              <span className="approval-toggle-label">{t('明细', 'Detail')}</span>
+              <ChevronDown size={14} className={`approval-toggle-icon ${expanded ? 'expanded' : ''}`} />
+            </button>
+          )}
+        </div>
+        {expanded && hasDetail && <pre className="approval-detail">{approval.detail}</pre>}
         {terminal && approval.operator && (
           <small>
             {t('操作人', 'Operator')} · {approval.operator}
@@ -1800,8 +1818,26 @@ function hydrateTimelineItem(item: ServerTimelineItem): TimelineItem {
     automatic: item.approval.automatic,
   }
 }
-function formatApprovalDetail(detail: JsonValue): string {
-  return typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2)
+export function formatApprovalDetail(detail: unknown): string {
+  if (typeof detail === 'string') {
+    const trimmed = detail.trim()
+    if (!trimmed) return ''
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (parsed && typeof parsed === 'object') {
+          return JSON.stringify(parsed, null, 2)
+        }
+      } catch {
+        return detail
+      }
+    }
+    return detail
+  }
+  if (detail && typeof detail === 'object') {
+    return JSON.stringify(detail, null, 2)
+  }
+  return detail ? String(detail) : ''
 }
 function timelineKey(item: TimelineItem): string {
   return item.type === 'approval' ? `approval:${item.approvalId}` : `chat:${item.id}`
@@ -1810,14 +1846,22 @@ function prependHistory(page: TimelineItem[], current: TimelineItem[]): Timeline
   const currentKeys = new Set(current.map(timelineKey))
   return [...page.filter(item => !currentKeys.has(timelineKey(item))), ...current]
 }
-function upsertApproval(timeline: TimelineItem[], incoming: Approval): TimelineItem[] {
+export function upsertApproval(timeline: TimelineItem[], incoming: Approval): TimelineItem[] {
   const index = timeline.findIndex(item => item.type === 'approval' && item.approvalId === incoming.approvalId)
-  if (index < 0) return [...timeline, incoming]
-  return timeline.map((item, itemIndex) => {
-    if (itemIndex !== index || item.type !== 'approval') return item
-    if (item.status === 'approved' || item.status === 'rejected') return item
-    return { ...incoming, id: item.id, createdAt: item.createdAt }
-  })
+  if (index >= 0) {
+    return timeline.map((item, itemIndex) => {
+      if (itemIndex !== index || item.type !== 'approval') return item
+      if (item.status === 'approved' || item.status === 'rejected') return item
+      return { ...incoming, id: item.id, createdAt: item.createdAt }
+    })
+  }
+  const streamingIndex = timeline.findIndex(
+    item => item.type === 'chat' && item.role === 'assistant' && item.streaming === true,
+  )
+  if (streamingIndex >= 0) {
+    return [...timeline.slice(0, streamingIndex), incoming, ...timeline.slice(streamingIndex)]
+  }
+  return [...timeline, incoming]
 }
 function isTimelineServerEvent(payload: ServerEvent): boolean {
   return (

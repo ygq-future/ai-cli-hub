@@ -1006,6 +1006,48 @@ small {
 .approval-card.unavailable span {
   color: var(--dim);
 }
+.approval-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.approval-card-title-group {
+  min-width: 0;
+  flex: 1;
+}
+.approval-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--glass-raised) 90%, transparent);
+  color: var(--dim);
+  font-size: 0.75rem;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+.approval-toggle-btn:hover {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+.approval-toggle-btn .approval-toggle-label {
+  display: inline !important;
+  color: inherit !important;
+  font-size: inherit !important;
+  font-weight: 500 !important;
+}
+.approval-toggle-icon {
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.approval-toggle-icon.expanded {
+  transform: rotate(180deg);
+}
 .agent-activity-banner {
   display: inline-flex;
   align-items: center;

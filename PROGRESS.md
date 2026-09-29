@@ -3,18 +3,18 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-09-29 · 阶段：**Web 控制台布局一体化与实时动作加载指示器已完成**
+> 最后更新：2026-09-29 · 阶段：**Web 流式时间线保序、审批明细 prettyJSON 与默认折叠优化已完成**
 ---
 
 ## 1. 当前状态一览
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **Web 控制台布局一体化与实时动作加载指示器（✅ 完成）** |
-| 代码 | ✅ 已完成管理页面一体化 `.admin-shell` 外壳重构与内部独立滚动（消除了 Header 脱节和整页外层滚动）；新增 `AgentActivityChanged` 事件并在 Orchestrator / CLIAdapter / WebSocketTransport / WebUI 全链路落地思考与命令执行实时动作指示器。 |
-| 文档 | ✅ 契约文档 `docs/03-Interface-Contracts.md` 与本进度已同步。 |
+| 当前里程碑 | **Web 流式时间线保序、审批明细 prettyJSON 与默认折叠优化（✅ 完成）** |
+| 代码 | ✅ 解决流式时间线倒置：`upsertApproval` 在助手流式进行中时将新审批卡插入流式消息之前，保持流式消息始终吸附在末尾；改造 `formatApprovalDetail` 统一格式化为 2 格缩进 prettyJSON；审批卡片默认折叠明细，仅保留核心状态与主命令，并提供下拉箭头切换展示明细 JSON。 |
+| 文档 | ✅ PROGRESS.md 已同步。 |
 | 阻塞项 | 无 |
-| 下一步 | 按需进入下一项需求；全量 539 个单测全绿，代码与依赖架构保持一致。 |
+| 下一步 | 等待用户验收；全量 544 个单测全绿，构建和格式检查全部通过。 |
 
 ---
 
@@ -381,6 +381,7 @@
 | 2026-08-25 | **Web 发送后回复滚动跟随修复完成**：发送后最新消息跟随意图持续到 `final=true` 的助手回复，用户消息、流式片段和最终回复均按最新 `scrollHeight` 即时定位，避免回复内容被遮挡；新增跟随释放时机回归测试。最终门禁：`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、QQ 定向测试、串行全量 `bun test`（523 pass / 9 skip / 0 fail / 1752 expect）和 `git diff --check` 全部通过。 |
 | 2026-08-25 | **多平台当前 CLI 持久化恢复完成**：QQ 与 Telegram Transport 在内存目标缓存未命中时读取持久化的 CLI/cwd 目标并回填缓存，Composition Root 统一注入 `UserPreferences.getTarget`；Web 保持既有目标恢复链路。新增 QQ/Telegram Transport 重建后的目标恢复回归测试。 |
 | 2026-09-29 | **Web 控制台布局一体化与实时动作加载指示器完成**：重构管理页面（会话、偏好、记忆、审计）的容器与布局，引入与 Header 无缝拼接的 `.admin-shell` 外壳容器，消除整页滚动并实现会话列表/时间线详情/偏好范围/记忆卡片/审计记录的内部独立局部滚动（支持表格 Header 吸顶与分页栏吸底）；EventBus 新增 `AgentActivityChanged` 事件并在 Orchestrator、Claude SDK 与 OpenCode 适配器中捕获思考（thinking）与工具/命令执行（executing 带 detail），WebSocketTransport 广播 `agent_activity`；Web 聊天端接入动作状态指示器，支持发送后乐观反馈、平滑滚动联动、思考脉冲与命令执行展示，轮次结束或审批到达时自动隐退。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test` 539 pass / 9 skip / 0 fail。 |
+| 2026-09-29 | **Web 流式时间线保序、审批明细 prettyJSON 与默认折叠优化完成**：针对进行中流式消息在遭遇工具审批时被新审批卡顶起的时序倒置问题，重构 `upsertApproval`，在存在正在进行的助手流式消息时将新审批卡插入流式消息之前，保持流式消息始终吸附在最下方且与刷新后数据库按 `createdAt` 排序的时间线完全一致；改造 `formatApprovalDetail`，无论是 WebSocket 实时推送的压缩 JSON 字符串还是数据库水合返回的对象，统一格式化为 2 格缩进的 prettyJSON；审批卡片默认折叠明细，仅展示状态、主命令与操作人，并提供下拉箭头交互展开/收起明细 JSON。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（544 pass / 9 skip / 0 fail）全部通过。 |
 ## 6. 开放问题（Open Questions）
 
 > 尚未决策、需要时再定的事项。清空表示当前无悬而未决。
