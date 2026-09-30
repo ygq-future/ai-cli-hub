@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  isValidElement,
   lazy,
   Suspense,
   type Dispatch,
@@ -17,6 +18,8 @@ import {
   BellRing,
   Check,
   ChevronDown,
+  ChevronUp,
+  Copy,
   ArrowDown,
   ChevronRight,
   Download,
@@ -756,6 +759,12 @@ export function App() {
     setNotificationPermission(permission)
     if (permission === 'granted') setPreferences(current => ({ ...current, notificationsEnabled: true }))
   }
+  const markdownComponents = useMemo(
+    () => ({
+      pre: (props: React.ComponentPropsWithoutRef<'pre'>) => <MarkdownCodeBlock t={t} {...props} />,
+    }),
+    [t],
+  )
 
   if (!ready)
     return (
@@ -900,7 +909,9 @@ export function App() {
                 item.type === 'chat' ? (
                   <article className={`message ${item.role}`} key={item.id}>
                     <div className="markdown">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                        {item.content}
+                      </ReactMarkdown>
                     </div>
                     {item.copyActions?.length ? <CopyActionList actions={item.copyActions} t={t} /> : null}
                     <MessageAttachments attachments={item.attachments} onPreview={setPreviewImage} t={t} />
@@ -1324,7 +1335,17 @@ function ApprovalCard({
             </button>
           )}
         </div>
-        {expanded && hasDetail && <pre className="approval-detail">{approval.detail}</pre>}
+        {expanded && hasDetail && (
+          <div className="approval-detail-wrapper">
+            <pre className="approval-detail">{approval.detail}</pre>
+            <div className="approval-detail-footer">
+              <button type="button" className="approval-collapse-bottom-btn" onClick={() => setExpanded(false)}>
+                <ChevronUp size={13} />
+                <span>{t('收起明细', 'Collapse detail')}</span>
+              </button>
+            </div>
+          </div>
+        )}
         {terminal && approval.operator && (
           <small>
             {t('操作人', 'Operator')} · {approval.operator}
@@ -1835,6 +1856,71 @@ export function appendOutput(
       createdAt: Date.now(),
     },
   ]
+}
+export function extractCodeBlockInfo(children: React.ReactNode): { language: string; rawText: string } {
+  let language = ''
+  if (isValidElement(children)) {
+    const className = (children.props as { className?: string })?.className ?? ''
+    const match = /language-([a-zA-Z0-9_-]+)/.exec(className)
+    if (match) {
+      language = match[1] ?? ''
+    }
+  }
+
+  function extractText(node: React.ReactNode): string {
+    if (typeof node === 'string') return node
+    if (typeof node === 'number') return String(node)
+    if (Array.isArray(node)) return node.map(extractText).join('')
+    if (isValidElement(node) && node.props && typeof node.props === 'object' && 'children' in node.props) {
+      return extractText((node.props as { children?: React.ReactNode }).children)
+    }
+    return ''
+  }
+
+  return { language, rawText: extractText(children) }
+}
+
+export function MarkdownCodeBlock({
+  children,
+  t,
+  node: _node,
+  ...props
+}: React.ComponentPropsWithoutRef<'pre'> & { t: Translator; node?: unknown }) {
+  const [copied, setCopied] = useState(false)
+  const preRef = useRef<HTMLPreElement>(null)
+  const { language, rawText } = extractCodeBlockInfo(children)
+
+  const handleCopy = async () => {
+    const codeElem = preRef.current?.querySelector('code')
+    const text = (codeElem?.textContent ?? preRef.current?.textContent ?? rawText).replace(/\n$/, '')
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setCopied(false)
+    }
+  }
+  return (
+    <div className="code-block-wrapper">
+      <div className="code-block-header">
+        <span className="code-block-lang">{language || 'code'}</span>
+        <button
+          type="button"
+          className={`code-block-copy-btn ${copied ? 'copied' : ''}`}
+          onClick={() => void handleCopy()}
+          aria-label={copied ? t('已复制', 'Copied') : t('复制代码', 'Copy code')}
+          title={copied ? t('已复制', 'Copied') : t('复制代码', 'Copy code')}>
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+          <span>{copied ? t('已复制', 'Copied') : t('复制', 'Copy')}</span>
+        </button>
+      </div>
+      <pre ref={preRef} {...props}>
+        {children}
+      </pre>
+    </div>
+  )
 }
 
 function CopyActionList({ actions, t }: { actions: CopyAction[]; t: Translator }) {

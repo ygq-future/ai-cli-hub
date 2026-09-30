@@ -778,6 +778,54 @@ small {
   font-family: var(--font-mono);
   font-size: 0.88em;
 }
+.code-block-wrapper {
+  position: relative;
+  margin: 0.85em 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-raised) 75%, var(--bg));
+  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--glass-raised) 75%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  user-select: none;
+}
+.code-block-lang {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+  letter-spacing: 0.02em;
+}
+.code-block-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  user-select: none;
+}
+.code-block-copy-btn:hover {
+  color: var(--fg);
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--panel-raised) 80%, transparent);
+}
+.code-block-copy-btn.copied {
+  color: var(--accent);
+}
 .markdown pre {
   max-width: 100%;
   overflow: auto;
@@ -786,10 +834,19 @@ small {
   border-radius: 10px;
   background: var(--bg);
 }
+.code-block-wrapper pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
 .markdown pre code {
   padding: 0;
   border: 0;
   background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  line-height: 1.5;
 }
 .markdown blockquote {
   margin: 0.75em 0;
@@ -948,13 +1005,20 @@ small {
 .approval-card {
   display: grid;
   gap: 16px;
+  width: 100%;
   max-width: 760px;
+  min-width: 0;
+  box-sizing: border-box;
   margin: 16px 0;
   padding: 18px;
   border: 1px solid color-mix(in srgb, #e7a12e 62%, var(--line));
   border-radius: 18px;
   background: color-mix(in srgb, #e7a12e 8%, var(--panel-raised));
   animation: message-in 0.23s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.approval-card-main {
+  min-width: 0;
+  width: 100%;
 }
 .approval-card.approved,
 .approval-card.rejected,
@@ -982,14 +1046,25 @@ small {
 .approval-card b {
   display: block;
   margin-top: 7px;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 .approval-card pre {
   overflow: auto;
+  max-height: 420px;
   margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  background: color-mix(in srgb, var(--panel-raised) 70%, transparent);
   color: var(--dim);
-  font: inherit;
-  font-size: 0.82rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.81rem;
+  line-height: 1.5;
   white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .approval-card small {
   display: block;
@@ -1011,6 +1086,8 @@ small {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
+  width: 100%;
 }
 .approval-card-title-group {
   min-width: 0;
@@ -1047,6 +1124,34 @@ small {
 }
 .approval-toggle-icon.expanded {
   transform: rotate(180deg);
+}
+.approval-detail-wrapper {
+  min-width: 0;
+  width: 100%;
+}
+.approval-detail-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.approval-collapse-bottom-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--glass-raised) 90%, transparent);
+  color: var(--dim);
+  font-size: 0.73rem;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+.approval-collapse-bottom-btn:hover {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
 }
 .agent-activity-banner {
   display: inline-flex;

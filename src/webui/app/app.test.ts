@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
+import React from 'react'
 import {
   appendOutput,
+  extractCodeBlockInfo,
   formatApprovalDetail,
   resolveDocumentTitle,
   resolveInitialAgentActivity,
@@ -227,5 +229,34 @@ describe('网页 Title 动态状态解析', () => {
         locale: 'en',
       }),
     ).toBe('[Waiting Approval] AI CLI Hub')
+  })
+})
+
+describe('Markdown 代码块信息提取', () => {
+  test('识别代码块语言与纯文本内容', () => {
+    const node = React.createElement('code', { className: 'language-bash' }, 'echo "hello world"')
+    const info = extractCodeBlockInfo(node)
+    expect(info.language).toBe('bash')
+    expect(info.rawText).toBe('echo "hello world"')
+  })
+
+  test('未声明语言的代码块返回空语言标签并提取文本', () => {
+    const node = React.createElement('code', null, '[Unit]\nDescription=Service')
+    const info = extractCodeBlockInfo(node)
+    expect(info.language).toBe('')
+    expect(info.rawText).toBe('[Unit]\nDescription=Service')
+  })
+
+  test('递归提取嵌套节点和多片段纯文本', () => {
+    const node = React.createElement(
+      'code',
+      { className: 'language-ini' },
+      'prefix ',
+      React.createElement('span', null, 'nested text'),
+      ' suffix',
+    )
+    const info = extractCodeBlockInfo(node)
+    expect(info.language).toBe('ini')
+    expect(info.rawText).toBe('prefix nested text suffix')
   })
 })
