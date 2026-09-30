@@ -3,18 +3,18 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-最后更新：2026-09-30 · 阶段：**自更新执行动作实时状态与网页 Title 动态反馈优化已完成**
+最后更新：2026-09-30 · 阶段：**GitHub 文档与开源中英文 README 全新改版完成**
 ---
 
 ## 1. 当前状态一览
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **自更新执行动作实时状态与网页 Title 动态反馈优化（✅ 完成）** |
-| 代码 | ✅ 优化 `/update`、`/update confirm` 及系统动作的实时状态交互：`ops/update.ts` 接入 `onProgress` 报告与 `formatActionDetail` 动作映射，自更新预检与确认执行的每个具体步骤（`git status`、`git fetch`、`git pull --ff-only`、`bun install --frozen-lockfile`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build:staged`、`bun run setting:migrate`、`bun run db:migrate`、`bun run webui:promote`）均向总线广播真实执行动作与具体命令，并在完成/异常时可靠重置为 `idle`；`AgentActivityChanged` 契约支持可选 `conversationId`，`websocket-transport` 负责将实例级与会话级动作统一广播至 Web 客户端；WebUI 聊天发送时按命令精准预置初始状态（`/update confirm` 置 `git status`、`/update` 置 `git fetch` 等，避免盲目显示“思考中”）；新增 `resolveDocumentTitle` 动态同步网页 `<title>`，实时反映思考中、具体命令执行中、流式回复中与审批等待中，空闲时平滑还原为 `AI CLI Hub`。 |
+| 当前里程碑 | **GitHub 文档与开源中英文 README 全新改版（✅ 完成）** |
+| 代码与文档 | ✅ 全面重构开源展示门户与国际化支持：重写英文 `README.md`，新建对齐的高质量中文 `README_CN.md`；引入徽章矩阵（Bun、TypeScript、Postgres/pgvector、React 19、Tailwind CSS v4、MIT）、场景痛点分析与竞品方案维度对比表（终端 SSH vs 普通 Web AI vs AI CLI Hub）；明确标明 Telegram、腾讯官方 QQ Bot（免翻直连、C2C、流式输出、卡片审批）与现代化 React 19 Web 控制台的核心能力；直接内联嵌入 5 张 WebUI 真实界面截图（交互会话与工具审批、斜杠命令提示面板、长期向量记忆库、全局审批审计日志、控制台偏好与服务端配置）；并在极速上手中补充了 Telegram BotFather 创建与白名单获取、腾讯官方 QQ Bot 注册与 OpenID 动态发现、Postgres/pgvector 嵌入配置与 Web 鉴权的完整折叠实操指南。 |
 | 文档 | ✅ PROGRESS.md 已同步。 |
 | 阻塞项 | 无 |
-| 下一步 | 等待用户验收；全量 558 个单测全绿，构建和格式检查全部通过。 |
+| 下一步 | 等待用户验收；全量测试全绿，代码及 Markdown 格式化全部通过。 |
 
 ---
 
@@ -390,6 +390,7 @@
 | 2026-09-30 | **Web 审批卡片超长文本溢出防撑破与明细收起优化完成**：针对调用 `write`/`edit` 工具写入长代码导致明细 JSON 中转义单行长字符串撑破页面且折叠按钮被推入屏幕外的问题，重构 CSS 与交互：① `.approval-card`、`.approval-card-main`、`.approval-card-header` 设置 `min-width: 0; width: 100%; box-sizing: border-box`，消除 CSS Grid 默认 `min-width: auto` 导致的 min-content 膨胀；② 针对 `.approval-card pre` 增加 `word-break: break-all; overflow-wrap: anywhere;` 并在卡片边界内强制折行，限制 `max-height: 420px; overflow-y: auto;` 并配平滑滚动条，根治超长文本横向溢出并锁定右上角折叠按钮永远可见；③ 展开明细底部增加快捷“收起明细”按钮，提升长代码阅读体验。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（597 项测试，588 pass / 9 skip / 0 fail）全部通过。 |
 | 2026-09-30 | **Web Markdown 代码块一键复制与精致语言栏完成**：针对聊天流中助手输出的标准围栏代码块（```）缺少复制操作的问题，重构 `ReactMarkdown` 渲染管道：① 自定义 `MarkdownCodeBlock` 拦截 `<pre>` 节点，智能提取 `language-*` 语言标签与节点纯文本内容；② 在代码块顶部嵌入与 Graphite Glass 视觉融为一体的 Header，左侧显示代码语言名称（如 `systemd`、`bash`、`ini`、未指定时显示 `code`），右上角提供双语复制按钮（中英文 `复制`/`Copy` 与 `已复制`/`Copied` 状态切换），点击直接将清洗后的纯代码复制到剪贴板并给以 Check 视觉反馈；③ 内层 pre 保留横向滚动支持，外层代码卡片具备圆角边框、半透明背景与防溢出保护。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（600 项测试，591 pass / 9 skip / 0 fail）全部通过。 |
 | 2026-09-30 | **会话 Context 使用量展示与 OpenCode Usage 补齐完成**：① 将 `ContextUsageInfo` 下沉至 `src/shared/types/common.ts` 作为核心抽象 DTO，`src/cli/base.ts` 仅做 re-export，`core/` 仅依赖 `shared/`，完全符合架构依赖矩阵；② `OpenCodeSdkAdapter` 补齐 `getContextUsage()` 实现，从最新助手轮次提取上下文 Token（包含 `input` 与 KV-cache 命中的 `cache.read`）并从 Provider/Model 元数据匹配 `limit.context` 上限，无助手消息时抛出未就绪错误；③ `SessionOrchestrator` 增加 `getContextUsage(conversationId)`，只读检测当前内存中存活的 Adapter 状态，未启动时不产生多余进程冷启动开销；④ `/status` 命令在当前会话卡片中增加 Context 占用展示，支持中英文格式化输出（总量 / 上限、百分比与细分类别），并在会话空闲或未激活时安全降级提示“未激活（发送消息后生效）”。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、全量 `bun test`（600 项测试全部通过：591 pass / 9 skip / 0 fail）全部通过。 |
+| 2026-09-30 | **GitHub 文档与开源中英文 README 全新改版完成**：全面重写 `README.md` 并新增 `README_CN.md`。从技术内省视角转向痛点场景与产品价值视角，补充现代开源徽章栏、痛点对比表格、架构与双向工作流图（ASCII）、核心亮点、独立主动推送 API（`/api/msg` 与 `/api/session-msg`，明确其不入库、不占用 AI 上下文的纯净通知定位）、以及与 [webhook-backend](https://github.com/ygq-future/webhook-backend) 协同实现任意外部 Webhook 告警中继推送到手机的落地架构；按图文顺序直接嵌入 Web 控制台的 5 张实机界面图（聊天审批、命令面板、记忆管理、审计日志、设置面板）；补充 Telegram、腾讯官方 QQ 机器人、Postgres/pgvector 及 Web 控制台的手把手初始化配置指南。双语对齐，完成全量格式化校验。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、全量 `bun test`（600 项测试全部通过：591 pass / 9 skip / 0 fail）全部通过。 |
 ## 6. 开放问题（Open Questions）
 
 > 尚未决策、需要时再定的事项。清空表示当前无悬而未决。
