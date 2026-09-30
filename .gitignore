@@ -46,3 +46,4 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # AI CLI Hub local settings (not committed — use settings.json.example as template)
 settings.json
+whitelist-commands.txt
