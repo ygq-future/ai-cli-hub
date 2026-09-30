@@ -68,6 +68,8 @@ export interface SessionOrchestratorDeps {
   recentContextLimit?: number
   /** 最近上下文中单条历史消息的最大字符数；超出时保留尾部。 */
   recentContextMessageMaxChars?: number
+  readOnlyCommandPatterns?: string[]
+  allowedExternalDirectories?: string[]
 }
 
 interface AdapterEntry {
@@ -390,6 +392,8 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
         cwd: conv.cwd,
         systemLanguageHint: systemHint,
         modelId: (await deps.getModel?.(conv.platform, conv.userId, conv.cli as CliType)) ?? undefined,
+        readOnlyCommandPatterns: deps.readOnlyCommandPatterns,
+        allowedExternalDirectories: deps.allowedExternalDirectories,
       })
       resetIdleTimer(cid, entry)
       diag('adapterStarted', {

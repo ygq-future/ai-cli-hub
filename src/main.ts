@@ -350,6 +350,8 @@ async function main() {
     turnTimeoutMs: config.AGENT_TURN_TIMEOUT_MS,
     recentContextLimit: config.RECENT_CONTEXT_LIMIT,
     recentContextMessageMaxChars: config.RECENT_CONTEXT_MESSAGE_MAX_CHARS,
+    readOnlyCommandPatterns: config.READ_ONLY_COMMAND_PATTERNS,
+    allowedExternalDirectories: config.ALLOWED_EXTERNAL_DIRECTORIES,
   })
 
   const webAdmin = createWebAdmin({

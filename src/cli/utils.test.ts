@@ -37,6 +37,19 @@ describe('isReadOnlyShellCommand', () => {
     "docker inspect webdav --format '{{json .Mounts}}' 2>/dev/null || docker inspect $(docker ps -a --filter name=webdav --format '{{.ID}}' 2>/dev/null | head -1) --format '{{json .Mounts}}' 2>/dev/null || echo \"NOT_FOUND\"",
     'docker volume ls | grep -i webdav; echo "---"; find /home/ubuntu -maxdepth 4 -iname "webdav" -type d 2>/dev/null; echo "---"; docker ps -a --filter name=webdav --format "{{.Names}} {{.Status}}"',
     'du -sh /home/ubuntu/softs/webdav/data/ 2>/dev/null && ls -la /home/ubuntu/softs/webdav/data/',
+    'sudo crontab -l',
+    'crontab -l',
+    'sudo -u ubuntu crontab -l',
+    'systemctl list-timers --all | grep -i backup || true',
+    'systemctl status nginx',
+    'systemctl is-active docker',
+    'journalctl -u nginx -n 50 --no-pager',
+    'sudo journalctl -u nginx',
+    'timedatectl status',
+    'hostnamectl',
+    'sudo ls -la /root',
+    'true',
+    ':',
   ])('allows read-only query: %s', command => {
     expect(isReadOnlyShellCommand(command)).toBe(true)
   })
@@ -71,6 +84,16 @@ describe('isReadOnlyShellCommand', () => {
     'find /tmp -delete',
     'find /tmp -exec rm -rf {} +',
     "docker inspect npm | python3 -c \"open('x', 'w').write('y')\"",
+    'crontab -r',
+    'crontab -e',
+    'sudo crontab -r',
+    'systemctl restart nginx',
+    'systemctl stop docker',
+    'sudo systemctl restart nginx',
+    'journalctl --vacuum-time=2d',
+    'sudo rm -rf /',
+    'timedatectl set-timezone Asia/Shanghai',
+    'sudo -i',
   ])('requires approval for mutating or composed command: %s', command => {
     expect(isReadOnlyShellCommand(command)).toBe(false)
   })
@@ -85,5 +108,12 @@ describe('isReadOnlyShellCommand', () => {
     ['echo $(rm -rf /tmp/x)', 'mutating'],
   ] as const)('classifies command effect: %s → %s', (command, effect) => {
     expect(classifyShellCommand(command)).toBe(effect)
+  })
+
+  test('honors custom read-only patterns', () => {
+    const customPatterns = ['^systemctl restart my-custom-service$', '^my-query-tool .*']
+    expect(isReadOnlyShellCommand('systemctl restart my-custom-service', customPatterns)).toBe(true)
+    expect(isReadOnlyShellCommand('my-query-tool --json', customPatterns)).toBe(true)
+    expect(isReadOnlyShellCommand('systemctl restart other-service', customPatterns)).toBe(false)
   })
 })

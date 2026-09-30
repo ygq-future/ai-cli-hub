@@ -72,11 +72,6 @@ function inputRecord(value: unknown): Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 }
 
-function isReadOnlyBashCommand(toolInput: unknown): boolean {
-  const command = inputRecord(toolInput).command
-  return typeof command === 'string' && isReadOnlyShellCommand(command)
-}
-
 export interface ClaudeSdkAdapterDeps {
   queryFn?: typeof query
   claudeCodeExecutablePath?: string
@@ -92,6 +87,12 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
   let state: AdapterState = 'stopped'
   let currentQuery: Query | null = null
   let input = createInputQueue()
+  let readOnlyCommandPatterns: string[] | undefined
+
+  function isReadOnlyBashCommand(toolInput: unknown): boolean {
+    const command = inputRecord(toolInput).command
+    return typeof command === 'string' && isReadOnlyShellCommand(command, readOnlyCommandPatterns)
+  }
   let turnHasVisibleText = false
 
   const outputHandlers: Array<(d: OutputDelta) => void> = []
@@ -225,6 +226,7 @@ export function createClaudeSdkAdapter(deps?: ClaudeSdkAdapterDeps): CLIAdapter 
       if (currentQuery) throw new Error('ClaudeSdkAdapter: already started')
       state = 'starting'
       input = createInputQueue()
+      readOnlyCommandPatterns = opts.readOnlyCommandPatterns
       const systemPromptAppend = buildSystemPromptAppend(opts.systemLanguageHint)
 
       const q = queryFn({

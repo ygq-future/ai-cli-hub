@@ -42,6 +42,7 @@ interface OpenCodeEventEnvelope {
 interface PendingOpenCodePermission {
   id: string
   sessionID: string
+  supportsAlways?: boolean
 }
 
 export interface OpenCodeSdkAdapterDeps {
@@ -68,6 +69,8 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
   let turnHasInput = false
   let turnHasVisibleText = false
 
+  let readOnlyCommandPatterns: string[] | undefined
+  let allowedExternalDirectories: string[] | undefined
   const outputHandlers: Array<(d: OutputDelta) => void> = []
   const approvalHandlers: Array<(r: ApprovalRequest) => void> = []
   const exitHandlers: Array<(i: ExitInfo) => void> = []
@@ -150,10 +153,11 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
       case 'permission.updated': {
         const permission = parsePermission(properties)
         if (!permission || permission.sessionID !== sessionId) return
-        pendingApprovals.set(permission.id, { id: permission.id, sessionID: permission.sessionID })
-        if (isReadOnlyPermission(properties)) {
+        pendingApprovals.set(permission.id, permission)
+        if (isReadOnlyPermission(properties, readOnlyCommandPatterns, allowedExternalDirectories)) {
           state = 'busy'
-          void replyPermission(permission, 'once')
+          const response = permission.supportsAlways ? 'always' : 'once'
+          void replyPermission(permission, response)
             .then(() => pendingApprovals.delete(permission.id))
             .catch(() => {
               if (!pendingApprovals.has(permission.id)) return
@@ -231,7 +235,10 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
     }
   }
 
-  async function replyPermission(permission: PendingOpenCodePermission, response: 'once' | 'reject'): Promise<void> {
+  async function replyPermission(
+    permission: PendingOpenCodePermission,
+    response: 'once' | 'always' | 'reject',
+  ): Promise<void> {
     if (!started) throw new Error('OpenCodeSdkAdapter: client is not ready')
     const result = await started.client.postSessionIdPermissionsPermissionId({
       path: { id: permission.sessionID, permissionID: permission.id },
@@ -295,6 +302,8 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
       abortController = new AbortController()
 
       systemPrompt = buildSystemPromptAppend(opts.systemLanguageHint)
+      readOnlyCommandPatterns = opts.readOnlyCommandPatterns
+      allowedExternalDirectories = opts.allowedExternalDirectories
       modelId = opts.modelId ?? null
       const instance = await serverPool.acquire(buildOpenCodeConfig())
       started = instance
@@ -377,7 +386,8 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
       if (!permission || !started) return
       pendingApprovals.delete(approvalId)
       state = 'busy'
-      void replyPermission(permission, decision === 'approve' ? 'once' : 'reject').catch(err => {
+      const response = decision === 'approve' ? (permission.supportsAlways ? 'always' : 'once') : 'reject'
+      void replyPermission(permission, response).catch(err => {
         finishTurn(formatError(err))
       })
     },
@@ -449,17 +459,78 @@ function parsePermission(value: Record<string, unknown>): PendingOpenCodePermiss
   const id = readString(value, 'id')
   const sessionID = readString(value, 'sessionID')
   if (!id || !sessionID) return null
-  return { id, sessionID }
+  const perm = readString(value, 'permission') ?? readString(value, 'type')
+  const supportsAlways = (Array.isArray(value.always) && value.always.length > 0) || perm === 'external_directory'
+  return { id, sessionID, supportsAlways }
 }
 
-function isReadOnlyPermission(value: Record<string, unknown>): boolean {
+const SENSITIVE_EXTERNAL_PATHS = [
+  '/etc/shadow',
+  '/etc/sudoers',
+  '/etc/gshadow',
+  '/.ssh/',
+  '/root/.ssh',
+  '/id_rsa',
+  '/id_ed25519',
+]
+
+function isSensitivePath(targetPath: string): boolean {
+  const normalized = targetPath.replace(/\\+/g, '/')
+  return SENSITIVE_EXTERNAL_PATHS.some(sensitive => normalized.includes(sensitive))
+}
+
+function extractToolNameFromPermission(value: Record<string, unknown>): string | null {
+  const toolObj = asRecord(value.tool)
+  if (!toolObj) return null
+  const directName = readString(toolObj, 'name') ?? readString(toolObj, 'tool')
+  if (directName) return directName
+  const callID = readString(toolObj, 'callID')
+  if (callID) {
+    const match = /^[a-zA-Z0-9_]+/i.exec(callID)
+    if (match) return match[0]
+  }
+  return null
+}
+
+function isReadOnlyPermission(
+  value: Record<string, unknown>,
+  customPatterns?: string[],
+  allowedExternalDirs?: string[],
+): boolean {
   const permission = readString(value, 'permission') ?? readString(value, 'type')
   if (!permission) return false
   if (isReadOnlyToolName(permission)) return true
-  if (permission !== 'bash') return false
-  const metadata = asRecord(value.metadata)
-  const command = metadata ? readString(metadata, 'command') : undefined
-  return typeof command === 'string' && isReadOnlyShellCommand(command)
+
+  if (permission === 'bash') {
+    const metadata = asRecord(value.metadata)
+    const command = metadata ? readString(metadata, 'command') : undefined
+    return typeof command === 'string' && isReadOnlyShellCommand(command, customPatterns)
+  }
+
+  if (permission === 'external_directory') {
+    const metadata = asRecord(value.metadata)
+    const filepath = metadata ? (readString(metadata, 'filepath') ?? readString(metadata, 'parentDir')) : undefined
+    if (filepath && isSensitivePath(filepath)) return false
+    if (Array.isArray(value.patterns) && value.patterns.some(p => typeof p === 'string' && isSensitivePath(p))) {
+      return false
+    }
+
+    if (allowedExternalDirs && allowedExternalDirs.length > 0 && filepath) {
+      const normFile = normalizePath(filepath)
+      const allowed = allowedExternalDirs.some(dir => {
+        const normDir = normalizePath(dir)
+        return normFile === normDir || normFile.startsWith(normDir + '/')
+      })
+      if (!allowed) return false
+    }
+
+    const toolName = extractToolNameFromPermission(value)
+    if (toolName && isReadOnlyToolName(toolName)) {
+      return true
+    }
+  }
+
+  return false
 }
 
 function shouldLogRawEvent(type: string, payload: unknown): boolean {

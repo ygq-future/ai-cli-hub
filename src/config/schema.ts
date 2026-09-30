@@ -65,6 +65,9 @@ const SessionJsonSchema = z.object({
   claudeExecutablePath: z.string().default(''),
   recentContextLimit: z.number().int().positive().default(10),
   recentContextMessageMaxChars: z.number().int().positive().default(1200),
+  readOnlyCommandsFile: z.string().default(''),
+  readOnlyCommandPatterns: z.array(z.string()).default([]),
+  allowedExternalDirectories: z.array(z.string()).default([]),
 })
 
 const AggregatorJsonSchema = z.object({
@@ -139,6 +142,11 @@ export const SettingsJsonSchema = z.object({
 })
 
 export type SettingsJson = z.infer<typeof SettingsJsonSchema>
+export type SettingsJsonInput = z.input<typeof SettingsJsonSchema>
+
+export type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends Array<infer U> ? U[] : T[P] extends object ? DeepPartial<T[P]> : T[P]
+}
 
 // —— 内部扁平 AppConfig（保持向消费者兼容）——
 
@@ -174,6 +182,9 @@ export type AppConfig = {
   CLAUDE_EXECUTABLE_PATH: string
   RECENT_CONTEXT_LIMIT: number
   RECENT_CONTEXT_MESSAGE_MAX_CHARS: number
+  READ_ONLY_COMMANDS_FILE: string
+  READ_ONLY_COMMAND_PATTERNS: string[]
+  ALLOWED_EXTERNAL_DIRECTORIES: string[]
   // aggregator
   AGGREGATOR_DEBOUNCE_MS: number
   AGGREGATOR_MIN_EDIT_INTERVAL_MS: number
@@ -211,6 +222,22 @@ export type AppConfig = {
 }
 
 const SETTINGS_PATH = 'settings.json'
+
+export function parseCommandsFile(filePath: string): string[] {
+  const trimmed = filePath.trim()
+  if (!trimmed) return []
+  const resolved = path.isAbsolute(trimmed) ? trimmed : path.resolve(process.cwd(), trimmed)
+  if (!existsSync(resolved)) return []
+  try {
+    const content = readFileSync(resolved, 'utf-8')
+    return content
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.startsWith('#'))
+  } catch {
+    return []
+  }
+}
 
 function buildDatabaseUrl(db: z.infer<typeof DatabaseJsonSchema>): string {
   const u = db.username ? encodeURIComponent(db.username) : ''
@@ -270,6 +297,11 @@ function flattenSettings(json: SettingsJson): AppConfig {
     RECENT_CONTEXT_MESSAGE_MAX_CHARS: session.recentContextMessageMaxChars,
 
     AGGREGATOR_DEBOUNCE_MS: aggregator.debounceMs,
+    READ_ONLY_COMMANDS_FILE: session.readOnlyCommandsFile,
+    READ_ONLY_COMMAND_PATTERNS: Array.from(
+      new Set([...session.readOnlyCommandPatterns, ...parseCommandsFile(session.readOnlyCommandsFile)]),
+    ),
+    ALLOWED_EXTERNAL_DIRECTORIES: session.allowedExternalDirectories,
     AGGREGATOR_MIN_EDIT_INTERVAL_MS: aggregator.minEditIntervalMs,
     AGGREGATOR_MAX_CHUNK_CHARS: aggregator.maxChunkChars,
 
@@ -319,7 +351,10 @@ function applyProxyToEnv(json: SettingsJson): void {
 }
 
 /** 加载并校验配置。读取 settings.json，fail-fast。 */
-export function loadConfig(source?: Partial<SettingsJson>, opts?: { settingsPath?: string }): AppConfig {
+export function loadConfig(
+  source?: DeepPartial<SettingsJson> | SettingsJsonInput,
+  opts?: { settingsPath?: string },
+): AppConfig {
   const filePath = opts?.settingsPath ?? SETTINGS_PATH
 
   let raw: Record<string, unknown>

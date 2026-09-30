@@ -38,6 +38,8 @@ function fakeConfig(extra?: Partial<ReturnType<typeof loadConfig>>) {
       claudeExecutablePath: '',
       recentContextLimit: 10,
       recentContextMessageMaxChars: 1200,
+      readOnlyCommandPatterns: [],
+      allowedExternalDirectories: [],
     },
     aggregator: { debounceMs: 400, minEditIntervalMs: 1000, maxChunkChars: 4096 },
     media: {

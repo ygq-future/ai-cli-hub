@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { loadConfig, SettingsJsonSchema } from './schema'
+import fs from 'node:fs'
+import path from 'node:path'
 
 function validJson() {
   return {
@@ -49,6 +51,9 @@ function validJson() {
       claudeExecutablePath: '',
       recentContextLimit: 10,
       recentContextMessageMaxChars: 1200,
+      readOnlyCommandsFile: '',
+      readOnlyCommandPatterns: [] as string[],
+      allowedExternalDirectories: [] as string[],
     },
     aggregator: {
       debounceMs: 400,
@@ -382,6 +387,28 @@ describe('loadConfig', () => {
     } finally {
       if (originalAllProxy === undefined) delete process.env.ALL_PROXY
       else process.env.ALL_PROXY = originalAllProxy
+    }
+  })
+
+  test('readOnlyCommandsFile 从外部文件加载命令白名单并忽略注释和空行', () => {
+    const tmpFile = path.resolve(process.cwd(), '.data/test-whitelist.txt')
+    try {
+      fs.mkdirSync(path.dirname(tmpFile), { recursive: true })
+      fs.writeFileSync(tmpFile, '# 运维白名单\n^systemctl status\n\n  ^crontab -l$  \n# 注释行\n^docker ps\n', 'utf-8')
+
+      const json = validJson()
+      json.session.readOnlyCommandsFile = tmpFile
+      json.session.readOnlyCommandPatterns = ['^custom-inline-cmd$']
+
+      const cfg = loadConfig(json)
+      expect(cfg.READ_ONLY_COMMAND_PATTERNS).toEqual([
+        '^custom-inline-cmd$',
+        '^systemctl status',
+        '^crontab -l$',
+        '^docker ps',
+      ])
+    } finally {
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
     }
   })
 })

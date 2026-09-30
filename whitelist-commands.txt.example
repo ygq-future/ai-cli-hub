@@ -1,0 +1,22 @@
+# AI CLI Remote Control Hub - 只读白名单命令列表
+# 规则说明：
+# 1. 每一行代表一个安全/免审批命令正则表达式；
+# 2. 空行与以 # 开头的注释行会被自动忽略；
+# 3. 匹配成功的 shell 命令将直接作为只读命令放行，无需手动审批。
+
+# 系统状态与定时任务
+^crontab -l$
+^sudo crontab -l$
+^systemctl (status|list-.*|is-active|is-failed|is-enabled)
+^journalctl
+^timedatectl (status|show|timesync-status)
+^hostnamectl
+
+# Docker 常用只读查询
+^docker (ps|images|stats|port|version)
+^docker inspect
+^docker volume (ls|inspect)
+
+# 自定义运维查询命令示例（可按需取消注释或追加）
+# ^pm2 (list|status|show|describe)
+# ^ss -tulpn$

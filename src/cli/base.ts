@@ -89,6 +89,8 @@ export interface SpawnOptions {
   modelId?: string
   thinking?: CliThinkingConfig
   effort?: CliEffortLevel
+  readOnlyCommandPatterns?: string[]
+  allowedExternalDirectories?: string[]
 }
 
 export type AdapterState = 'stopped' | 'starting' | 'ready' | 'busy' | 'waitingApproval'

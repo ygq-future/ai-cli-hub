@@ -452,6 +452,151 @@ describe('OpenCodeSdkAdapter', () => {
       { permissionID: 'perm-web', response: 'once' },
     ])
   })
+  test('external_directory permission automatically replies always when triggered by read-only tool', async () => {
+    const fake = createFakeOpenCode()
+    const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
+    const approvals: ApprovalRequest[] = []
+    adapter.onApprovalRequest(req => approvals.push(req))
+    await adapter.start(SPAWN)
+
+    fake.queue.push({
+      type: 'permission.asked',
+      properties: {
+        id: 'perm-ext-grep',
+        permission: 'external_directory',
+        sessionID: 's1',
+        patterns: ['/home/ubuntu/*'],
+        metadata: { filepath: '/home/ubuntu', parentDir: '/home/ubuntu' },
+        tool: { messageID: 'msg1', callID: 'grep-1790736832969004054-67' },
+        always: ['/home/ubuntu/*'],
+      },
+    })
+
+    await tick()
+    expect(approvals).toEqual([])
+    expect(fake.permissions).toEqual([{ permissionID: 'perm-ext-grep', response: 'always' }])
+  })
+
+  test('external_directory permission requires approval for mutating tools and replies always on approve', async () => {
+    const fake = createFakeOpenCode()
+    const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
+    const approvals: ApprovalRequest[] = []
+    adapter.onApprovalRequest(req => approvals.push(req))
+    await adapter.start(SPAWN)
+
+    fake.queue.push({
+      type: 'permission.asked',
+      properties: {
+        id: 'perm-ext-edit',
+        permission: 'external_directory',
+        sessionID: 's1',
+        patterns: ['/home/ubuntu/*'],
+        metadata: { filepath: '/home/ubuntu/evil.sh' },
+        tool: { messageID: 'msg2', callID: 'edit-12345' },
+        always: ['/home/ubuntu/*'],
+      },
+    })
+
+    await tick()
+    expect(approvals.length).toBe(1)
+    expect(approvals[0]?.command).toBe('external_directory')
+
+    adapter.resolveApproval('perm-ext-edit', 'approve')
+    await tick()
+    expect(fake.permissions).toEqual([{ permissionID: 'perm-ext-edit', response: 'always' }])
+  })
+
+  test('external_directory permission rejects auto-approval for sensitive system paths even with read-only tools', async () => {
+    const fake = createFakeOpenCode()
+    const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
+    const approvals: ApprovalRequest[] = []
+    adapter.onApprovalRequest(req => approvals.push(req))
+    await adapter.start(SPAWN)
+
+    fake.queue.push({
+      type: 'permission.asked',
+      properties: {
+        id: 'perm-ext-shadow',
+        permission: 'external_directory',
+        sessionID: 's1',
+        patterns: ['/etc/shadow'],
+        metadata: { filepath: '/etc/shadow' },
+        tool: { messageID: 'msg3', callID: 'read-12345' },
+        always: ['/etc/shadow'],
+      },
+    })
+
+    await tick()
+    expect(approvals.length).toBe(1)
+    expect(approvals[0]?.command).toBe('external_directory')
+  })
+  test('allowedExternalDirectories restricts external_directory auto approval', async () => {
+    const fake = createFakeOpenCode()
+    const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
+    const approvals: ApprovalRequest[] = []
+    adapter.onApprovalRequest(req => approvals.push(req))
+    await adapter.start({
+      ...SPAWN,
+      allowedExternalDirectories: ['/var/log'],
+    })
+
+    // /home/ubuntu 不在白名单中 -> 触发审批
+    fake.queue.push({
+      type: 'permission.asked',
+      properties: {
+        id: 'perm-ext-home',
+        permission: 'external_directory',
+        sessionID: 's1',
+        patterns: ['/home/ubuntu/*'],
+        metadata: { filepath: '/home/ubuntu' },
+        tool: { messageID: 'msg1', callID: 'grep-1' },
+        always: ['/home/ubuntu/*'],
+      },
+    })
+    await tick()
+    expect(approvals.length).toBe(1)
+
+    // /var/log 在白名单中且工具为 grep -> 自动放行
+    fake.queue.push({
+      type: 'permission.asked',
+      properties: {
+        id: 'perm-ext-log',
+        permission: 'external_directory',
+        sessionID: 's1',
+        patterns: ['/var/log/*'],
+        metadata: { filepath: '/var/log/syslog' },
+        tool: { messageID: 'msg2', callID: 'grep-2' },
+        always: ['/var/log/*'],
+      },
+    })
+    await tick()
+    expect(approvals.length).toBe(1)
+    expect(fake.permissions).toContainEqual({ permissionID: 'perm-ext-log', response: 'always' })
+  })
+
+  test('readOnlyCommandPatterns allows custom bash commands in opencode', async () => {
+    const fake = createFakeOpenCode()
+    const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
+    const approvals: ApprovalRequest[] = []
+    adapter.onApprovalRequest(req => approvals.push(req))
+    await adapter.start({
+      ...SPAWN,
+      readOnlyCommandPatterns: ['^my-custom-cli .*'],
+    })
+
+    fake.queue.push({
+      type: 'permission.asked',
+      properties: {
+        id: 'perm-custom-bash',
+        permission: 'bash',
+        sessionID: 's1',
+        metadata: { command: 'my-custom-cli --check' },
+      },
+    })
+    await tick()
+    expect(approvals).toEqual([])
+    expect(fake.permissions).toEqual([{ permissionID: 'perm-custom-bash', response: 'once' }])
+  })
 
   test('raw logger keeps actionable events and drops startup, heartbeat, message, and catalog noise', async () => {
     const fake = createFakeOpenCode()

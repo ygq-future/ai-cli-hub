@@ -23,6 +23,9 @@ export const READ_ONLY_TOOL_NAMES = new Set([
 
 /** 所有 CLI 共用的保守只读 shell 命令；仅单条、无组合操作时自动放行。 */
 export const READ_ONLY_SHELL_COMMANDS = new Set([
+  ':',
+  'false',
+  'true',
   'cat',
   'cd',
   'df',

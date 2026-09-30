@@ -48,9 +48,20 @@ const SAFE_FD_REDIRECT_TARGET = /^\d+$|^-$|^\/dev\/(?:null|stdout|stderr)$/
 const READ_ONLY_DOCKER_RESOURCE_COMMANDS = new Set(['ls', 'inspect'])
 const UNSAFE_FIND_ACTIONS = new Set(['-delete', '-exec', '-execdir', '-fprint', '-fprintf', '-fls', '-ok', '-okdir'])
 
-export function classifyShellCommand(source: string): CommandEffect {
+export function classifyShellCommand(source: string, customPatterns?: string[]): CommandEffect {
   const trimmed = source.trim()
   if (!trimmed) return 'unknown'
+  if (customPatterns && customPatterns.length > 0) {
+    for (const pattern of customPatterns) {
+      try {
+        if (new RegExp(pattern).test(trimmed)) {
+          return 'read-only'
+        }
+      } catch {
+        // ignore invalid user regex
+      }
+    }
+  }
   try {
     const script = parse(trimmed)
     if (script.errors?.length) return 'unknown'
@@ -60,8 +71,8 @@ export function classifyShellCommand(source: string): CommandEffect {
   }
 }
 
-export function isReadOnlyShellCommand(source: string): boolean {
-  return classifyShellCommand(source) === 'read-only'
+export function isReadOnlyShellCommand(source: string, customPatterns?: string[]): boolean {
+  return classifyShellCommand(source, customPatterns) === 'read-only'
 }
 
 function classifyScript(script: Script): CommandEffect {
@@ -105,6 +116,13 @@ function classifyCommand(command: Command): CommandEffect {
   const args = command.suffix.map(word => word.value)
   const hasDynamicArgs = command.suffix.some(isDynamicWord)
 
+  if (executable === 'sudo' || executable === 'doas') return classifySudoInvocation(command.suffix)
+  if (executable === 'crontab') return hasDynamicArgs ? 'unknown' : classifyCrontabInvocation(args)
+  if (executable === 'systemctl') return hasDynamicArgs ? 'unknown' : classifySystemctlInvocation(args)
+  if (executable === 'journalctl') return hasDynamicArgs ? 'unknown' : classifyJournalctlInvocation(args)
+  if (executable === 'timedatectl') return hasDynamicArgs ? 'unknown' : classifyTimedatectlInvocation(args)
+  if (executable === 'hostnamectl') return hasDynamicArgs ? 'unknown' : classifyHostnamectlInvocation(args)
+  if (executable === 'localectl') return hasDynamicArgs ? 'unknown' : classifyLocalectlInvocation(args)
   if (executable === 'powershell' || executable === 'pwsh') return classifyPowerShellInvocation(command.suffix)
   if (executable === 'cmd') return classifyCmdInvocation(command.suffix)
   if (executable === 'bash' || executable === 'sh') return classifyShellInvocation(command.suffix)
@@ -328,6 +346,241 @@ function classifyGitRemote(args: string[]): CommandEffect {
   if (args.length === 0) return 'read-only'
   if (args.length === 1 && (args[0] === '-v' || args[0] === '--verbose')) return 'read-only'
   return args[0] === 'show' || args[0] === 'get-url' ? 'read-only' : 'mutating'
+}
+const SUDO_FLAG_WITH_VALUE = new Set([
+  '-u',
+  '--user',
+  '-g',
+  '--group',
+  '-p',
+  '--prompt',
+  '-D',
+  '--chdir',
+  '-C',
+  '--close-from',
+  '-R',
+  '--chroot',
+  '-T',
+  '--command-timeout',
+  '-t',
+  '--type',
+  '-c',
+  '--class',
+])
+const SUDO_UNSAFE_FLAGS = new Set(['-s', '--shell', '-i', '--login', '-e', '--edit'])
+
+function classifySudoInvocation(words: Word[]): CommandEffect {
+  let index = 0
+  while (index < words.length) {
+    const word = words[index]!
+    if (isDynamicWord(word)) return 'unknown'
+    const value = word.value
+    if (value === '--') {
+      index++
+      break
+    }
+    if (!value.startsWith('-')) {
+      break
+    }
+    if (SUDO_UNSAFE_FLAGS.has(value)) {
+      return 'unknown'
+    }
+    if (SUDO_FLAG_WITH_VALUE.has(value)) {
+      index += 2
+      continue
+    }
+    if (value.startsWith('-u') || value.startsWith('-g') || value.startsWith('-D') || value.startsWith('-p')) {
+      index++
+      continue
+    }
+    if (/^-[bEHnPSvkK]+$/.test(value)) {
+      index++
+      continue
+    }
+    return 'unknown'
+  }
+
+  if (index >= words.length) return 'unknown'
+  const commandName = words[index]!
+  const suffix = words.slice(index + 1)
+  const innerCommand: Command = {
+    type: 'Command',
+    prefix: [],
+    name: commandName,
+    suffix,
+    redirects: [],
+    pos: commandName.pos,
+    end: suffix.length > 0 ? suffix[suffix.length - 1]!.end : commandName.end,
+  }
+  return classifyCommand(innerCommand)
+}
+
+function classifyCrontabInvocation(args: string[]): CommandEffect {
+  let hasList = false
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!
+    if (arg === '-l') {
+      hasList = true
+    } else if (arg === '-u') {
+      i++
+      if (i >= args.length) return 'unknown'
+    } else if (arg.startsWith('-u')) {
+      continue
+    } else if (arg === '-r' || arg === '-e' || arg === '-i') {
+      return arg === '-e' ? 'unknown' : 'mutating'
+    } else if (arg.startsWith('-')) {
+      return 'unknown'
+    } else {
+      return 'mutating'
+    }
+  }
+  return hasList ? 'read-only' : 'unknown'
+}
+
+const READ_ONLY_SYSTEMCTL_SUBCOMMANDS = new Set([
+  'list-units',
+  'list-unit-files',
+  'list-timers',
+  'list-sockets',
+  'status',
+  'is-active',
+  'is-failed',
+  'is-enabled',
+  'show',
+  'cat',
+  'help',
+  'list-dependencies',
+  'list-machines',
+  'list-jobs',
+])
+
+const MUTATING_SYSTEMCTL_SUBCOMMANDS = new Set([
+  'start',
+  'stop',
+  'restart',
+  'reload',
+  'try-restart',
+  'reload-or-restart',
+  'isolate',
+  'kill',
+  'clean',
+  'enable',
+  'disable',
+  'reenable',
+  'preset',
+  'preset-all',
+  'mask',
+  'unmask',
+  'link',
+  'revert',
+  'set-environment',
+  'unset-environment',
+  'import-environment',
+  'edit',
+  'set-default',
+  'set-property',
+  'reset-failed',
+  'daemon-reload',
+  'daemon-reexec',
+])
+
+const SYSTEMCTL_OPTION_WITH_VALUE = new Set([
+  '-t',
+  '--type',
+  '--state',
+  '-p',
+  '--property',
+  '-s',
+  '--signal',
+  '-n',
+  '--lines',
+  '-o',
+  '--output',
+  '--root',
+])
+
+function classifySystemctlInvocation(args: string[]): CommandEffect {
+  let subcommand: string | undefined
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!
+    if (arg === '--') {
+      subcommand = args[i + 1]
+      break
+    }
+    if (SYSTEMCTL_OPTION_WITH_VALUE.has(arg)) {
+      i++
+      continue
+    }
+    if (
+      arg.startsWith('--type=') ||
+      arg.startsWith('--state=') ||
+      arg.startsWith('--property=') ||
+      arg.startsWith('--output=') ||
+      arg.startsWith('--lines=')
+    ) {
+      continue
+    }
+    if (arg.startsWith('-')) {
+      continue
+    }
+    subcommand = arg
+    break
+  }
+  if (!subcommand) return 'read-only'
+  const lower = subcommand.toLowerCase()
+  if (READ_ONLY_SYSTEMCTL_SUBCOMMANDS.has(lower)) return 'read-only'
+  if (MUTATING_SYSTEMCTL_SUBCOMMANDS.has(lower)) return 'mutating'
+  return 'unknown'
+}
+
+function classifyJournalctlInvocation(args: string[]): CommandEffect {
+  for (const arg of args) {
+    if (arg.startsWith('--vacuum-') || arg === '--rotate' || arg === '--flush' || arg === '--sync') {
+      return 'mutating'
+    }
+    if (arg === '--setup-keys') {
+      return 'mutating'
+    }
+  }
+  return 'read-only'
+}
+
+function classifyTimedatectlInvocation(args: string[]): CommandEffect {
+  const sub = args.find(a => !a.startsWith('-'))
+  if (!sub || ['status', 'show', 'timesync-status', 'list-timezones'].includes(sub.toLowerCase())) {
+    return 'read-only'
+  }
+  if (sub.toLowerCase().startsWith('set-')) return 'mutating'
+  return 'unknown'
+}
+
+function classifyHostnamectlInvocation(args: string[]): CommandEffect {
+  const sub = args.find(a => !a.startsWith('-'))
+  if (!sub || ['status', 'hostname'].includes(sub.toLowerCase())) {
+    return 'read-only'
+  }
+  if (sub.toLowerCase().startsWith('set-')) return 'mutating'
+  return 'unknown'
+}
+
+function classifyLocalectlInvocation(args: string[]): CommandEffect {
+  const sub = args.find(a => !a.startsWith('-'))
+  if (
+    !sub ||
+    [
+      'status',
+      'list-locales',
+      'list-keymaps',
+      'list-x11-keymap-models',
+      'list-x11-keymap-layouts',
+      'list-x11-keymap-variants',
+      'list-x11-keymap-options',
+    ].includes(sub.toLowerCase())
+  ) {
+    return 'read-only'
+  }
+  if (sub.toLowerCase().startsWith('set-')) return 'mutating'
+  return 'unknown'
 }
 
 function normalizeExecutable(value: string): string {
