@@ -49,7 +49,8 @@ function createEventQueue() {
   }
 }
 
-function createFakeOpenCode() {
+function createFakeOpenCode(options?: { messages?: unknown[] }) {
+  const customMessages = options?.messages ?? []
   const queue = createEventQueue()
   const prompts: string[] = []
   const contexts: string[] = []
@@ -89,6 +90,7 @@ function createFakeOpenCode() {
         aborts.push(opts.path.id)
         return Promise.resolve({ data: true, error: undefined })
       },
+      messages: () => Promise.resolve({ data: customMessages, error: undefined }),
     },
     event: {
       subscribe: (opts: { signal?: AbortSignal }) => Promise.resolve({ stream: queue.stream(opts.signal) }),
@@ -739,5 +741,95 @@ describe('OpenCodeSdkAdapter', () => {
     expect(fake.aborts).toEqual(['s1'])
     expect(fake.closed).toEqual([true])
     expect(adapter.getState()).toBe('stopped')
+  })
+
+  test('未启动时调用 getContextUsage 报错', async () => {
+    const fake = createFakeOpenCode()
+    const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
+    await expect(adapter.getContextUsage!()).rejects.toThrow('session is not ready')
+  })
+
+  test('刚启动无消息时调用 getContextUsage 报错无用量数据', async () => {
+    const fake = createFakeOpenCode()
+    const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
+    await adapter.start(SPAWN)
+    await expect(adapter.getContextUsage!()).rejects.toThrow('session has no usage data yet')
+  })
+
+  test('getContextUsage 从 message.updated 提取 assistant 消息的 tokens 并计算占用率', async () => {
+    const fake = createFakeOpenCode()
+    const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
+    await adapter.start(SPAWN)
+
+    fake.queue.push({
+      type: 'message.updated',
+      properties: {
+        info: {
+          id: 'm1',
+          sessionID: 's1',
+          role: 'assistant',
+          providerID: 'deepseek',
+          modelID: 'deepseek-v4',
+          tokens: {
+            input: 1280,
+            output: 256,
+            reasoning: 100,
+            cache: {
+              read: 500,
+              write: 50,
+            },
+          },
+        },
+      },
+    })
+    await tick()
+
+    const usage = await adapter.getContextUsage!()
+    expect(usage).toEqual({
+      totalTokens: 1780,
+      maxTokens: 128000,
+      percentage: 1.39,
+      categories: {
+        input: 1280,
+        output: 256,
+        reasoning: 100,
+        cache_read: 500,
+        cache_write: 50,
+      },
+    })
+  })
+
+  test('getContextUsage 无缓存时从 session.messages 回退获取 tokens', async () => {
+    const fake = createFakeOpenCode({
+      messages: [
+        {
+          info: {
+            id: 'm1',
+            sessionID: 's1',
+            role: 'assistant',
+            providerID: 'deepseek',
+            modelID: 'deepseek-v4',
+            tokens: {
+              input: 2560,
+              output: 512,
+            },
+          },
+          parts: [],
+        },
+      ],
+    })
+    const adapter = createOpenCodeSdkAdapter({ createOpencodeFn: fake.createOpencodeFn })
+    await adapter.start(SPAWN)
+
+    const usage = await adapter.getContextUsage!()
+    expect(usage).toEqual({
+      totalTokens: 2560,
+      maxTokens: 128000,
+      percentage: 2,
+      categories: {
+        input: 2560,
+        output: 512,
+      },
+    })
   })
 })

@@ -12,6 +12,7 @@ import type {
   ApprovalRequest,
   CliModel,
   CLIAdapter,
+  ContextUsageInfo,
   ExitInfo,
   OutputDelta,
   SpawnOptions,
@@ -43,6 +44,22 @@ interface PendingOpenCodePermission {
   id: string
   sessionID: string
   supportsAlways?: boolean
+}
+
+interface CachedTokens {
+  input: number
+  output: number
+  reasoning?: number
+  cache?: {
+    read?: number
+    write?: number
+  }
+}
+
+interface CachedUsage {
+  tokens: CachedTokens
+  providerId?: string
+  modelId?: string
 }
 
 export interface OpenCodeSdkAdapterDeps {
@@ -77,6 +94,7 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
   const textParts = new Map<string, string>()
   const messageRoles = new Map<string, 'user' | 'assistant'>()
   const pendingApprovals = new Map<string, PendingOpenCodePermission>()
+  let latestUsage: CachedUsage | null = null
 
   function emitRaw(value: unknown) {
     if (!debugRawJson) return
@@ -125,6 +143,8 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
         const messageId = readString(info, 'id')
         const role = readMessageRole(info)
         if (messageId && role) messageRoles.set(messageId, role)
+        const extracted = extractUsageFromMessageInfo(info)
+        if (extracted) latestUsage = extracted
         return
       }
       case 'message.removed': {
@@ -300,6 +320,7 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
       turnHasInput = false
       turnHasVisibleText = false
       abortController = new AbortController()
+      latestUsage = null
 
       systemPrompt = buildSystemPromptAppend(opts.systemLanguageHint)
       readOnlyCommandPatterns = opts.readOnlyCommandPatterns
@@ -418,6 +439,86 @@ export function createOpenCodeSdkAdapter(deps?: OpenCodeSdkAdapterDeps): CLIAdap
     },
 
     getState: () => state,
+
+    async getContextUsage(): Promise<ContextUsageInfo> {
+      if (!sessionId || !started) throw new Error('OpenCodeSdkAdapter: session is not ready')
+      let usage = latestUsage
+      if (!usage) {
+        try {
+          const res = await currentClient().session.messages({ path: { id: sessionId }, query: { directory: cwd } })
+          if (res.data && Array.isArray(res.data)) {
+            for (let i = res.data.length - 1; i >= 0; i--) {
+              const item = res.data[i]
+              const info = asRecord(item?.info)
+              if (info) {
+                const extracted = extractUsageFromMessageInfo(info)
+                if (extracted) {
+                  usage = extracted
+                  latestUsage = usage
+                  break
+                }
+              }
+            }
+          }
+        } catch {
+          // 容错
+        }
+      }
+
+      if (!usage) {
+        throw new Error('OpenCodeSdkAdapter: session has no usage data yet')
+      }
+
+      let maxTokens: number | undefined
+      try {
+        const providersRes = await currentClient().provider.list({ query: { directory: cwd } })
+        if (providersRes.data?.all) {
+          const targetModel =
+            modelId ?? (usage.providerId && usage.modelId ? `${usage.providerId}/${usage.modelId}` : null)
+          for (const p of providersRes.data.all) {
+            for (const [mId, m] of Object.entries(p.models)) {
+              const fullId = `${p.id}/${mId}`
+              if (
+                targetModel
+                  ? fullId === targetModel || mId === targetModel
+                  : p.id === usage.providerId && mId === usage.modelId
+              ) {
+                maxTokens = m.limit.context
+                break
+              }
+            }
+            if (maxTokens !== undefined) break
+          }
+        }
+      } catch {
+        // 容错
+      }
+
+      const totalTokens = (usage.tokens.input ?? 0) + (usage.tokens.cache?.read ?? 0)
+      const percentage =
+        maxTokens !== undefined && maxTokens > 0 ? Number(((totalTokens / maxTokens) * 100).toFixed(2)) : undefined
+
+      const categories: Record<string, number> = {
+        input: usage.tokens.input,
+        output: usage.tokens.output,
+      }
+      if (usage.tokens.reasoning !== undefined && usage.tokens.reasoning > 0) {
+        categories.reasoning = usage.tokens.reasoning
+      }
+      if (usage.tokens.cache?.read !== undefined && usage.tokens.cache.read > 0) {
+        categories.cache_read = usage.tokens.cache.read
+      }
+      if (usage.tokens.cache?.write !== undefined && usage.tokens.cache.write > 0) {
+        categories.cache_write = usage.tokens.cache.write
+      }
+
+      return {
+        totalTokens,
+        ...(maxTokens !== undefined ? { maxTokens } : {}),
+        ...(percentage !== undefined ? { percentage } : {}),
+        categories,
+      }
+    },
   }
 }
 
@@ -611,6 +712,33 @@ function formatError(error: unknown): string {
 
 function formatSessionError(error: unknown): string {
   return `opencode session error: ${formatError(error)}`
+}
+
+function parseAssistantTokens(raw: unknown): CachedTokens | null {
+  const record = asRecord(raw)
+  if (!record) return null
+  const input = typeof record.input === 'number' ? record.input : 0
+  const output = typeof record.output === 'number' ? record.output : 0
+  const reasoning = typeof record.reasoning === 'number' ? record.reasoning : undefined
+  const cacheRecord = asRecord(record.cache)
+  const cache = cacheRecord
+    ? {
+        read: typeof cacheRecord.read === 'number' ? cacheRecord.read : undefined,
+        write: typeof cacheRecord.write === 'number' ? cacheRecord.write : undefined,
+      }
+    : undefined
+  return { input, output, ...(reasoning !== undefined ? { reasoning } : {}), ...(cache ? { cache } : {}) }
+}
+
+function extractUsageFromMessageInfo(info: Record<string, unknown>): CachedUsage | null {
+  if (readMessageRole(info) !== 'assistant') return null
+  const tokens = parseAssistantTokens(info.tokens)
+  if (!tokens) return null
+  return {
+    tokens,
+    providerId: readString(info, 'providerID'),
+    modelId: readString(info, 'modelID'),
+  }
 }
 
 function normalizePath(value: string): string {

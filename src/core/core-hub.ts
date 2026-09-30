@@ -12,6 +12,7 @@ import type {
   CliModel,
   CliModelPreference,
   CliType,
+  ContextUsageInfo,
   ConversationId,
   FileContentReader,
   MessageRef,
@@ -46,6 +47,7 @@ export interface CoreHubOptions {
   getSelectedModel?: (platform: Platform, userId: string, cli: CliType) => Promise<CliModelPreference | null>
   listModels?: (conversationId: ConversationId) => Promise<CliModel[]>
   selectModel?: (conversationId: ConversationId, model: CliModel) => Promise<CliModelPreference>
+  getContextUsage?: (conversationId: ConversationId) => Promise<ContextUsageInfo | null>
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
   getUpdatePreview?: () => Promise<string> | string
@@ -85,6 +87,7 @@ export function createCoreHub(opts: CoreHubOptions): CoreHub {
       getSelectedModel: opts.getSelectedModel,
       listModels: opts.listModels,
       selectModel: opts.selectModel,
+      getContextUsage: opts.getContextUsage,
       resolveCwd: opts.resolveCwd,
       refreshEnvironmentSnapshot: opts.refreshEnvironmentSnapshot,
       getHealthReport: opts.getHealthReport,

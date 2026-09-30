@@ -32,6 +32,7 @@ import {
   formatToolDetail,
   type ApprovalRequest,
   type CLIAdapter,
+  type ContextUsageInfo,
 } from './cli'
 
 export interface SessionOrchestrator {
@@ -39,6 +40,7 @@ export interface SessionOrchestrator {
   handler: MessageHandler
   listModels(conversationId: ConversationId): Promise<CliModel[]>
   setModel(conversationId: ConversationId, modelId: string): Promise<string>
+  getContextUsage(conversationId: ConversationId): Promise<ContextUsageInfo | null>
   /** 停止指定会话的 adapter，并丢弃其聚合器、审批和计时器状态。 */
   stopConversation(conversationId: ConversationId): Promise<void>
   /** 停止所有 adapter 与订阅（优雅关闭）。 */
@@ -706,6 +708,15 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       if (!result) throw new Error(`会话 ${conversationId} 的 CLI adapter 启动失败`)
       resetIdleTimer(conversationId, result.entry)
       return result.entry.adapter.setModel(modelId)
+    },
+    async getContextUsage(conversationId) {
+      const entry = entries.get(conversationId)
+      if (!entry?.adapter.getContextUsage) return null
+      try {
+        return await entry.adapter.getContextUsage()
+      } catch {
+        return null
+      }
     },
     stopConversation,
     async destroy() {

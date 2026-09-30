@@ -1355,8 +1355,8 @@ describe('CommandRouter', () => {
     expect(content).toContain('**Model ID**: `claude-sonnet-4-5`')
     expect(content).toContain('**自动审批**: ✅ ON')
     expect(content).toContain('**自动审批倒计时**: 12 秒')
-    expect(content).toContain('**自动审批倒计时**: 12 秒\n- **已存活**:')
-    expect(content).not.toContain('**自动审批倒计时**: 12 秒\n\n- **已存活**:')
+    expect(content).toContain('**自动审批倒计时**: 12 秒\n- **Context 占用**:')
+    expect(content).not.toContain('**自动审批倒计时**: 12 秒\n\n- **Context 占用**:')
     expect(content).not.toContain('### 当前目标')
     expect(content).toContain('**已存活**:')
   })
@@ -1394,6 +1394,120 @@ describe('CommandRouter', () => {
     expect(content).toContain('**CWD**: `/project`')
     expect(content).toContain('**已存活**:')
     expect(content).not.toContain('`claude`')
+  })
+
+  test('/status 展示 Context 占用（含总量、上限、百分比和分类）', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      getContextUsage: async () => ({
+        totalTokens: 1500,
+        maxTokens: 200000,
+        percentage: 0.75,
+        categories: {
+          messages: 1000,
+          'system prompt': 500,
+        },
+      }),
+    })
+    await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'hi',
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: '/status',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    const content = (replies[0] as { content: string }).content
+    expect(content).toContain('**Context 占用**: 1,500 / 200,000 (0.75%)')
+    expect(content).toContain('- messages: 1,000')
+    expect(content).toContain('- system prompt: 500')
+  })
+
+  test('/status 在 Context 未激活时展示友好提示', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      getContextUsage: async () => null,
+    })
+    await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'hi',
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: '/status',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    const content = (replies[0] as { content: string }).content
+    expect(content).toContain('**Context 占用**: _未激活（发送消息后生效）_')
+  })
+
+  test('/status 英文环境下展示 Context usage', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+    const commandRouter = createCommandRouter({
+      bus: bus as unknown as EventBus,
+      repos,
+      sessionManager: sm,
+      getUserLanguage: () => 'en',
+      getContextUsage: async () => ({
+        totalTokens: 1024,
+        maxTokens: 128000,
+        percentage: 0.8,
+      }),
+    })
+    await sm.findOrCreate({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'hi',
+    })
+    const replies: unknown[] = []
+    bus.on('CommandReply', p => replies.push(p))
+
+    await commandRouter.tryHandle({
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: '/status',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    const content = (replies[0] as { content: string }).content
+    expect(content).toContain('**Context usage**: 1,024 / 128,000 (0.8%)')
   })
 
   test('/audit 展示当前会话审批记录', async () => {

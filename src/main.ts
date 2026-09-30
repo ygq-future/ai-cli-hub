@@ -383,6 +383,7 @@ async function main() {
     setAutoApprove: userPreferences.setAutoApprove,
     getSelectedModel: userPreferences.getModel,
     listModels: orch.listModels,
+    getContextUsage: orch.getContextUsage,
     selectModel: async (conversationId, model) => {
       const conv = await repos.conversations.findById(conversationId)
       if (!conv) throw new Error(`会话 ${conversationId} 不存在`)

@@ -8,9 +8,9 @@
  * 依赖矩阵：cli/ 允许依赖 event/ config/ shared/ + 对应 SDK，禁止依赖 transport/ storage/。
  * docs/03-Interface-Contracts.md §3.1
  */
-import type { CliModel, CliType, ConversationId, Unsubscribe } from '../shared'
+import type { CliModel, CliType, ContextUsageInfo, ConversationId, Unsubscribe } from '../shared'
 
-export type { CliModel } from '../shared'
+export type { CliModel, ContextUsageInfo } from '../shared'
 
 export interface CLIAdapter {
   readonly cliType: CliType
@@ -40,13 +40,6 @@ export interface CLIAdapter {
   getContextUsage?(): Promise<ContextUsageInfo>
 
   getState(): AdapterState
-}
-
-export interface ContextUsageInfo {
-  totalTokens: number
-  maxTokens?: number
-  percentage?: number
-  categories?: Record<string, number>
 }
 
 export interface OutputDelta {

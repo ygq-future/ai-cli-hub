@@ -60,6 +60,13 @@ export interface CliModelPreference {
   modelName: string
 }
 
+/** 会话上下文窗口用量与 Token 分布。 */
+export interface ContextUsageInfo {
+  totalTokens: number
+  maxTokens?: number
+  percentage?: number
+  categories?: Record<string, number>
+}
 /** Transport 可按平台能力渲染为复制按钮；不支持时回退为名称列表。 */
 export interface CopyAction {
   label: string

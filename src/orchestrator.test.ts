@@ -3,7 +3,15 @@ import { createEventBus } from './event'
 import { createMessageAggregator } from './core'
 import { createSessionOrchestrator } from './orchestrator'
 import type { ConversationId } from './shared'
-import type { CLIAdapter, OutputDelta, ApprovalRequest, ExitInfo, SpawnOptions, ApprovalAction } from './cli'
+import type {
+  CLIAdapter,
+  OutputDelta,
+  ApprovalRequest,
+  ExitInfo,
+  SpawnOptions,
+  ApprovalAction,
+  ContextUsageInfo,
+} from './cli'
 import type { Repositories } from './repository'
 
 const CID = 'conv-1' as ConversationId
@@ -12,7 +20,11 @@ const tick = () => new Promise(r => setTimeout(r, 0))
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 /** 假 adapter：记录调用，允许测试手动触发 output/approval/exit。 */
-function createFakeAdapter(opts?: { onStop?: () => Promise<void>; contextInjection?: boolean }) {
+function createFakeAdapter(opts?: {
+  onStop?: () => Promise<void>
+  contextInjection?: boolean
+  contextUsage?: ContextUsageInfo | null | (() => Promise<ContextUsageInfo>)
+}) {
   const outputHandlers: Array<(d: OutputDelta) => void> = []
   const approvalHandlers: Array<(r: ApprovalRequest) => void> = []
   const exitHandlers: Array<(i: ExitInfo) => void> = []
@@ -54,6 +66,14 @@ function createFakeAdapter(opts?: { onStop?: () => Promise<void>; contextInjecti
     async setModel(modelId) {
       calls.setModel.push(modelId)
       return modelId
+    },
+    async getContextUsage() {
+      if (typeof opts?.contextUsage === 'function') return opts.contextUsage()
+      if (opts?.contextUsage !== undefined) {
+        if (opts.contextUsage === null) throw new Error('context usage failed')
+        return opts.contextUsage
+      }
+      return { totalTokens: 1200, maxTokens: 200000, percentage: 0.6, categories: { messages: 1200 } }
     },
     onOutput(h) {
       outputHandlers.push(h)
@@ -1081,6 +1101,45 @@ describe('SessionOrchestrator', () => {
 
     fake.emitOutput({ kind: 'text', text: 'Files are clean.', final: true })
     expect(activities[3]).toEqual({ state: 'idle', detail: undefined })
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('getContextUsage 在无活动 adapter 时返回 null，有活动 adapter 时返回用量', async () => {
+    const bus = createEventBus()
+    const fake = createFakeAdapter({
+      contextUsage: { totalTokens: 2048, maxTokens: 128000, percentage: 1.6, categories: { input: 2048 } },
+    })
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
+
+    // 未激活 adapter
+    expect(await orch.getContextUsage(CID)).toBeNull()
+
+    // 激活 adapter
+    await orch.handler.onMessage('hi', CID)
+    expect(await orch.getContextUsage(CID)).toEqual({
+      totalTokens: 2048,
+      maxTokens: 128000,
+      percentage: 1.6,
+      categories: { input: 2048 },
+    })
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('getContextUsage 异常时安全降级返回 null', async () => {
+    const bus = createEventBus()
+    const fake = createFakeAdapter({ contextUsage: null })
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({ bus, repos, aggregator: agg, adapterFactory: () => fake.adapter })
+
+    await orch.handler.onMessage('hi', CID)
+    expect(await orch.getContextUsage(CID)).toBeNull()
 
     await orch.destroy()
     agg.destroy()

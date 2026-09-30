@@ -14,6 +14,7 @@ import {
   type CliModel,
   type CliModelPreference,
   type CliType,
+  type ContextUsageInfo,
   type ConversationId,
   type MemoryType,
   type Platform,
@@ -39,6 +40,7 @@ export interface CommandRouterDeps {
   getSelectedModel?: (platform: Platform, userId: string, cli: CliType) => Promise<CliModelPreference | null>
   listModels?: (conversationId: ConversationId) => Promise<CliModel[]>
   selectModel?: (conversationId: ConversationId, model: CliModel) => Promise<CliModelPreference>
+  getContextUsage?: (conversationId: ConversationId) => Promise<ContextUsageInfo | null>
   resolveCwd?: (cwd: string) => Promise<CwdResolveResult> | CwdResolveResult
   refreshEnvironmentSnapshot?: () => Promise<void>
   getHealthReport?: () => Promise<string>
@@ -338,7 +340,10 @@ export function createCommandRouter(deps: CommandRouterDeps): CommandRouter {
           }
           const language = await getUserLanguage(payload.platform, payload.userId)
           const selectedModel = await deps.getSelectedModel?.(payload.platform, payload.userId, conv.cli as CliType)
-          reply(payload, formatStatus(conv, language, selectedModel, autoApprove))
+          const contextUsage = deps.getContextUsage
+            ? await deps.getContextUsage(conv.id as ConversationId).catch(() => null)
+            : null
+          reply(payload, formatStatus(conv, language, selectedModel, autoApprove, contextUsage))
           return true
         }
 
@@ -634,6 +639,7 @@ function formatStatus(
   language: UserLanguage,
   selectedModel: CliModelPreference | null | undefined,
   autoApprove: AutoApprovePreference,
+  contextUsage?: ContextUsageInfo | null,
 ): string {
   const isEnglish = language === 'en'
   return [
@@ -647,6 +653,7 @@ function formatStatus(
     `- **CWD**: \`${conv.cwd}\``,
     ...formatModelPreference(selectedModel, language),
     ...formatAutoApprovePreference(autoApprove, language),
+    ...formatContextUsage(contextUsage, language),
     `- **${isEnglish ? 'Alive' : '已存活'}**: ${formatDuration(Date.now() - conv.createdAt)}`,
   ].join('\n')
 }
@@ -657,6 +664,34 @@ function formatAutoApprovePreference(preference: AutoApprovePreference, language
     `- **${isEnglish ? 'Auto approval' : '自动审批'}**: ${preference.enabled ? '✅ ON' : '⛔ OFF'}`,
     `- **${isEnglish ? 'Auto-approval countdown' : '自动审批倒计时'}**: ${preference.seconds} ${isEnglish ? 'seconds' : '秒'}`,
   ]
+}
+
+function formatContextUsage(usage: ContextUsageInfo | null | undefined, language: UserLanguage): string[] {
+  const isEnglish = language === 'en'
+  const label = isEnglish ? 'Context usage' : 'Context 占用'
+  if (!usage) {
+    return [`- **${label}**: _${isEnglish ? 'Not active (send a message to activate)' : '未激活（发送消息后生效）'}_`]
+  }
+  const formattedTotal = usage.totalTokens.toLocaleString('en-US')
+  let mainLine = ''
+  if (usage.maxTokens !== undefined && usage.percentage !== undefined) {
+    const formattedMax = usage.maxTokens.toLocaleString('en-US')
+    mainLine = `- **${label}**: ${formattedTotal} / ${formattedMax} (${usage.percentage}%)`
+  } else if (usage.maxTokens !== undefined) {
+    const formattedMax = usage.maxTokens.toLocaleString('en-US')
+    mainLine = `- **${label}**: ${formattedTotal} / ${formattedMax}`
+  } else {
+    mainLine = `- **${label}**: ${formattedTotal} tokens`
+  }
+
+  const lines = [mainLine]
+  if (usage.categories) {
+    const entries = Object.entries(usage.categories).filter(([, tokens]) => typeof tokens === 'number' && tokens > 0)
+    for (const [name, tokens] of entries) {
+      lines.push(`  - ${name}: ${tokens.toLocaleString('en-US')}`)
+    }
+  }
+  return lines
 }
 
 function formatModelPreference(preference: CliModelPreference | null | undefined, language: UserLanguage): string[] {
