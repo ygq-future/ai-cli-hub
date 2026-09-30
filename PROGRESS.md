@@ -3,18 +3,18 @@
 > **每个编码会话先读本文件**，了解现状后再动手；**每完成一个里程碑或做出关键决策后回来更新**。
 > 这是项目的**动态状态真相源**。静态规矩见 [CLAUDE.md](./CLAUDE.md)，蓝图见 [05-实施计划](./docs/05-Implementation-Plan.md)。
 >
-> 最后更新：2026-09-29 · 阶段：**自更新真实 Preview 与重启命令统一优化已完成**
+最后更新：2026-09-30 · 阶段：**自更新执行动作实时状态与网页 Title 动态反馈优化已完成**
 ---
 
 ## 1. 当前状态一览
 
 | 维度 | 状态 |
 |---|---|
-| 当前里程碑 | **自更新真实 Preview 与重启命令统一优化（✅ 完成）** |
-| 代码 | ✅ 重构 `ops/update.ts`，将原本输出写死命令清单的静态预览改造为真实 Preview：只读执行 `git fetch`，对比本地 `HEAD` 与上游 `@{upstream}` 追踪分支，若无更新明确展示已是最新版本无需更新，若有更新则展示待更新 commits 列表、shortstat 统计，并智能分析 `package.json`/`src/webui/`/`settings.json.example`/`drizzle/` 的影响面提示触发步骤与重启安排，且提示工作树脏改动风险；同时精简重启命令交互链路，`/restart` 消除无意义的两阶段提示，直接排期受控优雅重启并下发恢复通知，并保留 `/restart confirm` 作为等价别名兼容已有习惯。 |
+| 当前里程碑 | **自更新执行动作实时状态与网页 Title 动态反馈优化（✅ 完成）** |
+| 代码 | ✅ 优化 `/update`、`/update confirm` 及系统动作的实时状态交互：`ops/update.ts` 接入 `onProgress` 报告与 `formatActionDetail` 动作映射，自更新预检与确认执行的每个具体步骤（`git status`、`git fetch`、`git pull --ff-only`、`bun install --frozen-lockfile`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build:staged`、`bun run setting:migrate`、`bun run db:migrate`、`bun run webui:promote`）均向总线广播真实执行动作与具体命令，并在完成/异常时可靠重置为 `idle`；`AgentActivityChanged` 契约支持可选 `conversationId`，`websocket-transport` 负责将实例级与会话级动作统一广播至 Web 客户端；WebUI 聊天发送时按命令精准预置初始状态（`/update confirm` 置 `git status`、`/update` 置 `git fetch` 等，避免盲目显示“思考中”）；新增 `resolveDocumentTitle` 动态同步网页 `<title>`，实时反映思考中、具体命令执行中、流式回复中与审批等待中，空闲时平滑还原为 `AI CLI Hub`。 |
 | 文档 | ✅ PROGRESS.md 已同步。 |
 | 阻塞项 | 无 |
-| 下一步 | 等待用户验收；全量 545 个单测全绿，构建和格式检查全部通过。 |
+| 下一步 | 等待用户验收；全量 558 个单测全绿，构建和格式检查全部通过。 |
 
 ---
 
@@ -383,6 +383,7 @@
 | 2026-09-29 | **Web 控制台布局一体化与实时动作加载指示器完成**：重构管理页面（会话、偏好、记忆、审计）的容器与布局，引入与 Header 无缝拼接的 `.admin-shell` 外壳容器，消除整页滚动并实现会话列表/时间线详情/偏好范围/记忆卡片/审计记录的内部独立局部滚动（支持表格 Header 吸顶与分页栏吸底）；EventBus 新增 `AgentActivityChanged` 事件并在 Orchestrator、Claude SDK 与 OpenCode 适配器中捕获思考（thinking）与工具/命令执行（executing 带 detail），WebSocketTransport 广播 `agent_activity`；Web 聊天端接入动作状态指示器，支持发送后乐观反馈、平滑滚动联动、思考脉冲与命令执行展示，轮次结束或审批到达时自动隐退。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test` 539 pass / 9 skip / 0 fail。 |
 | 2026-09-29 | **Web 流式时间线保序、审批明细 prettyJSON 与默认折叠优化完成**：针对进行中流式消息在遭遇工具审批时被新审批卡顶起的时序倒置问题，重构 `upsertApproval`，在存在正在进行的助手流式消息时将新审批卡插入流式消息之前，保持流式消息始终吸附在最下方且与刷新后数据库按 `createdAt` 排序的时间线完全一致；改造 `formatApprovalDetail`，无论是 WebSocket 实时推送的压缩 JSON 字符串还是数据库水合返回的对象，统一格式化为 2 格缩进的 prettyJSON；审批卡片默认折叠明细，仅展示状态、主命令与操作人，并提供下拉箭头交互展开/收起明细 JSON。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（544 pass / 9 skip / 0 fail）全部通过。 |
 | 2026-09-29 | **自更新真实 Preview 与重启命令统一优化完成**：重构 `ops/update.ts`，将原本输出写死命令清单的静态预览改造为真实 Preview：只读执行 `git fetch`，对比本地 `HEAD` 与上游 `@{upstream}` 追踪分支，若无更新明确展示已是最新版本无需更新，若有更新则展示待更新 commits 列表、shortstat 统计，并智能分析 `package.json`/`src/webui/`/`settings.json.example`/`drizzle/` 的影响面提示触发步骤与重启安排，且提示工作树脏改动风险；同时精简重启命令交互链路，`/restart` 消除无意义的两阶段提示，直接排期受控优雅重启并下发恢复通知，并保留 `/restart confirm` 作为等价别名兼容已有习惯。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、全量 `bun test`（545 pass / 9 skip / 0 fail）全部通过。 |
+| 2026-09-30 | **自更新执行动作实时状态与网页 Title 动态反馈优化完成**：优化 `/update`、`/update confirm` 及运维动作的交互反馈，彻底消除原本无差别的“思考中…”假象：重构 `ops/update.ts`，引入 `onProgress` 契约与 `formatActionDetail` 命令映射表，在 `preview()` 和 `run()` 的各步骤执行前发出包含实际 CLI 命令的实时动作（如 `git fetch`、`git pull --ff-only`、`bun install --frozen-lockfile`、`bun run typecheck`、`bun run webui:build:staged` 等），并在 `finally` 块中确保重置为 `idle`；在 `src/event/event-map.ts`、`src/shared/types/common.ts` 与 `docs/03-Interface-Contracts.md` 中将 `AgentActivityChanged` 的 `conversationId` 设为可选，使 `main.ts` 装配的总线能够广播全局自更新与系统动作，`websocket-transport.ts` 增加对无 `conversationId` 全局动作的转发；WebUI 接入 `resolveInitialAgentActivity`，在发送端按输入类型精准展示初始执行状态，接收到服务端各步骤推送时实时刷新指示器；新增 `resolveDocumentTitle` 与 Title 同步副作用，动态在网页 `<title>` 前缀展示实时状态标签（如中英文思考中 `[正在思考…]` / `[Thinking…]`、执行命令 `[正在执行: git pull]` / `[Executing: git pull]`、流式回复中 `[正在回复…]` 及最高优先级的待决审批 `[等待审批]`），且在状态更迭时杜绝标题闪烁。自动验收：`bun run format`、`bun run format:check`、`bun run typecheck`、`bun run lint`、`bun run webui:build`、全量 `bun test`（558 pass / 9 skip / 0 fail）全部通过。 |
 ## 6. 开放问题（Open Questions）
 
 > 尚未决策、需要时再定的事项。清空表示当前无悬而未决。

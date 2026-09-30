@@ -207,6 +207,21 @@ test('WebSocket transport 将已知会话的 AgentActivityChanged 广播为 agen
   ])
   await transport.stop()
 })
+test('WebSocket transport 将全局未绑定会话的 AgentActivityChanged 广播为 agent_activity 事件', async () => {
+  const bus = createEventBus()
+  const { gateway, sent } = createGateway()
+  const transport = createWebSocketTransport({ bus, gateway, userId: 'web-admin' })
+  await transport.start()
+  bus.emit('AgentActivityChanged', {
+    state: 'executing',
+    detail: 'git pull',
+  })
+
+  expect(sent.map(data => JSON.parse(data))).toEqual([
+    { v: 1, type: 'agent_activity', state: 'executing', detail: 'git pull' },
+  ])
+  await transport.stop()
+})
 
 test('WebSocket transport 收到会话删除事件后撤销会话和审批缓存', async () => {
   const bus = createEventBus()

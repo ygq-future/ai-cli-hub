@@ -81,6 +81,53 @@ describe('update runner', () => {
     expect(preview).toContain('`pm2 restart ai-cli-hub after 1500ms`')
     expect(preview).toContain('/update confirm')
   })
+  test('preview 会触发实时执行状态并在结束时重置为 idle', async () => {
+    const activities: Array<{ state: string; detail?: string }> = []
+    const runner = createUpdateRunner({
+      config: config(),
+      platform: 'linux',
+      runCommand: async (command, args) => {
+        const call = [command, ...args].join(' ')
+        if (call === 'git rev-parse HEAD') return ok('1111111111111111')
+        if (call === 'git fetch') return ok()
+        if (call === 'git rev-parse @{upstream}') return ok('2222222222222222')
+        if (call.startsWith('git log --format=')) return ok('2222222\tfeat: new feature\n3333333\tfix: bug')
+        if (call.startsWith('git diff --shortstat')) return ok('1 file changed')
+        if (call.startsWith('git diff --name-only')) return ok('package.json')
+        return ok()
+      },
+      scheduleRestart() {},
+      onProgress: action => activities.push(action),
+    })
+
+    await runner.preview()
+
+    expect(activities.length).toBeGreaterThan(0)
+    expect(activities[0]).toEqual({ state: 'executing', detail: 'git status' })
+    expect(activities.some(a => a.detail === 'git fetch')).toBe(true)
+    expect(activities.at(-1)).toEqual({ state: 'idle', detail: undefined })
+  })
+
+  test('run 会按实际执行步骤触发实时状态并在结束时重置为 idle', async () => {
+    const activities: Array<{ state: string; detail?: string }> = []
+    const runner = createUpdateRunner({
+      config: config(),
+      platform: 'linux',
+      runCommand: changedRevisionResult(),
+      scheduleRestart() {},
+      onProgress: action => activities.push(action),
+    })
+
+    await runner.run()
+
+    expect(activities.length).toBeGreaterThan(0)
+    expect(activities[0]).toEqual({ state: 'executing', detail: 'git status' })
+    expect(activities.some(a => a.detail === 'git pull --ff-only')).toBe(true)
+    expect(activities.some(a => a.detail === 'bun install --frozen-lockfile')).toBe(true)
+    expect(activities.some(a => a.detail === 'bun run typecheck')).toBe(true)
+    expect(activities.some(a => a.detail === 'bun run webui:build:staged')).toBe(true)
+    expect(activities.at(-1)).toEqual({ state: 'idle', detail: undefined })
+  })
 
   test('preview reports up-to-date when local revision matches upstream', async () => {
     const runner = createUpdateRunner({

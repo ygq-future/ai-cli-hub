@@ -252,7 +252,7 @@ export function createWebSocketTransport(deps: WebSocketTransportDeps): Transpor
       )
       unsubs.push(
         deps.bus.on('AgentActivityChanged', event => {
-          if (conversations.has(event.conversationId))
+          if (!event.conversationId || conversations.has(event.conversationId))
             send('agent_activity', {
               conversationId: event.conversationId,
               state: event.state,

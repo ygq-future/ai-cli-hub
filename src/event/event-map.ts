@@ -90,7 +90,7 @@ export interface EventMap {
   }
   /** Agent 实时动作变化（如思考中、正在执行命令、或就绪空闲）。 */
   AgentActivityChanged: {
-    conversationId: ConversationId
+    conversationId?: ConversationId
     state: AgentActivityState
     detail?: string
   }

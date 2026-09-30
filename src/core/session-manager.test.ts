@@ -1657,7 +1657,6 @@ describe('CommandRouter', () => {
     })
     const replies: unknown[] = []
     bus.on('CommandReply', p => replies.push(p))
-
     await commandRouter.tryHandle({
       userId: 'u1',
       platform: 'telegram',
@@ -1679,7 +1678,6 @@ describe('CommandRouter', () => {
     expect((replies[0] as { content: string }).content).toContain('自更新预检')
     expect((replies[1] as { content: string }).content).toContain('自更新完成')
   })
-
   test('/restart 直接执行注入的重启，/restart confirm 等价兼容执行', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()

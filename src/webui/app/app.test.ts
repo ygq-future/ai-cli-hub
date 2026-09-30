@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import {
   appendOutput,
   formatApprovalDetail,
+  resolveDocumentTitle,
+  resolveInitialAgentActivity,
   resolveNextAgentActivity,
   upsertApproval,
   type Approval,
@@ -152,5 +154,78 @@ describe('Agent 实时动作状态机', () => {
   test('审批或错误到达时重置动作状态', () => {
     expect(resolveNextAgentActivity({ state: 'executing' }, { type: 'approval' })).toBeNull()
     expect(resolveNextAgentActivity({ state: 'thinking' }, { type: 'error' })).toBeNull()
+  })
+})
+
+describe('发送消息初始状态解析', () => {
+  test('/update 及其 confirm 返回执行动作状态而非思考中', () => {
+    expect(resolveInitialAgentActivity('/update confirm')).toEqual({ state: 'executing', detail: 'git status' })
+    expect(resolveInitialAgentActivity('/update')).toEqual({ state: 'executing', detail: 'git fetch' })
+  })
+
+  test('/health 与 /restart 返回对应执行状态', () => {
+    expect(resolveInitialAgentActivity('/health')).toEqual({ state: 'executing', detail: 'health check' })
+    expect(resolveInitialAgentActivity('/restart')).toEqual({ state: 'executing', detail: 'restart' })
+    expect(resolveInitialAgentActivity('/restart confirm')).toEqual({ state: 'executing', detail: 'restart' })
+  })
+
+  test('普通文本进入思考中状态', () => {
+    expect(resolveInitialAgentActivity('帮我检查代码')).toEqual({ state: 'thinking' })
+  })
+})
+
+describe('网页 Title 动态状态解析', () => {
+  test('空闲且无待处理状态时返回默认标题', () => {
+    expect(resolveDocumentTitle({})).toBe('AI CLI Hub')
+    expect(resolveDocumentTitle({ activity: { state: 'idle' } })).toBe('AI CLI Hub')
+  })
+
+  test('思考状态生成中英文对应标题', () => {
+    expect(resolveDocumentTitle({ activity: { state: 'thinking' }, locale: 'zh-CN' })).toBe('[正在思考…] AI CLI Hub')
+    expect(resolveDocumentTitle({ activity: { state: 'thinking' }, locale: 'en' })).toBe('[Thinking…] AI CLI Hub')
+    expect(resolveDocumentTitle({ activity: { state: 'thinking', detail: 'analyzing' }, locale: 'zh-CN' })).toBe(
+      '[正在思考: analyzing] AI CLI Hub',
+    )
+  })
+
+  test('执行命令状态生成包含 detail 的标题', () => {
+    expect(
+      resolveDocumentTitle({ activity: { state: 'executing', detail: 'git pull --ff-only' }, locale: 'zh-CN' }),
+    ).toBe('[正在执行: git pull --ff-only] AI CLI Hub')
+    expect(resolveDocumentTitle({ activity: { state: 'executing', detail: 'git pull --ff-only' }, locale: 'en' })).toBe(
+      '[Executing: git pull --ff-only] AI CLI Hub',
+    )
+    expect(resolveDocumentTitle({ activity: { state: 'executing' }, locale: 'zh-CN' })).toBe('[正在执行…] AI CLI Hub')
+    expect(resolveDocumentTitle({ activity: { state: 'executing' }, locale: 'en' })).toBe('[Executing…] AI CLI Hub')
+  })
+
+  test('超长 detail 会在标题中受控截断', () => {
+    const long = 'bun run webui:build:staged --verbose --report-very-long-details-here'
+    const title = resolveDocumentTitle({ activity: { state: 'executing', detail: long }, locale: 'zh-CN' })
+    expect(title).toContain('…')
+    expect(title.length).toBeLessThan(long.length)
+  })
+
+  test('流式回复期间显示回复中标题', () => {
+    expect(resolveDocumentTitle({ isStreaming: true, locale: 'zh-CN' })).toBe('[正在回复…] AI CLI Hub')
+    expect(resolveDocumentTitle({ isStreaming: true, locale: 'en' })).toBe('[Responding…] AI CLI Hub')
+  })
+
+  test('待处理审批具有最高优先级', () => {
+    expect(
+      resolveDocumentTitle({
+        hasPendingApproval: true,
+        activity: { state: 'executing', detail: 'rm -rf /' },
+        isStreaming: true,
+        locale: 'zh-CN',
+      }),
+    ).toBe('[等待审批] AI CLI Hub')
+    expect(
+      resolveDocumentTitle({
+        hasPendingApproval: true,
+        activity: { state: 'executing', detail: 'rm -rf /' },
+        locale: 'en',
+      }),
+    ).toBe('[Waiting Approval] AI CLI Hub')
   })
 })

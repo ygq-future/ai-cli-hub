@@ -581,6 +581,22 @@ export function App() {
     document.documentElement.lang = preferences.locale
   }, [preferences])
   useEffect(() => {
+    const isStreaming = timeline.some(item => item.type === 'chat' && item.role === 'assistant' && item.streaming)
+    const hasPendingApproval = timeline.some(item => item.type === 'approval' && item.status === 'pending')
+    document.title = resolveDocumentTitle({
+      activity: agentActivity,
+      hasPendingApproval,
+      isStreaming,
+      locale: preferences.locale,
+    })
+  }, [agentActivity, timeline, preferences.locale])
+  useEffect(
+    () => () => {
+      document.title = 'AI CLI Hub'
+    },
+    [],
+  )
+  useEffect(() => {
     const updatePage = () => setPage(pageFromLocation(window.location.hash))
     window.addEventListener('hashchange', updatePage)
     return () => window.removeEventListener('hashchange', updatePage)
@@ -674,7 +690,7 @@ export function App() {
     setCommandPaletteOpen(false)
     setFiles([])
     setSelectedFileId(null)
-    setAgentActivity({ state: 'thinking' })
+    setAgentActivity(resolveInitialAgentActivity(text))
   }
   const selectCommand = (entry: CommandCatalogEntry) => {
     const range = findFirstPlaceholderRange(entry.insertText)
@@ -1686,6 +1702,81 @@ function ArrayField({
     </div>
   )
 }
+export function resolveInitialAgentActivity(text: string): AgentActivitySnapshot {
+  const trimmed = text.trim()
+  if (trimmed === '/update confirm') {
+    return { state: 'executing', detail: 'git status' }
+  }
+  if (trimmed === '/update') {
+    return { state: 'executing', detail: 'git fetch' }
+  }
+  if (trimmed.startsWith('/health')) {
+    return { state: 'executing', detail: 'health check' }
+  }
+  if (trimmed.startsWith('/restart')) {
+    return { state: 'executing', detail: 'restart' }
+  }
+  return { state: 'thinking' }
+}
+
+export function resolveDocumentTitle(options: {
+  baseTitle?: string
+  activity?: AgentActivitySnapshot | null
+  hasPendingApproval?: boolean
+  isStreaming?: boolean
+  locale?: string
+}): string {
+  const baseTitle = options.baseTitle ?? 'AI CLI Hub'
+  const isZh = options.locale === 'zh-CN'
+
+  if (options.hasPendingApproval) {
+    const label = isZh ? '等待审批' : 'Waiting Approval'
+    return `[${label}] ${baseTitle}`
+  }
+
+  const activity = options.activity
+  if (activity && activity.state !== 'idle') {
+    if (activity.state === 'executing') {
+      const shortDetail = activity.detail
+        ? activity.detail.length > 30
+          ? `${activity.detail.slice(0, 29)}…`
+          : activity.detail
+        : null
+      const label = shortDetail
+        ? isZh
+          ? `正在执行: ${shortDetail}`
+          : `Executing: ${shortDetail}`
+        : isZh
+          ? '正在执行…'
+          : 'Executing…'
+      return `[${label}] ${baseTitle}`
+    }
+
+    if (activity.state === 'thinking') {
+      const shortDetail = activity.detail
+        ? activity.detail.length > 30
+          ? `${activity.detail.slice(0, 29)}…`
+          : activity.detail
+        : null
+      const label = shortDetail
+        ? isZh
+          ? `正在思考: ${shortDetail}`
+          : `Thinking: ${shortDetail}`
+        : isZh
+          ? '正在思考…'
+          : 'Thinking…'
+      return `[${label}] ${baseTitle}`
+    }
+  }
+
+  if (options.isStreaming) {
+    const label = isZh ? '正在回复…' : 'Responding…'
+    return `[${label}] ${baseTitle}`
+  }
+
+  return baseTitle
+}
+
 export function resolveNextAgentActivity(
   current: AgentActivitySnapshot | null,
   event: { type?: string; state?: string; detail?: string; final?: boolean },

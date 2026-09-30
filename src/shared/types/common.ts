@@ -24,7 +24,7 @@ export type JsonValue = string | number | boolean | null | JsonValue[] | { [key:
 export type AgentActivityState = 'thinking' | 'executing' | 'idle'
 
 export interface AgentActivity {
-  conversationId: ConversationId
+  conversationId?: ConversationId
   state: AgentActivityState
   detail?: string
 }

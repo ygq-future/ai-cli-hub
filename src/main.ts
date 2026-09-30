@@ -111,6 +111,12 @@ async function main() {
     runCommand,
     writeRestartNotice: ref => restartNotices.write({ ref, requestedAt: Date.now() }),
     scheduleRestart,
+    onProgress: action => {
+      bus.emit('AgentActivityChanged', {
+        state: action.state,
+        detail: action.detail,
+      })
+    },
   })
   const restarter = createRestartRunner({
     config,
