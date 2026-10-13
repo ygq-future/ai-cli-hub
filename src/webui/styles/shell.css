@@ -517,6 +517,8 @@ small {
   display: flex;
   flex-direction: column;
   height: 100dvh;
+  width: 100%;
+  max-width: 100%;
   padding: 12px;
   background:
     radial-gradient(circle at 6% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 25rem),
@@ -632,6 +634,8 @@ small {
   display: flex;
   position: relative;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   flex-direction: column;
 }
 .scroll-latest-button {
@@ -670,6 +674,8 @@ small {
 .feed {
   flex: 1;
   overflow: auto;
+  min-width: 0;
+  max-width: 100%;
   padding: clamp(22px, 4vw, 50px) clamp(18px, 8vw, 130px);
 }
 .history-loader {
@@ -1157,7 +1163,9 @@ small {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
   max-width: min(100%, 680px);
+  box-sizing: border-box;
   margin: 6px 0 10px;
   padding: 8px 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
@@ -1192,12 +1200,14 @@ small {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex: 0 1 auto;
   font-size: 0.82rem;
   color: var(--ink);
 }
 .agent-activity-label {
   font-weight: 600;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .agent-activity-detail {
   padding: 2px 7px;
@@ -1210,6 +1220,8 @@ small {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
   max-width: 360px;
 }
 .agent-activity-dots {
@@ -1217,6 +1229,7 @@ small {
   align-items: center;
   gap: 3.5px;
   margin-left: 2px;
+  flex-shrink: 0;
 }
 .agent-activity-dots .dot {
   width: 4px;
@@ -1918,8 +1931,14 @@ small {
   }
   .app {
     padding: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
   }
   .app-header {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
     padding: 0 12px;
     border-width: 0 0 1px;
     border-radius: 0;
@@ -1936,9 +1955,11 @@ small {
     font-size: 0;
   }
   .grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     border: 0;
     border-radius: 0;
+    min-width: 0;
+    width: 100%;
   }
   .status-panel {
     display: none;
@@ -1951,6 +1972,20 @@ small {
   }
   .message {
     max-width: 94%;
+  }
+  .agent-activity-banner {
+    max-width: 100%;
+    gap: 7px;
+    padding: 7px 10px;
+    margin: 4px 0 8px;
+  }
+  .agent-activity-text {
+    gap: 6px;
+  }
+  .agent-activity-detail {
+    max-width: 100%;
+    font-size: 0.72rem;
+    padding: 2px 6px;
   }
   .composer-wrap {
     padding: 11px 12px 14px;
