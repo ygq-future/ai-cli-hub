@@ -348,6 +348,7 @@ async function main() {
     messageFlowLogger,
     idleTimeoutMs: config.AGENT_IDLE_TIMEOUT_MS,
     turnTimeoutMs: config.AGENT_TURN_TIMEOUT_MS,
+    startTimeoutMs: config.CLI_START_TIMEOUT_MS,
     recentContextLimit: config.RECENT_CONTEXT_LIMIT,
     recentContextMessageMaxChars: config.RECENT_CONTEXT_MESSAGE_MAX_CHARS,
     readOnlyCommandPatterns: config.READ_ONLY_COMMAND_PATTERNS,

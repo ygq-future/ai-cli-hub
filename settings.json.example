@@ -38,6 +38,7 @@
   "lifecycle": {
     "agentIdleTimeoutMs": 300000,
     "agentTurnTimeoutMs": 60000,
+    "cliStartTimeoutMs": 60000,
     "serviceShutdownTimeoutMs": 15000,
     "sessionArchiveDays": 7
   },

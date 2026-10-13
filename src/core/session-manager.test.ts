@@ -944,6 +944,65 @@ describe('MessageRouter with MockHandler', () => {
     expect((errors[0] as Record<string, unknown>).message).toContain('Mock failure')
   })
 
+  test('handler 抛错时会话状态从 starting 回退为 idle，并通过 CommandReply 通知用户', async () => {
+    const bus = createMockBus()
+    const repos = createMockRepos()
+    const sm = createSessionManager(bus as unknown as EventBus, repos, 7)
+
+    let calls = 0
+    const handler: MessageHandler = {
+      async onMessage() {
+        calls++
+        if (calls === 1) {
+          throw new Error('CLI startup timeout')
+        }
+        return 'recovered response'
+      },
+    }
+
+    createMessageRouter(bus as unknown as EventBus, repos, sm, undefined, handler, () => 'zh')
+
+    const firstReply = Promise.withResolvers<string>()
+    const secondDone = Promise.withResolvers<string>()
+
+    bus.on('CommandReply', p => firstReply.resolve((p as { content: string }).content))
+    bus.on('MessageGenerated', p => secondDone.resolve((p as { content: string }).content))
+
+    // 发送第 1 条消息（触发 handler 失败）
+    bus.emit('MessageReceived', {
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'first msg',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '1' },
+    })
+
+    const replyContent = await firstReply.promise
+
+    // 1. 验证会话状态从 starting 成功回退回 idle
+    const cid = await sm.findCurrent({ userId: 'u1', platform: 'telegram', cli: 'claude', cwd: '/project' })
+    expect(cid).not.toBeNull()
+    expect(await sm.getStatus(cid!)).toBe('idle')
+
+    // 2. 验证用户收到明确的失败通知
+    expect(replyContent).toContain('CLI startup timeout')
+    expect(replyContent).toContain('重置为空闲状态')
+
+    // 3. 验证再次发送消息时，可以顺利从 idle 重新启动到 running
+    bus.emit('MessageReceived', {
+      userId: 'u1',
+      platform: 'telegram',
+      cli: 'claude',
+      cwd: '/project',
+      text: 'second msg',
+      ref: { platform: 'telegram', chatId: 'c', nativeId: '2' },
+    })
+
+    await secondDone.promise
+    expect(await sm.getStatus(cid!)).toBe('running')
+  })
+
   test('所有斜杠命令及其回复都不持久化，也不调用 handler', async () => {
     const bus = createMockBus()
     const repos = createMockRepos()

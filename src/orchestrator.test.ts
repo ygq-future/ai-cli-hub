@@ -1144,4 +1144,130 @@ describe('SessionOrchestrator', () => {
     await orch.destroy()
     agg.destroy()
   })
+
+  test('启动超时守卫：adapter.start 超过 startTimeoutMs 时自动 stop 并抛出超时错误', async () => {
+    const bus = createEventBus()
+    const errors: Array<{ scope: string; message: string }> = []
+    bus.on('ErrorOccurred', p => errors.push(p))
+    let stopCount = 0
+    const hangingAdapter: CLIAdapter = {
+      cliType: 'claude',
+      async start() {
+        await sleep(200)
+      },
+      async stop() {
+        stopCount++
+      },
+      interrupt() {},
+      sendUserInput() {},
+      resolveApproval() {},
+      async listModels() {
+        return []
+      },
+      async setModel() {
+        return 'm'
+      },
+      getState() {
+        return 'starting' as const
+      },
+      onOutput() {
+        return () => {}
+      },
+      onApprovalRequest() {
+        return () => {}
+      },
+      onExit() {
+        return () => {}
+      },
+    }
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => hangingAdapter,
+      startTimeoutMs: 20,
+    })
+
+    await expect(orch.handler.onMessage('hi', CID)).rejects.toThrow('启动超时')
+    expect(stopCount).toBeGreaterThanOrEqual(1)
+    expect(errors.some(e => e.message.includes('启动超时'))).toBe(true)
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('首次启动失败自动重试 1 次：第一次失败但第二次成功时正常就绪', async () => {
+    const bus = createEventBus()
+    const errors: Array<{ scope: string; message: string }> = []
+    bus.on('ErrorOccurred', p => errors.push(p))
+    let attempts = 0
+    const fake1 = createFakeAdapter()
+    const fake2 = createFakeAdapter()
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => {
+        attempts++
+        if (attempts === 1) {
+          return {
+            ...fake1.adapter,
+            async start() {
+              throw new Error('first start crash')
+            },
+          }
+        }
+        return fake2.adapter
+      },
+      startTimeoutMs: 100,
+    })
+
+    await orch.handler.onMessage('hello', CID)
+    expect(attempts).toBe(2)
+    expect(fake2.calls.sendUserInput).toEqual(['hello'])
+    expect(errors.some(e => e.scope === 'orchestrator:startRetry')).toBe(true)
+
+    await orch.destroy()
+    agg.destroy()
+  })
+
+  test('并发请求互斥：两条消息并发进入 ensureAdapter 时共享同一个启动任务，不重复拉起', async () => {
+    const bus = createEventBus()
+    let factoryCalls = 0
+    const fake = createFakeAdapter()
+    const origStart = fake.adapter.start
+    const startGate = Promise.withResolvers<void>()
+    fake.adapter.start = async opts => {
+      await startGate.promise
+      await origStart(opts)
+    }
+    const agg = createMessageAggregator(bus)
+    const { repos } = createFakeRepos()
+    const orch = createSessionOrchestrator({
+      bus,
+      repos,
+      aggregator: agg,
+      adapterFactory: () => {
+        factoryCalls++
+        return fake.adapter
+      },
+    })
+
+    const p1 = orch.handler.onMessage('msg1', CID)
+    const p2 = orch.handler.onMessage('msg2', CID)
+    startGate.resolve()
+    await Promise.all([p1, p2])
+
+    expect(factoryCalls).toBe(1)
+    expect(fake.calls.start.length).toBe(1)
+    expect(fake.calls.sendUserInput).toHaveLength(2)
+    expect(fake.calls.sendUserInput).toContain('msg1')
+    expect(fake.calls.sendUserInput).toContain('msg2')
+    await orch.destroy()
+    agg.destroy()
+  })
 })

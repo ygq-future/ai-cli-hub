@@ -24,7 +24,7 @@ import {
   type UserLanguage,
 } from './shared'
 import type { EventBus } from './event'
-import type { Repositories } from './repository'
+import type { Conversation, Repositories } from './repository'
 import type { MessageAggregator, MessageHandler } from './core'
 import {
   createClaudeSdkAdapter,
@@ -72,6 +72,8 @@ export interface SessionOrchestratorDeps {
   recentContextMessageMaxChars?: number
   readOnlyCommandPatterns?: string[]
   allowedExternalDirectories?: string[]
+  /** adapter 启动超时时间；默认 60_000 毫秒。 */
+  startTimeoutMs?: number
 }
 
 interface AdapterEntry {
@@ -93,6 +95,7 @@ interface EnsureAdapterResult {
 const DEFAULT_RECENT_CONTEXT_LIMIT = 10
 const DEFAULT_RECENT_CONTEXT_MESSAGE_MAX_CHARS = 1200
 const DEFAULT_TURN_TIMEOUT_MS = 60_000
+const DEFAULT_START_TIMEOUT_MS = 60_000
 const LOW_SIGNAL_MEMORY_QUERIES = new Set([
   'hello',
   'hi',
@@ -118,6 +121,17 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   const recentContextLimit = deps.recentContextLimit ?? DEFAULT_RECENT_CONTEXT_LIMIT
   const recentContextMessageMaxChars = deps.recentContextMessageMaxChars ?? DEFAULT_RECENT_CONTEXT_MESSAGE_MAX_CHARS
   const debugMessageFlow = deps.debugMessageFlow ?? false
+  const startTimeoutMs = deps.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS
+  const startingTasks = new Map<
+    ConversationId,
+    {
+      promise: Promise<AdapterEntry | null>
+      cancel: () => Promise<void>
+      getUserId: () => string
+      getPlatform: () => Platform | undefined
+    }
+  >()
+  const lastStartErrors = new Map<ConversationId, Error>()
 
   const entries = new Map<ConversationId, AdapterEntry>()
   const globalUnsubs: Unsubscribe[] = []
@@ -157,6 +171,11 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   }
 
   async function stopEntry(cid: ConversationId) {
+    const task = startingTasks.get(cid)
+    if (task) {
+      startingTasks.delete(cid)
+      await task.cancel().catch(() => {})
+    }
     const entry = detachEntry(cid)
     if (!entry) return
     try {
@@ -175,10 +194,14 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   }
 
   async function stopEntriesForUser(userId: string, platform?: Platform) {
-    const cids = Array.from(entries.entries())
+    const startingCids = Array.from(startingTasks.entries())
+      .filter(([, task]) => task.getUserId() === userId && (!platform || task.getPlatform() === platform))
+      .map(([cid]) => cid)
+    const activeCids = Array.from(entries.entries())
       .filter(([, entry]) => entry.userId === userId && (!platform || entry.platform === platform))
       .map(([cid]) => cid)
-    await Promise.all(cids.map(cid => stopEntry(cid)))
+    const allCids = Array.from(new Set([...startingCids, ...activeCids]))
+    await Promise.all(allCids.map(cid => stopEntry(cid)))
   }
 
   function clearIdleTimer(entry: AdapterEntry) {
@@ -286,22 +309,41 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     )
   }
 
-  /** 懒启动该会话的 adapter 并接线；已存在则复用。 */
-  async function ensureAdapter(cid: ConversationId): Promise<EnsureAdapterResult | null> {
-    const existing = entries.get(cid)
-    if (existing) return { entry: existing, started: false }
-
-    const conv = await repos.conversations.findById(cid)
-    if (!conv) {
-      reportError('orchestrator:ensureAdapter', new Error(`会话 ${cid} 不存在`), cid)
-      return null
+  async function withStartTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    if (timeoutMs <= 0) return promise
+    const { promise: timeoutPromise, reject } = Promise.withResolvers<T>()
+    const timer = setTimeout(() => {
+      reject(new Error(`CLI adapter 启动超时（超过 ${timeoutMs}ms）`))
+    }, timeoutMs)
+    try {
+      return await Promise.race([promise, timeoutPromise])
+    } finally {
+      clearTimeout(timer)
     }
+  }
 
+  interface StartedAdapterResult {
+    entry: AdapterEntry
+    diagMeta: {
+      cwd: string
+      systemHint: string
+      roleHint: string
+      languageHint: string
+      systemMemoryHint: string
+    }
+  }
+
+  async function startAdapterOnce(
+    cid: ConversationId,
+    conv: Conversation,
+    isCancelled: () => boolean,
+    onAdapterCreated?: (adapter: CLIAdapter) => void,
+  ): Promise<StartedAdapterResult> {
     const adapter = adapterFactory(conv.cli as CliType)
     if (adapter.cliType !== conv.cli) {
-      reportError('orchestrator:ensureAdapter', new Error(`adapter ${adapter.cliType} 不匹配会话 CLI ${conv.cli}`), cid)
-      return null
+      throw new Error(`adapter ${adapter.cliType} 不匹配会话 CLI ${conv.cli}`)
     }
+    onAdapterCreated?.(adapter)
     const entry: AdapterEntry = {
       adapter,
       unsubs: [],
@@ -311,7 +353,6 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       idleTimer: null,
       turnTimer: null,
     }
-    entries.set(cid, entry)
 
     // 输出流：格式化 → 聚合器；累计助手文本；final 冲刷 + 落库
     entry.unsubs.push(
@@ -343,7 +384,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
             text,
             textChars: text.length,
             assistantBufferChars: entry.assistantBuf.length,
-            adapterState: entry.adapter.getState(),
+            adapterState: entry.adapter.getState?.() ?? 'ready',
           })
         }
         if (delta.final) {
@@ -389,32 +430,149 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
       const roleHint = roleDescriptionHint(deps.agentDescription)
       const langHint = languageHint(await getUserLanguage(conv.platform, conv.userId))
       const systemHint = [roleHint, langHint, systemMemoryHint].filter(Boolean).join('\n\n')
-      await adapter.start({
-        conversationId: cid,
-        cwd: conv.cwd,
-        systemLanguageHint: systemHint,
-        modelId: (await deps.getModel?.(conv.platform, conv.userId, conv.cli as CliType)) ?? undefined,
-        readOnlyCommandPatterns: deps.readOnlyCommandPatterns,
-        allowedExternalDirectories: deps.allowedExternalDirectories,
-      })
-      resetIdleTimer(cid, entry)
+      if (isCancelled()) throw new Error('启动已被取消')
+
+      await withStartTimeout(
+        adapter.start({
+          conversationId: cid,
+          cwd: conv.cwd,
+          systemLanguageHint: systemHint,
+          modelId: (await deps.getModel?.(conv.platform, conv.userId, conv.cli as CliType)) ?? undefined,
+          readOnlyCommandPatterns: deps.readOnlyCommandPatterns,
+          allowedExternalDirectories: deps.allowedExternalDirectories,
+        }),
+        startTimeoutMs,
+      )
+      if (isCancelled()) throw new Error('启动已被取消')
+      return {
+        entry,
+        diagMeta: {
+          cwd: conv.cwd,
+          systemHint,
+          roleHint,
+          languageHint: langHint,
+          systemMemoryHint,
+        },
+      }
+    } catch (err) {
+      for (const u of entry.unsubs) u()
+      entry.unsubs.length = 0
+      clearIdleTimer(entry)
+      clearTurnTimer(entry)
+      await adapter.stop().catch(() => {})
+      throw err
+    }
+  }
+
+  function createStartFailureError(conversationId: ConversationId): Error {
+    const cause = lastStartErrors.get(conversationId)
+    if (cause?.message) {
+      return new Error(`会话 ${conversationId} 的 CLI adapter 启动失败：${cause.message}`)
+    }
+    return new Error(`会话 ${conversationId} 的 CLI adapter 启动失败`)
+  }
+
+  /** 懒启动该会话的 adapter 并接线；已存在则复用；带超时、单次重试与并发互斥。 */
+  async function ensureAdapter(cid: ConversationId): Promise<EnsureAdapterResult | null> {
+    const existing = entries.get(cid)
+    if (existing) return { entry: existing, started: false }
+
+    const inflight = startingTasks.get(cid)
+    if (inflight) {
+      const entry = await inflight.promise
+      return entry ? { entry, started: false } : null
+    }
+
+    let cancelled = false
+    let currentAdapter: CLIAdapter | null = null
+    let taskUserId = ''
+    let taskPlatform: Platform | undefined
+
+    const startPromise = (async (): Promise<StartedAdapterResult | null> => {
+      const conv = await repos.conversations.findById(cid)
+      if (!conv) {
+        const err = new Error(`会话 ${cid} 不存在`)
+        lastStartErrors.set(cid, err)
+        reportError('orchestrator:ensureAdapter', err, cid)
+        return null
+      }
+      taskUserId = conv.userId
+      taskPlatform = conv.platform
+      if (cancelled) return null
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const started = await startAdapterOnce(
+            cid,
+            conv,
+            () => cancelled,
+            created => {
+              currentAdapter = created
+            },
+          )
+          if (cancelled) {
+            for (const u of started.entry.unsubs) u()
+            started.entry.unsubs.length = 0
+            await started.entry.adapter.stop().catch(() => {})
+            return null
+          }
+          return started
+        } catch (attemptErr) {
+          if (cancelled) return null
+          if (attempt === 1) {
+            reportError('orchestrator:startRetry', attemptErr, cid)
+            diag('adapterStartRetry', {
+              conversationId: cid,
+              error: attemptErr instanceof Error ? attemptErr.message : String(attemptErr),
+            })
+          } else {
+            const err = attemptErr instanceof Error ? attemptErr : new Error(String(attemptErr))
+            lastStartErrors.set(cid, err)
+            reportError('orchestrator:start', err, cid)
+            return null
+          }
+        }
+      }
+      return null
+    })()
+
+    const entryPromise = startPromise.then(started => started?.entry ?? null)
+    const task = {
+      promise: entryPromise,
+      cancel: async () => {
+        cancelled = true
+        if (currentAdapter) {
+          await currentAdapter.stop().catch(() => {})
+        }
+      },
+      getUserId: () => taskUserId,
+      getPlatform: () => taskPlatform,
+    }
+    startingTasks.set(cid, task)
+
+    try {
+      const started = await startPromise
+      if (!started) return null
+      lastStartErrors.delete(cid)
+      entries.set(cid, started.entry)
+      resetIdleTimer(cid, started.entry)
       diag('adapterStarted', {
         conversationId: cid,
-        userId: conv.userId,
-        cwd: conv.cwd,
-        systemHint,
-        systemHintChars: systemHint.length,
-        roleHint,
-        languageHint: langHint,
-        systemMemoryHint,
-        memoryHintChars: systemMemoryHint.length,
+        userId: started.entry.userId,
+        cwd: started.diagMeta.cwd,
+        systemHint: started.diagMeta.systemHint,
+        systemHintChars: started.diagMeta.systemHint.length,
+        roleHint: started.diagMeta.roleHint,
+        languageHint: started.diagMeta.languageHint,
+        systemMemoryHint: started.diagMeta.systemMemoryHint,
+        memoryHintChars: started.diagMeta.systemMemoryHint.length,
       })
-    } catch (err) {
-      reportError('orchestrator:start', err, cid)
-      cleanupEntry(cid)
-      return null
+      return { entry: started.entry, started: true }
+    } finally {
+      if (startingTasks.get(cid) === task) {
+        startingTasks.delete(cid)
+      }
     }
-    return { entry, started: true }
   }
 
   async function resolveSystemMemoryHint(cid: ConversationId): Promise<string> {
@@ -644,7 +802,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
   const handler: MessageHandler = {
     async onMessage(text, conversationId) {
       const result = await ensureAdapter(conversationId)
-      if (!result) throw new Error(`会话 ${conversationId} 的 CLI adapter 启动失败`)
+      if (!result) throw createStartFailureError(conversationId)
       resetIdleTimer(conversationId, result.entry)
       const adapter = result.entry.adapter
       if (supportsContextInjection(adapter)) {
@@ -670,7 +828,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
           inputChars: text.length,
           recentContextIncluded: Boolean(recentContext.trim()),
           relevantMemoryIncluded: Boolean(relevantMemoryHint.trim()),
-          adapterState: adapter.getState(),
+          adapterState: adapter.getState?.() ?? 'ready',
         })
         dispatchUserInput(conversationId, result.entry, text)
         return ''
@@ -688,7 +846,7 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
         inputChars: input.length,
         recentContextIncluded: baseInput !== text,
         relevantMemoryIncluded: input !== baseInput,
-        adapterState: result.entry.adapter.getState(),
+        adapterState: result.entry.adapter.getState?.() ?? 'ready',
       })
       dispatchUserInput(conversationId, result.entry, input)
       return '' // 输出经聚合器异步流出，不经 handler 返回值
@@ -699,13 +857,13 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     handler,
     async listModels(conversationId) {
       const result = await ensureAdapter(conversationId)
-      if (!result) throw new Error(`会话 ${conversationId} 的 CLI adapter 启动失败`)
+      if (!result) throw createStartFailureError(conversationId)
       resetIdleTimer(conversationId, result.entry)
       return result.entry.adapter.listModels()
     },
     async setModel(conversationId, modelId) {
       const result = await ensureAdapter(conversationId)
-      if (!result) throw new Error(`会话 ${conversationId} 的 CLI adapter 启动失败`)
+      if (!result) throw createStartFailureError(conversationId)
       resetIdleTimer(conversationId, result.entry)
       return result.entry.adapter.setModel(modelId)
     },
@@ -722,8 +880,8 @@ export function createSessionOrchestrator(deps: SessionOrchestratorDeps): Sessio
     async destroy() {
       for (const u of globalUnsubs) u()
       globalUnsubs.length = 0
-      const cids = Array.from(entries.keys())
-      await Promise.all(cids.map(cid => stopEntry(cid)))
+      const allCids = Array.from(new Set([...startingTasks.keys(), ...entries.keys()]))
+      await Promise.all(allCids.map(cid => stopEntry(cid)))
     },
   }
 }

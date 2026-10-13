@@ -375,6 +375,7 @@ stateDiagram-v2
     [*] --> Idle: SessionCreated
     Idle --> Starting: MessageReceived（无 Runtime）
     Starting --> Running: Adapter start 成功
+    Starting --> Idle: Adapter start 失败/超时（START_FAILED 回滚）
     Running --> Idle: CLI/adapter 空闲超时（仅关闭已启动运行时，会话留存）
     Idle --> Closing: /close 或 归档超时
     Running --> Closing: /close

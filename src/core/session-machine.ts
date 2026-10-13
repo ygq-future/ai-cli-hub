@@ -10,6 +10,7 @@ import type { SessionStatus } from '../shared'
 export type SessionEvent =
   | 'SESSION_CREATED' // 会话记录写入 DB 后
   | 'START'
+  | 'START_FAILED' // CLI/Adapter 启动失败或超时，回退到 idle
   | 'ADAPTER_READY' // Runtime/SDK Adapter 就绪（对应架构图中 PTYStarted）
   | 'IDLE_TIMEOUT' // 进程空闲超时回收
   | 'CLOSE' // 用户主动 /close
@@ -20,6 +21,7 @@ export type SessionEvent =
 const TRANSITIONS: Record<string, SessionStatus> = {
   'idle->SESSION_CREATED': 'idle',
   'idle->START': 'starting',
+  'starting->START_FAILED': 'idle',
   'starting->ADAPTER_READY': 'running',
   'running->IDLE_TIMEOUT': 'idle',
   'running->CLOSE': 'closing',

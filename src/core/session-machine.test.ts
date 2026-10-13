@@ -8,6 +8,7 @@ describe('SessionMachine', () => {
   const validCases: [SessionStatus, SessionEvent, SessionStatus][] = [
     ['idle', 'SESSION_CREATED', 'idle'],
     ['idle', 'START', 'starting'],
+    ['starting', 'START_FAILED', 'idle'],
     ['starting', 'ADAPTER_READY', 'running'],
     ['running', 'IDLE_TIMEOUT', 'idle'],
     ['running', 'CLOSE', 'closing'],
@@ -22,6 +23,7 @@ describe('SessionMachine', () => {
 
   // ---- 非法迁移 ----
   const invalidCases: [SessionStatus, SessionEvent][] = [
+    ['idle', 'START_FAILED'],
     ['idle', 'ADAPTER_READY'],
     ['idle', 'IDLE_TIMEOUT'],
     ['idle', 'ARCHIVE_DONE'],
@@ -34,6 +36,7 @@ describe('SessionMachine', () => {
     ['running', 'SESSION_CREATED'],
     ['running', 'START'],
     ['running', 'ADAPTER_READY'],
+    ['running', 'START_FAILED'],
     ['running', 'ARCHIVE_TIMEOUT'],
     ['running', 'ARCHIVE_DONE'],
     ['closing', 'SESSION_CREATED'],
@@ -42,6 +45,7 @@ describe('SessionMachine', () => {
     ['closing', 'IDLE_TIMEOUT'],
     ['closing', 'CLOSE'],
     ['closing', 'ARCHIVE_TIMEOUT'],
+    ['closing', 'START_FAILED'],
   ]
 
   test.each(invalidCases)('非法迁移抛错: %s -> %s', (current, event) => {
@@ -52,6 +56,7 @@ describe('SessionMachine', () => {
   const terminalEvents: SessionEvent[] = [
     'SESSION_CREATED',
     'START',
+    'START_FAILED',
     'ADAPTER_READY',
     'IDLE_TIMEOUT',
     'CLOSE',
@@ -74,7 +79,7 @@ describe('SessionMachine', () => {
 
   test('getValidTransitionKeys 返回正确的数量', () => {
     const keys = getValidTransitionKeys()
-    expect(keys.length).toBe(8)
+    expect(keys.length).toBe(9)
     expect(keys).toContain('idle->START')
     expect(keys).toContain('running->IDLE_TIMEOUT')
     expect(keys).toContain('closing->ARCHIVE_DONE')

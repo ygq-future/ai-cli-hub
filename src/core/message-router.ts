@@ -180,6 +180,39 @@ export function createMessageRouter(
         message: err instanceof Error ? err.message : String(err),
         ...(conversationId ? { conversationId } : {}),
       })
+      let wasStarting = false
+      if (conversationId) {
+        try {
+          const currentStatus = await sessionManager.getStatus(conversationId)
+          if (currentStatus === 'starting') {
+            wasStarting = true
+            await sessionManager.transition(conversationId, 'START_FAILED')
+          }
+        } catch (rollbackErr) {
+          bus.emit('ErrorOccurred', {
+            scope: 'router:startFailedRollback',
+            message: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+            conversationId,
+          })
+        }
+      }
+      if (wasStarting) {
+        try {
+          const lang = await getUserLanguage(platform, userId)
+          const errDetail = err instanceof Error ? err.message : String(err)
+          const content =
+            lang === 'en'
+              ? `## ⚠️ CLI failed to start\n\n${errDetail}\n\nThe session has been reset to idle. You can send your message again to retry.`
+              : `## ⚠️ CLI 启动失败\n\n${errDetail}\n\n会话已自动重置为空闲状态，您可以直接重新发送消息重试。`
+          bus.emit('CommandReply', { ref: payload.ref, content })
+        } catch (notifyErr) {
+          bus.emit('ErrorOccurred', {
+            scope: 'router:startFailedNotify',
+            message: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+            ...(conversationId ? { conversationId } : {}),
+          })
+        }
+      }
     }
   })
   unsubs.push(unsub)

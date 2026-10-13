@@ -43,6 +43,7 @@ function validJson() {
     lifecycle: {
       agentIdleTimeoutMs: 300_000,
       agentTurnTimeoutMs: 60_000,
+      cliStartTimeoutMs: 60_000,
       serviceShutdownTimeoutMs: 15_000,
       sessionArchiveDays: 7,
     },
@@ -120,6 +121,7 @@ describe('loadConfig', () => {
     expect(c.MEMORY_SUMMARY_MAX_CHARS).toBe(600)
     expect(c.AGENT_IDLE_TIMEOUT_MS).toBe(300_000)
     expect(c.AGENT_TURN_TIMEOUT_MS).toBe(60_000)
+    expect(c.CLI_START_TIMEOUT_MS).toBe(60_000)
     expect(c.SERVICE_SHUTDOWN_TIMEOUT_MS).toBe(15_000)
     expect(c.SESSION_ARCHIVE_DAYS).toBe(7)
     expect(c.AGENT_DESCRIPTION).toBe('')
@@ -168,6 +170,7 @@ describe('loadConfig', () => {
         ...validJson().lifecycle,
         agentIdleTimeoutMs: 60000,
         agentTurnTimeoutMs: 45000,
+        cliStartTimeoutMs: 30000,
         serviceShutdownTimeoutMs: 12000,
       },
       session: { ...validJson().session, recentContextLimit: 8, recentContextMessageMaxChars: 900 },
@@ -185,6 +188,7 @@ describe('loadConfig', () => {
     expect(c.MEMORY_SUMMARY_MAX_CHARS).toBe(800)
     expect(c.AGENT_IDLE_TIMEOUT_MS).toBe(60000)
     expect(c.AGENT_TURN_TIMEOUT_MS).toBe(45000)
+    expect(c.CLI_START_TIMEOUT_MS).toBe(30000)
     expect(c.SERVICE_SHUTDOWN_TIMEOUT_MS).toBe(12000)
     expect(c.RECENT_CONTEXT_LIMIT).toBe(8)
     expect(c.RECENT_CONTEXT_MESSAGE_MAX_CHARS).toBe(900)

@@ -56,6 +56,7 @@ const MemoryJsonSchema = z.object({
 const LifecycleJsonSchema = z.object({
   agentIdleTimeoutMs: z.number().int().positive().default(300_000),
   agentTurnTimeoutMs: z.number().int().positive().default(60_000),
+  cliStartTimeoutMs: z.number().int().positive().default(60_000),
   serviceShutdownTimeoutMs: z.number().int().positive().default(15_000),
   sessionArchiveDays: z.number().int().positive().default(7),
 })
@@ -175,6 +176,7 @@ export type AppConfig = {
   // lifecycle
   AGENT_IDLE_TIMEOUT_MS: number
   AGENT_TURN_TIMEOUT_MS: number
+  CLI_START_TIMEOUT_MS: number
   SERVICE_SHUTDOWN_TIMEOUT_MS: number
   SESSION_ARCHIVE_DAYS: number
   // session
@@ -288,6 +290,7 @@ function flattenSettings(json: SettingsJson): AppConfig {
 
     AGENT_IDLE_TIMEOUT_MS: lifecycle.agentIdleTimeoutMs,
     AGENT_TURN_TIMEOUT_MS: lifecycle.agentTurnTimeoutMs,
+    CLI_START_TIMEOUT_MS: lifecycle.cliStartTimeoutMs,
     SERVICE_SHUTDOWN_TIMEOUT_MS: lifecycle.serviceShutdownTimeoutMs,
     SESSION_ARCHIVE_DAYS: lifecycle.sessionArchiveDays,
 
